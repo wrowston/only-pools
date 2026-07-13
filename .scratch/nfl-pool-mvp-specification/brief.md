@@ -237,7 +237,7 @@ Confidence settings may include:
 * Straight-up picks.
 * Optional spread-based picks later.
 * Require all games picked.
-* Hide other users’ picks until lock.
+* Hide every other participant's choice until that choice locks; do not add an MVP visibility toggle.
 * Drop lowest week later.
 * Monday night tiebreaker later.
 
@@ -254,14 +254,17 @@ Support two lock modes:
    * Each pick locks when that specific game starts.
    * Recommended default.
 
-2. **First game of week lock**
+2. **Weekly cutoff lock**
 
-   * All picks lock when the first game of the week starts.
-   * Useful for stricter pools.
+   * Earlier-game choices lock at their own kickoff.
+   * Every remaining choice locks Sunday at 1:00 p.m. Eastern.
+   * Applies consistently to Survivor and Confidence Pools.
 
 Locking must be enforced server-side in Convex mutations.
 
 Do not rely only on frontend disabled states.
+
+The pick interface should autosave each participant gesture without an explicit Save button. Confidence-value reorders must remain valid unique permutations in the client and be independently validated by the server.
 
 When a user submits or edits picks, the server must verify:
 
@@ -330,7 +333,7 @@ Rules:
 * Correct picks earn the assigned confidence points.
 * Incorrect picks earn 0.
 * Picks lock by game kickoff by default.
-* Other users’ picks should be hidden until lock if that setting is enabled.
+* Other participants' choices remain hidden until each choice locks; there is no MVP visibility setting.
 
 The app should track:
 

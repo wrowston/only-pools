@@ -23,6 +23,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Settle membership, roles, and invitations](./issues/02-settle-membership-roles-invitations.md) — Membership closes at the Start Week's first kickoff, authority is Owner-led and auditable, exactly-one-Owner continuity is enforced, and departure or removal never rewrites accepted competitive history.
 - [Settle survivor rules and participant state](./issues/03-settle-survivor-rules-participant-state.md) — Survivor is fixed single-elimination: one-use-per-participant, win-only advancement, Thursday eligibility, chronological provisional-pick resolution, and deterministic sole or joint winners without strikes or revivals.
 - [Settle confidence rules and scoring semantics](./issues/04-settle-confidence-rules-scoring.md) — Confidence uses a season-ceiling high-to-low default ranking, automatic home-team picks for untouched weeks, per-pick scoring, a final-game weekly tiebreaker, cumulative season points, and sole or joint winners.
+- [Define pick submission, locking, and visibility](./issues/05-define-pick-submission-locking-visibility.md) — Autosaved, server-authoritative per-game or Sunday-cutoff locks keep unlocked choices private, reveal locked provenance, auto-fill only untouched Confidence Pick Sets, and enforce confidence-value uniqueness in both client and server.
 
 ## Not yet specified
 
