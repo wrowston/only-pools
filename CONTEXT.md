@@ -41,7 +41,7 @@ A Pool in which each participant predicts the winners of a week's required games
 _Avoid_: Pick'em, confidence league
 
 **Pool Owner**:
-The single participant who holds a Pool's ultimate authority, including ownership transfer, role administration, archival, restoration, and pre-freeze Pool Ruleset changes; they remain Owner until a current Pool Admin explicitly accepts an offered transfer, at which point the former Owner becomes a Pool Admin.
+The single participant who holds a Pool's ultimate authority, including ownership transfer, role administration, archival, restoration, and pre-freeze Pool Ruleset changes; they remain Owner until a current Pool Admin explicitly accepts an offered transfer, at which point the former Owner becomes a Pool Admin. An Owner cannot normally delete their identity while they own a Pool; unexpected identity deletion suspends every administrative action without pausing competition until Ownership Recovery assigns an eligible successor.
 _Avoid_: Creator, commissioner
 
 **Pool Admin**:
@@ -53,15 +53,31 @@ A participant who belongs to a Pool without ownership or delegated administratio
 _Avoid_: User, player
 
 **Participant**:
-Any person competing in a Pool, regardless of whether they are also its Pool Owner or a Pool Admin.
+Any person age 18 or older who has confirmed that eligibility and competes in a Pool, regardless of whether they are also its Pool Owner or a Pool Admin.
 _Avoid_: User, player
 
+**Participant Profile**:
+The Pool-facing identity of a Participant: their display name and avatar are visible to every current participant in the Pool, while their verified phone number and verified email address are additionally visible only to the Pool Owner and Pool Admins for Pool administration, including while the Pool is Completed or Archived. Both contact fields must be verified at signup and every new sign-in; losing verification during an already-valid session does not interrupt Pool access, but the next sign-in requires both again.
+_Avoid_: User profile, contact card
+
+**Step-up Verification**:
+Recent reauthentication with a second verified factor required before a Participant may transfer ownership, change roles, archive or restore a Pool, retrieve or rotate its Pool Invite credential, or delete their identity; it does not interrupt ordinary Pool viewing or picking.
+_Avoid_: Login, confirmation prompt
+
+**Former Participant**:
+An anonymized identity placeholder for a participant whose authentication identity has been deleted; it preserves accepted picks, results, standings, and audit attribution while retaining no phone number, email address, profile data, or access rights. A later signup creates a distinct Participant and does not reclaim the former identity.
+_Avoid_: Deleted user, anonymous user
+
+**Suspended Participant**:
+A Participant whose service access support has revoked after human review of abuse or security concerns; suspension ends sessions and blocks sign-in, invite acceptance, and every Pool action without deleting memberships, roles, picks, standings, or audit history. Suspending a sole Pool Owner begins Ownership Recovery. The participant receives a private notice stating the enforcement category, effective time, review status or duration, and appeal path, while reporter identity, report text, internal evidence, and security signals remain confidential.
+_Avoid_: Banned user, deleted user
+
 **Pool Membership**:
-A person's participation relationship with one Pool; the participant may leave voluntarily only until every required Start Week game has a Verified Result and that Pool Week has been successfully scored. Administrative removal ends access and future picking but preserves accepted picks, results, and standings under a visible Removed status. Voluntary departure may be reactivated through a valid Pool Invite, while removal requires explicit, audited reinstatement by the Pool Owner; neither path restores expired opportunities or former administrative authority.
+A person's participation relationship with one Pool; the participant may leave voluntarily only until every required Start Week game has a Verified Result and that Pool Week has been successfully scored. Voluntary departure or administrative removal revokes Pool access and Pool-administrator visibility of that person's contact fields immediately, while preserving their display name, accepted picks, results, status, and standings for current participants as competitive history. Removal also ends future picking and records a visible Removed status. Voluntary departure may be reactivated through a valid Pool Invite, while removal requires explicit, audited reinstatement by the Pool Owner; either reactivation restores normal access to Pool history but not expired opportunities or former administrative authority.
 _Avoid_: Enrollment, subscription
 
 **Pool Invite**:
-A reusable, shareable, revocable invitation that permits an authenticated person to explicitly join one Active Pool as a Pool Member; it expires after 30 days by default, can be renewed, and cannot be accepted at or after the scheduled kickoff of the earliest Start Week game or while the Pool is Completed or Archived. A later reschedule never reopens admission after that cutoff has passed.
+A reusable, shareable, revocable bearer invitation that permits an authenticated person with both a verified email address and verified phone number to explicitly join one Active Pool as a Pool Member; it is not addressed or bound to either contact field. Before acceptance, the person must acknowledge that the Pool Owner and Pool Admins can view both contact fields while the Pool is Active, Completed, or Archived, with no per-Pool opt-out. A Pool has at most one active ordinary Pool Invite, and rotating it invalidates its predecessor immediately. It expires after 30 days by default, can be renewed, and cannot be accepted at or after the scheduled kickoff of the earliest Start Week game or while the Pool is Completed or Archived. A later reschedule never reopens admission after that cutoff has passed.
 _Avoid_: Join link, invitation code
 
 **Returning Participant Invite**:
@@ -69,8 +85,16 @@ A person-specific, single-use Pool Invite created from a Pool Template for a pri
 _Avoid_: Copied membership, renewed membership
 
 **Pool Audit Event**:
-An immutable account of a Pool authority or membership change, identifying when it occurred, who acted, who was affected, the action, and the prior and resulting state without retaining a raw Pool Invite credential.
+An immutable account of a Pool-facing administrative action, identifying when it occurred, who acted, who was affected, the action, and the prior and resulting state without retaining a raw Pool Invite credential or contact field. Every current participant may view sanitized events for role and membership changes, invite rotation, archival and restoration, and recalculation requests. Sanitized events remain for the Pool's lifetime, including while Archived; sensitive security details and production-operator access records remain visible only to the Pool Owner and support and are retained for one year.
 _Avoid_: Activity log, history entry
+
+**Ownership Recovery**:
+An exceptional, support-verified and fully audited ownership transfer after a sole Pool Owner's authentication identity disappears unexpectedly; it never promotes a participant automatically, and the Pool's competitive lifecycle continues while administrative authority remains locked. Support transfers ownership to a verified current Pool Admin when one exists, or may select any current Pool Member after verifying that person's required email and phone when none exists.
+_Avoid_: Auto-promotion, owner reset
+
+**Abuse Report**:
+A participant's private request for support review of a Pool or another participant, containing a reason, an optional description, and references to relevant identities, Pools, and audit events without copying Hidden Picks or raw Pool Invite credentials. It does not itself impose a penalty or replace Pool role controls for ordinary removal.
+_Avoid_: Flag, block, moderation case
 
 ## Picks and results
 
@@ -179,7 +203,7 @@ A Pick Lock mode in which earlier games lock individually under the Game Kickoff
 _Avoid_: First-game-of-week lock, Sunday lock
 
 **Hidden Pick**:
-An accepted Survivor Pick or Confidence prediction that remains visible to its author but not to other participants, the Pool Owner, or Pool Admins until its Pick Lock; administrators may see submission-completion status without seeing the choice.
+An accepted Survivor Pick or Confidence prediction that remains visible through normal Pool access only to its author until its Pick Lock; other participants, the Pool Owner, and Pool Admins cannot reveal it, while administrators may see submission-completion status without seeing the choice. Hidden Picks are excluded from logs and analytics; an authorized production operator may access one only through an audited incident-response process.
 _Avoid_: Private pick, secret pick
 
 **Weekly Standing**:

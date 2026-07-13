@@ -25,6 +25,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Settle confidence rules and scoring semantics](./issues/04-settle-confidence-rules-scoring.md) — Confidence uses a season-ceiling high-to-low default ranking, automatic home-team picks for untouched weeks, per-pick scoring, a final-game weekly tiebreaker, cumulative season points, and sole or joint winners.
 - [Define pick submission, locking, and visibility](./issues/05-define-pick-submission-locking-visibility.md) — Autosaved, server-authoritative per-game or Sunday-cutoff locks keep unlocked choices private, reveal locked provenance, auto-fill only untouched Confidence Pick Sets, and enforce confidence-value uniqueness in both client and server.
 - [Define disrupted and corrected game policy](./issues/07-define-disrupted-corrected-game-policy.md) — Only verified closed results settle Pools; frozen games survive disruption without reopened locks, cancellations use explicit Survivor and Confidence outcomes, and authoritative corrections replay downstream results with visible projections and audit.
+- [Define the security, privacy, and abuse boundary](./issues/12-define-security-privacy-abuse-boundary.md) — Verified adult identities, deny-by-default authorization, protected invites and Hidden Picks, transparent audits, bounded contact exposure, tiered abuse controls, and history-preserving recovery define the free private service's trust boundary.
 
 ## Not yet specified
 

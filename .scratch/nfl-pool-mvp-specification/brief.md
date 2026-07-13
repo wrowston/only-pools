@@ -97,7 +97,7 @@ Clerk should handle:
 * User sign in.
 * Session management.
 * User identity.
-* Email/profile data.
+* Verified phone-number and email identity and profile data; both are required.
 
 Convex should store an internal user record linked to the Clerk user ID.
 
