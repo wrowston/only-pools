@@ -25,11 +25,11 @@ A Pool that has been created and whose final included week has not been resolved
 _Avoid_: Live Pool, open Pool
 
 **Completed Pool**:
-A Pool whose rules have reached a terminal outcome and whose required results have been verified and scored; competition is closed while historical viewing and authorized result repair remain available, but corrected results can return it to Active.
+A Pool whose rules have reached a terminal outcome and whose required results have been verified and scored; competition is closed while historical viewing, ownership transfer, administrative role changes among existing participants, and authorized result repair remain available, but corrected results can return it to Active.
 _Avoid_: Finished Pool, ended Pool
 
 **Archived Pool**:
-A Pool placed in a reversible, read-only administrative status that preserves its history and does not pause its underlying Active or Completed lifecycle while moving it from participants' normal views into their archived history.
+A Pool placed in a reversible, read-only administrative status that preserves its history and does not pause its underlying Active or Completed lifecycle while moving it from participants' normal views into their archived history; ownership transfer remains available, but other role changes require restoration.
 _Avoid_: Deleted Pool, closed Pool
 
 **Survivor Pool**:
@@ -41,11 +41,11 @@ A Pool in which each participant predicts the winners of a week's required games
 _Avoid_: Pick'em, confidence league
 
 **Pool Owner**:
-The participant who created a Pool and holds its ultimate ownership authority.
+The single participant who holds a Pool's ultimate authority, including ownership transfer, role administration, archival, restoration, and pre-freeze Pool Ruleset changes; they remain Owner until a current Pool Admin explicitly accepts an offered transfer, at which point the former Owner becomes a Pool Admin.
 _Avoid_: Creator, commissioner
 
 **Pool Admin**:
-A participant delegated some Pool-management authority by the Pool Owner.
+A participant delegated limited Pool-management authority by the Pool Owner; a Pool Admin may manage ordinary Pool Invites, remove Pool Members, and request recalculation, but cannot alter administrative roles or act on the Pool Owner or another Pool Admin.
 _Avoid_: Moderator
 
 **Pool Member**:
@@ -56,13 +56,21 @@ _Avoid_: User, player
 Any person competing in a Pool, regardless of whether they are also its Pool Owner or a Pool Admin.
 _Avoid_: User, player
 
+**Pool Membership**:
+A person's participation relationship with one Pool; the participant may leave voluntarily only until every required Start Week game has a Verified Result and that Pool Week has been successfully scored. Administrative removal ends access and future picking but preserves accepted picks, results, and standings under a visible Removed status. Voluntary departure may be reactivated through a valid Pool Invite, while removal requires explicit, audited reinstatement by the Pool Owner; neither path restores expired opportunities or former administrative authority.
+_Avoid_: Enrollment, subscription
+
 **Pool Invite**:
-A revocable, expirable invitation that permits an authenticated person to become a participant in a specific Pool.
+A reusable, shareable, revocable invitation that permits an authenticated person to explicitly join one Active Pool as a Pool Member; it expires after 30 days by default, can be renewed, and cannot be accepted at or after the scheduled kickoff of the earliest Start Week game or while the Pool is Completed or Archived. A later reschedule never reopens admission after that cutoff has passed.
 _Avoid_: Join link, invitation code
 
 **Returning Participant Invite**:
-A Pool Invite created from a Pool Template for a prior participant, optionally proposing their former role without enrolling them automatically.
+A person-specific, single-use Pool Invite created from a Pool Template for a prior participant without enrolling them automatically; only the Pool Owner may use one to propose the Pool Admin role.
 _Avoid_: Copied membership, renewed membership
+
+**Pool Audit Event**:
+An immutable account of a Pool authority or membership change, identifying when it occurred, who acted, who was affected, the action, and the prior and resulting state without retaining a raw Pool Invite credential.
+_Avoid_: Activity log, history entry
 
 ## Picks and results
 
@@ -91,12 +99,24 @@ The period in which a participant may submit or change picks for one included Po
 _Avoid_: Picking period, submission window
 
 **Survivor Pick**:
-A participant's selected NFL team for one week of a Survivor Pool.
+A participant's selected NFL team for one week of a Survivor Pool. Survivor Pools use a one-use-per-participant rule: the participant cannot hold valid Survivor Picks selecting the same team in multiple Pool Weeks. Every scheduled team in the Pool Week is eligible, including teams playing Thursday or another early game.
 _Avoid_: Selection, choice
 
 **Provisional Survivor Pick**:
-A Survivor Pick for a future Pool Week that takes effect only if the participant remains eligible through every earlier week; elimination invalidates it without consuming its team.
+A Survivor Pick for a future Pool Week, or a later Pool Week played while an earlier Survivor outcome is Pending, that takes effect only if the participant advances through every earlier week. It reserves its selected team under the one-use-per-participant rule while valid; earlier elimination invalidates the pick without consuming the team.
 _Avoid_: Future pick, queued pick
+
+**Alive Participant**:
+A Survivor Pool participant who remains eligible to submit Survivor Picks; only a win by the selected team advances them, while a loss, tie, or missing required Survivor Pick eliminates them immediately.
+_Avoid_: Active player, surviving user
+
+**Eliminated Participant**:
+A Survivor Pool participant who is no longer eligible to submit Survivor Picks because their selected team lost or tied, or because they failed to make a required Survivor Pick; elimination is immediate and does not use strikes.
+_Avoid_: Struck-out player, dead player
+
+**Survivor Winner**:
+A terminal designation for the sole Alive Participant remaining after a settled Pool Week, which completes the Pool immediately. If one settled Pool Week eliminates every participant who entered it Alive, that entire entering-week cohort becomes joint Survivor Winners even though each participant's elimination reason remains in competitive history. If multiple participants remain Alive after the final included Pool Week, they become joint Survivor Winners.
+_Avoid_: Champion, last man standing
 
 **Confidence Pick Set**:
 A participant's collection of game-winner predictions and confidence values for one week of a Confidence Pool.
@@ -105,10 +125,6 @@ _Avoid_: Picks, ballot
 **Pick Lock**:
 The point after which a Survivor Pick or part or all of a Confidence Pick Set can no longer be submitted or changed.
 _Avoid_: Deadline, freeze
-
-**Strike**:
-A recorded survivor-rule failure that counts toward a participant's allowed failures before elimination.
-_Avoid_: Loss, life
 
 **Weekly Standing**:
 A participant's result and rank within one Pool week.
