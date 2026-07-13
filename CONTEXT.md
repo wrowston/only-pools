@@ -95,8 +95,16 @@ An earlier Pool Week that still has at least one result required to settle its P
 _Avoid_: Current week, delayed week
 
 **Verified Result**:
-An NFL game outcome confirmed by the authoritative data source and successfully applied to the Pool's competitive results.
+A closed NFL game outcome confirmed by the authoritative data source and successfully applied to the Pool's competitive results. A provisional final is not yet a Verified Result and cannot determine elimination, standings, or Pool completion; a later Corrected Result may supersede it.
 _Avoid_: Final score, provisional result
+
+**Corrected Result**:
+An authoritative replacement for a previously applied Verified Result. It supersedes the prior outcome and re-evaluates every affected Pool result in Pool Week order while preserving the prior result in audit history.
+_Avoid_: Commissioner override, manual score
+
+**Projected Result**:
+A clearly provisional competitive outcome derived from live or provisionally final NFL data for participant awareness. It may preview Confidence points or Survivor advancement but never changes official standings, eligibility, winner designations, or Pool completion.
+_Avoid_: Live result, unofficial result
 
 **Pick Window**:
 The period in which a participant may submit or change picks for one included Pool week, subject to that Pool's Pick Locks.
@@ -107,7 +115,7 @@ A participant's selected NFL team for one week of a Survivor Pool. Survivor Pool
 _Avoid_: Selection, choice
 
 **Provisional Survivor Pick**:
-A Survivor Pick for a future Pool Week, or a later Pool Week played while an earlier Survivor outcome is Pending, that takes effect only if the participant advances through every earlier week and locks under its own target week's rules. It reserves its selected team while valid; earlier elimination invalidates it without consuming the team or reopening a lock that already passed.
+A Survivor Pick for a future Pool Week, or a later Pool Week played while an earlier Survivor outcome is Pending, that takes effect only if the participant advances through every earlier week and locks under its own target week's rules. It reserves its selected team while valid; earlier elimination invalidates it without consuming the team or reopening a lock that already passed. A Corrected Result that restores eligibility also restores any such pick accepted before its own lock, then resolves later weeks in order.
 _Avoid_: Future pick, queued pick
 
 **Alive Participant**:
@@ -122,6 +130,10 @@ _Avoid_: Struck-out player, dead player
 A terminal designation for the sole Alive Participant remaining after a settled Pool Week, which completes the Pool immediately. If one settled Pool Week eliminates every participant who entered it Alive, that entire entering-week cohort becomes joint Survivor Winners even though each participant's elimination reason remains in competitive history. If multiple participants remain Alive after the final included Pool Week, they become joint Survivor Winners.
 _Avoid_: Champion, last man standing
 
+**No-Contest Advance**:
+The exceptional Survivor outcome for a locked Survivor Pick whose NFL game is canceled: the participant remains Alive without a win, while the selected team remains in used-team history. A cancellation known before the Pick Lock instead invalidates the pick and releases its team for replacement.
+_Avoid_: Push, bye, free win
+
 **Confidence Pick Set**:
 A participant's collection of game-winner predictions and confidence values for one week of a Confidence Pool, established from the server-published Pick Sheet and Default Confidence Ranking when its Pick Window opens. Every Required Confidence Game always has one unique value even while its prediction is blank; a locked blank in a participant-started set earns zero, while a completely untouched set becomes an Automatic Confidence Pick Set at the first lock.
 _Avoid_: Picks, ballot
@@ -131,7 +143,7 @@ A Confidence Pick Set for which the server has accepted at least one winner pred
 _Avoid_: Submitted picks, active ballot
 
 **Required Confidence Game**:
-Every NFL regular-season game in the synchronized slate for a Confidence Pool's Pool Week. All are included in every participant's Confidence Pick Set; Pool Owners cannot omit selected games.
+Every NFL regular-season game in the synchronized slate when a Confidence Pool Week's Pick Sheet freezes. All are included in every participant's Confidence Pick Set; a later cancellation leaves its frozen slot in place for a zero-point result, and Pool Owners cannot omit games.
 _Avoid_: Optional game, commissioner-selected game
 
 **Incomplete Confidence Pick Set**:
@@ -155,7 +167,7 @@ The confidence points a participant can still legally earn in an unresolved Pool
 _Avoid_: Projected points, expected points
 
 **Pick Lock**:
-The point after which a Survivor Pick or part or all of a Confidence Pick Set can no longer be submitted or changed.
+The irreversible authoritative point after which a Survivor Pick or part or all of a Confidence Pick Set can no longer be submitted or changed. A schedule change may move an unreached Pick Lock, but a postponement, suspension, or reschedule never reopens one already reached. An edit mistakenly accepted after the authoritative instant is retracted to the last valid pre-lock state during reconciliation rather than becoming a legal pick.
 _Avoid_: Deadline, freeze
 
 **Game Kickoff Lock**:
@@ -183,5 +195,5 @@ Each participant tied for the highest final Season Standing point total after ev
 _Avoid_: Champion, tiebreaker winner
 
 **Weekly Tiebreaker Prediction**:
-A Confidence Pool participant's whole-number prediction, from 0 through 200 inclusive, of the two teams' combined final points in the chronologically last scheduled Required Confidence Game of a Pool Week. It locks with that designated game's Game Kickoff Lock or at the Weekly Cutoff Lock; smaller absolute error ranks ahead, with the lower prediction winning equal-distance comparisons.
+A Confidence Pool participant's whole-number prediction, from 0 through 200 inclusive, of the two teams' combined final points in the chronologically last scheduled Required Confidence Game when the Pick Sheet freezes. Its designated matchup never changes afterward; it locks with that game's Game Kickoff Lock or at the Weekly Cutoff Lock. Smaller absolute error ranks ahead, with the lower prediction winning equal-distance comparisons; if the game yields no usable verified combined score, tied point totals share rank without this tiebreaker.
 _Avoid_: Monday-night score, final-game winner
