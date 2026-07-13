@@ -1,5 +1,5 @@
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01
 
 # Settle confidence rules and scoring semantics

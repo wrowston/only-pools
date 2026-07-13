@@ -78,6 +78,10 @@ _Avoid_: Activity log, history entry
 An NFL season week included in a Pool's competition.
 _Avoid_: Game week
 
+**Pick Sheet**:
+The ordered list of a Pool Week's Required Confidence Games presented identically to every participant and frozen when that week's Pick Window opens. Its order determines the Default Confidence Ranking, including the relative order of games with the same scheduled kickoff.
+_Avoid_: Slate order, personal game order
+
 **Start Week**:
 The first regular-season Pool Week included in a Pool; its first NFL game must not have kicked off when the Pool is created, and it becomes immutable when the Pool accepts its first pick.
 _Avoid_: Opening week, beginning week
@@ -119,17 +123,49 @@ A terminal designation for the sole Alive Participant remaining after a settled 
 _Avoid_: Champion, last man standing
 
 **Confidence Pick Set**:
-A participant's collection of game-winner predictions and confidence values for one week of a Confidence Pool.
+A participant's collection of game-winner predictions and confidence values for one week of a Confidence Pool. Every Required Confidence Game always has one unique value from the week's Confidence Scale even while its winner prediction is blank. The set begins with the Default Confidence Ranking, which the participant may reorder while the applicable Pick Locks permit. In a participant-started set, a game that locks without a prediction earns zero; a completely untouched set instead becomes an Automatic Confidence Pick Set when the week's first game locks.
 _Avoid_: Picks, ballot
+
+**Required Confidence Game**:
+Every NFL regular-season game in the synchronized slate for a Confidence Pool's Pool Week. All are included in every participant's Confidence Pick Set; Pool Owners cannot omit selected games.
+_Avoid_: Optional game, commissioner-selected game
+
+**Incomplete Confidence Pick Set**:
+A participant-started Confidence Pick Set missing a valid prediction for one or more required games when those games lock. Each missing prediction earns zero, while the participant's other valid locked predictions score normally and the participant remains included in the Weekly Standing.
+_Avoid_: Invalid ballot, disqualified week
+
+**Automatic Confidence Pick Set**:
+The fallback Confidence Pick Set created when the first Required Confidence Game locks and the participant has submitted no winner predictions for that Pool Week. It predicts every home team and retains the Default Confidence Ranking.
+_Avoid_: Missed week, default picks
+
+**Confidence Scale**:
+The season-wide confidence-value range ending at the maximum possible number of NFL games in one regular-season week. For a Pool Week with fewer required games, the lowest values are unavailable so every required game still receives one unique value; with a maximum of 16, a 14-game week uses 3 through 16.
+_Avoid_: Weekly confidence range, point scale
+
+**Default Confidence Ranking**:
+The initial assignment of a Pool Week's Confidence Scale values to every participant's Required Confidence Games, descending from the maximum value through the Pick Sheet's game order. A participant may reorder these values before their applicable Pick Locks.
+_Avoid_: Automatic picks, missed-pick ranking
+
+**Possible Remaining Points**:
+The confidence points a participant can still legally earn in an unresolved Pool Week. It includes values still achievable through valid submissions for unlocked Required Confidence Games and unresolved valid predictions, but excludes games that locked without a valid prediction and predictions already known to be incorrect.
+_Avoid_: Projected points, expected points
 
 **Pick Lock**:
 The point after which a Survivor Pick or part or all of a Confidence Pick Set can no longer be submitted or changed.
 _Avoid_: Deadline, freeze
 
 **Weekly Standing**:
-A participant's result and rank within one Pool week.
+A participant's result and rank within one Pool week. Confidence Pool participants rank first by weekly points, then by Weekly Tiebreaker Prediction accuracy; among otherwise tied participants, any valid tiebreaker prediction ranks ahead of an omitted prediction, and equal or jointly omitted predictions share a competition rank such as 1, 2, 2, 4.
 _Avoid_: Weekly score
 
 **Season Standing**:
-A participant's cumulative result and rank within one Pool season.
+A participant's cumulative result and rank within one Pool season, calculated as the sum of every Weekly Standing point total from the Pool's Start Week through Week 18. Weeks are neither dropped nor normalized; an untouched week contributes the points earned by its Automatic Confidence Pick Set. Equal season point totals share a competition rank such as 1, 2, 2, 4; Weekly Tiebreaker Predictions add no points and do not break a Season Standing tie.
 _Avoid_: Overall standing, leaderboard position
+
+**Confidence Winner**:
+Each participant tied for the highest final Season Standing point total after every Week 18 Required Confidence Game has a Verified Result and Week 18 has been successfully scored. A Confidence Pool may therefore have one winner or joint winners.
+_Avoid_: Champion, tiebreaker winner
+
+**Weekly Tiebreaker Prediction**:
+A Confidence Pool participant's whole-number prediction, from 0 through 200 inclusive, of the two teams' combined final points in the chronologically last scheduled Required Confidence Game of a Pool Week. Smaller absolute error ranks ahead; when predictions are equally distant, the prediction below the actual total ranks ahead of the prediction above it.
+_Avoid_: Monday-night score, final-game winner
