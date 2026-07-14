@@ -89,96 +89,111 @@
   --pool-pink: #f2a6d7;
   --pool-pink-soft: #f8eaf4;
   --pool-mint: #29e7a5;
+  --pick-success-bg: #eef9f2;
+  --pick-success-border: #b9e1c6;
+  --pick-success-text: #356c49;
+  --pick-failure-bg: #fff2f2;
+  --pick-failure-border: #edc6c8;
+  --pick-failure-text: #8a484c;
   display: grid;
-  grid-template-columns: 238px minmax(0, 1fr);
+  grid-template-columns: 288px minmax(0, 1fr);
   padding-bottom: 0;
   background: var(--fire-canvas);
   color: var(--fire-text);
   font-family: var(--font-geist-sans), "Helvetica Neue", sans-serif;
 }
 .fireSidebar { position: sticky; top: 0; display: flex; height: 100vh; flex-direction: column; border-right: 1px solid var(--fire-border); background: var(--fire-canvas); }
-.fireBrand { display: flex; height: 72px; align-items: center; gap: 11px; border-bottom: 1px solid var(--fire-border); padding: 0 20px; }
-.fireBrand > span { position: relative; display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--pool-ink); color: #fff; font-size: 10px; font-weight: 850; }
+.fireBrand { display: flex; height: 72px; align-items: center; gap: 12px; border-bottom: 1px solid var(--fire-border); padding: 0 24px; }
+.fireBrand > span { position: relative; display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: var(--pool-ink); color: #fff; font-size: 10px; font-weight: 850; }
 .fireBrand > span::after { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border: 2px solid var(--fire-canvas); border-radius: 50%; background: var(--pool-mint); content: ""; }
-.fireBrand strong { font-size: 16px; letter-spacing: -.025em; }
-.fireNavGroup { display: grid; gap: 4px; padding: 22px 8px 4px; }
-.fireNavGroup > small { padding: 0 10px 7px; color: #b7b7b7; font-size: 9px; font-weight: 750; letter-spacing: .08em; }
-.fireNavGroup button, .fireSidebarBottom button { display: flex; width: 100%; min-height: 42px; align-items: center; gap: 11px; border: 0; border-radius: 10px; padding: 0 11px; background: transparent; color: var(--fire-secondary); font-size: 12px; text-align: left; cursor: pointer; }
+.fireBrand strong { font-size: 18px; letter-spacing: -.03em; }
+.fireNavGroup { display: grid; gap: 3px; padding: 17px 8px 0; }
+.fireOverviewNav { padding-top: 12px; }
+.fireNavGroup > small { padding: 0 12px 8px; color: #b7b7b7; font-size: 10px; font-weight: 700; letter-spacing: .06em; }
+.fireNavGroup button, .fireSidebarBottom button { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 12px; border: 0; border-radius: 10px; padding: 0 13px; background: transparent; color: var(--fire-secondary); font-size: 13px; text-align: left; cursor: pointer; }
+.fireNavGroup button svg, .fireSidebarBottom button svg { flex: none; color: #858585; }
 .fireNavGroup button:hover, .fireSidebarBottom button:hover { background: var(--fire-control); color: var(--fire-text); }
 .fireNavGroup .fireActive { background: var(--pool-pink-soft); color: #5a3652; }
 .fireNavGroup .fireActive svg { color: #5a3652; }
+.fireNavGroup button b { margin-left: auto; border-radius: 6px; padding: 3px 7px; background: var(--pool-pink); color: var(--pool-ink); font-size: 9px; }
 .fireSidebarBottom { display: grid; gap: 1px; margin-top: auto; border-top: 1px solid var(--fire-border); padding: 8px; }
 .fireSidebarBottom button b { margin-left: auto; border-radius: 6px; padding: 2px 6px; background: var(--pool-pink); color: var(--pool-ink); font-size: 9px; }
-.fireSidebarBottom .fireUser { height: 56px; border-top: 1px solid var(--fire-border); border-bottom: 1px solid var(--fire-border); border-radius: 0; margin: 4px -8px; padding: 0 19px; }
+.fireSidebarBottom .fireUser { height: 62px; border-top: 1px solid var(--fire-border); border-bottom: 1px solid var(--fire-border); border-radius: 0; margin: 4px -8px; padding: 0 21px; }
 .fireUser > span, .fireProfile { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--fire-control); color: var(--pool-ink); font-size: 9px; font-weight: 800; }
 .fireUser > div { display: flex; min-width: 0; flex-direction: column; }
-.fireUser strong { overflow: hidden; color: var(--fire-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.fireUser strong { overflow: hidden; color: var(--fire-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .fireUser small { margin-top: 2px; color: var(--fire-muted); font-size: 9px; }
 .fireWorkspace { min-width: 0; }
-.fireTopbar { display: flex; height: 72px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--fire-border); padding: 0 18px; background: rgba(249,249,249,.94); }
-.firePoolSelect { display: flex; height: 44px; align-items: center; gap: 10px; border: 0; border-radius: 12px; padding: 0 13px; background: var(--fire-control); color: var(--fire-text); cursor: pointer; }
+.fireTopbar { position: sticky; z-index: 25; top: 0; display: flex; height: 72px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--fire-border); padding: 0 18px; background: rgba(249,249,249,.96); backdrop-filter: blur(12px); }
+.firePoolSelect { display: flex; height: 44px; align-items: center; gap: 10px; border: 0; border-radius: 12px; padding: 0 14px; background: var(--fire-control); color: var(--fire-text); cursor: pointer; }
 .firePoolSelect > span { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 6px; background: var(--pool-ink); color: #fff; font-size: 8px; font-weight: 850; }
-.firePoolSelect strong { font-size: 12px; }
+.firePoolSelect strong { font-size: 13px; }
 .firePoolSelect svg { margin-left: 4px; transform: rotate(90deg); color: var(--fire-muted); }
 .fireTopActions { display: flex; align-items: center; gap: 8px; }
-.fireTopActions button { display: flex; height: 40px; align-items: center; gap: 7px; border: 0; border-radius: 10px; padding: 0 11px; background: var(--fire-control); color: var(--fire-text); font-size: 11px; cursor: pointer; }
-.fireTopActions .fireProfile { padding: 0; border-radius: 50%; }
+.fireTopActions button { display: flex; height: 42px; align-items: center; gap: 7px; border: 0; border-radius: 10px; padding: 0 13px; background: var(--fire-control); color: var(--fire-text); font-size: 12px; font-weight: 600; cursor: pointer; }
+.fireTopActions .fireProfile { display: none; padding: 0; border-radius: 50%; }
+.fireTopActions .firePrimaryAction { background: var(--pool-ink); color: #fff; box-shadow: 0 2px 6px rgba(54,52,73,.2); }
+.fireTopActions .firePrimaryAction:hover { background: var(--pool-ink-hover); }
 .fireMain { min-height: calc(100vh - 72px); }
-.fireHero { display: flex; min-height: 220px; align-items: flex-end; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--fire-border); padding: 52px clamp(26px,4vw,62px) 38px; background-color: var(--fire-canvas); background-image: linear-gradient(var(--fire-border) 1px,transparent 1px),linear-gradient(90deg,var(--fire-border) 1px,transparent 1px); background-position: right -1px bottom -1px; background-size: 116px 116px; }
+.fireHero { display: flex; min-height: 250px; align-items: flex-end; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--fire-border); padding: 54px clamp(30px,4vw,64px) 42px; background: var(--fire-canvas); }
 .fireHero > div:first-child { padding: 14px 22px 14px 0; background: var(--fire-canvas); }
-.fireHero span { color: var(--fire-muted); font-size: 9px; font-weight: 750; letter-spacing: .1em; }
-.fireHero h1 { margin: 7px 0 0; font-size: clamp(38px,5vw,58px); line-height: .95; letter-spacing: -.055em; }
-.fireHero p { margin: 12px 0 0; color: var(--fire-secondary); font-size: 13px; }
-.firePhase { display: grid; grid-template-columns: 9px auto; gap: 10px; align-items: center; min-width: 230px; border: 1px solid var(--fire-border-strong); border-radius: 12px; padding: 13px; background: var(--fire-surface); }
+.fireHero span { color: var(--fire-muted); font-size: 10px; font-weight: 700; letter-spacing: .09em; }
+.fireHero h1 { margin: 9px 0 0; font-size: clamp(42px,4vw,52px); line-height: .98; letter-spacing: -.05em; }
+.fireHero p { margin: 12px 0 0; color: var(--fire-secondary); font-size: 15px; }
+.firePhase { display: grid; grid-template-columns: 9px auto; gap: 11px; align-items: center; min-width: 255px; border: 1px solid var(--fire-border-strong); border-radius: 12px; padding: 15px; background: var(--fire-surface); }
 .firePhase i { width: 8px; height: 8px; border-radius: 50%; background: var(--pool-mint); box-shadow: 0 0 0 4px rgba(41,231,165,.15); }
 .firePhase div { display: flex; flex-direction: column; }
-.firePhase strong { font-size: 11px; }
-.firePhase small { margin-top: 3px; color: var(--fire-muted); font-size: 9px; }
+.firePhase strong { font-size: 12px; }
+.firePhase small { margin-top: 4px; color: var(--fire-muted); font-size: 10px; }
 .firePhase.live i { background: var(--pool-pink); box-shadow: 0 0 0 4px rgba(242,166,215,.2); }
 .firePhase.repair i { background: #c84c42; box-shadow: 0 0 0 4px rgba(200,76,66,.12); }
-.fireWeekBar { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--fire-border); padding: 16px clamp(18px,4vw,62px); background: var(--fire-canvas); }
+.fireWeekBar { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--fire-border); padding: 15px clamp(24px,4vw,64px); background: var(--fire-surface); }
 .fireWeekTabs { display: flex; border-radius: 12px; padding: 4px; background: var(--fire-control); }
-.fireWeekTabs button { display: flex; height: 36px; align-items: center; gap: 5px; border: 0; border-radius: 9px; padding: 0 13px; background: transparent; color: var(--fire-secondary); font-size: 10px; cursor: pointer; }
+.fireWeekTabs button { display: flex; height: 38px; align-items: center; gap: 5px; border: 0; border-radius: 9px; padding: 0 15px; background: transparent; color: var(--fire-secondary); font-size: 11px; cursor: pointer; }
 .fireWeekTabs button:first-child svg { transform: rotate(180deg); }
 .fireWeekTabs .fireWeekActive { background: var(--fire-surface); color: var(--pool-ink); font-weight: 750; box-shadow: 0 1px 3px rgba(38,38,38,.12); }
-.fireFreshness { display: flex; align-items: center; gap: 7px; color: var(--fire-muted); font-size: 9px; }
+.fireFreshness { display: flex; align-items: center; gap: 7px; color: var(--fire-muted); font-size: 10px; }
 .mintDot { width: 7px; height: 7px; border-radius: 50%; background: var(--pool-mint); }
-.fireBoardLayout { display: grid; grid-template-columns: minmax(560px,1fr) 250px; gap: 18px; padding: 24px clamp(18px,4vw,62px) 140px; }
+.fireBoardLayout { display: grid; grid-template-columns: minmax(600px,1fr) 285px; gap: 18px; padding: 28px clamp(24px,4vw,64px) 140px; }
 .fireGameBoard, .fireContextRail section { border: 1px solid var(--fire-border); border-radius: 14px; background: var(--fire-surface); }
 .fireGameBoard { overflow: hidden; }
-.fireGameBoard > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--fire-border); padding: 20px; }
-.fireGameBoard h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
-.fireGameBoard header p { margin: 5px 0 0; color: var(--fire-secondary); font-size: 10px; }
-.fireGameBoard header > span { flex: none; border-radius: 7px; padding: 5px 8px; background: var(--pool-pink-soft); color: #5a3652; font-size: 9px; font-weight: 750; }
-.fireBoardHeads { display: grid; grid-template-columns: 1fr .9fr 78px; gap: 20px; border-bottom: 1px solid var(--fire-border); padding: 10px 20px; background: var(--fire-canvas); color: var(--fire-muted); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.fireGame { display: grid; grid-template-columns: 1fr .9fr 78px; gap: 20px; align-items: center; min-height: 92px; border-bottom: 1px solid var(--fire-border); padding: 14px 20px; }
+.fireGameBoard > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--fire-border); padding: 22px 24px; }
+.fireGameBoard h2 { margin: 0; font-size: 20px; letter-spacing: -.035em; }
+.fireGameBoard header p { margin: 7px 0 0; color: var(--fire-secondary); font-size: 11px; }
+.fireGameBoard header > span { flex: none; border-radius: 7px; padding: 6px 9px; background: var(--pool-pink-soft); color: #5a3652; font-size: 9px; font-weight: 750; }
+.fireBoardHeads { display: grid; grid-template-columns: 1fr 1.05fr 84px; gap: 22px; border-bottom: 1px solid var(--fire-border); padding: 11px 24px; background: var(--fire-canvas); color: var(--fire-muted); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.fireGame { display: grid; grid-template-columns: 1fr 1.05fr 84px; gap: 22px; align-items: center; min-height: 98px; border-bottom: 1px solid var(--fire-border); padding: 15px 24px; }
 .fireGameMeta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.fireGameMeta > span { display: flex; align-items: center; gap: 5px; color: var(--fire-secondary); font-size: 9px; font-weight: 650; text-transform: uppercase; }
-.fireGameMeta em { color: var(--fire-text); font-size: 13px; font-style: normal; font-weight: 800; }
+.fireGameMeta > span { display: flex; align-items: center; gap: 6px; color: var(--fire-secondary); font-size: 10px; font-weight: 650; text-transform: uppercase; }
+.fireGameMeta em { color: var(--fire-text); font-size: 14px; font-style: normal; font-weight: 800; }
 .fireMatchup { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .fireMatchup button { display: flex; min-height: 48px; align-items: center; justify-content: space-between; border: 1px solid var(--fire-border-strong); border-radius: 10px; padding: 8px 10px; background: var(--fire-surface); color: var(--fire-secondary); text-align: left; cursor: pointer; }
 .fireMatchup button:hover:not(:disabled) { border-color: #cfc5cc; background: var(--pool-pink-soft); }
 .fireMatchup button:disabled { cursor: not-allowed; }
 .fireMatchup button > span { display: flex; flex-direction: column; }
-.fireMatchup b { color: var(--fire-text); font-size: 12px; }
-.fireMatchup small { margin-top: 2px; color: var(--fire-muted); font-size: 8px; }
+.fireMatchup b { color: var(--fire-text); font-size: 13px; }
+.fireMatchup small { margin-top: 3px; color: var(--fire-muted); font-size: 8px; }
 .fireMatchup .fireChosen { border-color: #d7aec8; background: var(--pool-pink-soft); color: #5a3652; box-shadow: inset 0 0 0 1px rgba(90,54,82,.05); }
 .fireMatchup .fireChosen b { color: #5a3652; }
+.fireMatchup .firePickSuccess { border-color: var(--pick-success-border); background: var(--pick-success-bg); color: var(--pick-success-text); box-shadow: inset 0 0 0 1px rgba(53,108,73,.04); }
+.fireMatchup .firePickSuccess b, .fireMatchup .firePickSuccess small { color: var(--pick-success-text); }
+.fireMatchup .firePickFailure { border-color: var(--pick-failure-border); background: var(--pick-failure-bg); color: var(--pick-failure-text); box-shadow: inset 0 0 0 1px rgba(138,72,76,.04); }
+.fireMatchup .firePickFailure b, .fireMatchup .firePickFailure small { color: var(--pick-failure-text); }
 .fireValue { display: flex; flex-direction: column; align-items: flex-end; }
 .fireValue small { color: var(--fire-muted); font-size: 7px; font-weight: 750; letter-spacing: .06em; }
 .fireValue strong { margin-top: 5px; color: var(--pool-ink); font-size: 16px; }
 .fireLocked { background: #fcfcfc; }
 .fireLocked .fireMatchup button:not(.fireChosen) { opacity: .48; }
-.fireGameBoard > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; background: var(--fire-canvas); }
-.fireGameBoard footer span { display: flex; align-items: center; gap: 5px; color: var(--fire-secondary); font-size: 9px; }
+.fireGameBoard > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; background: var(--fire-canvas); }
+.fireGameBoard footer span { display: flex; align-items: center; gap: 5px; color: var(--fire-secondary); font-size: 10px; }
 .fireGameBoard footer span svg { color: #0b8a61; }
-.fireGameBoard footer button, .fireContextRail button { display: flex; align-items: center; gap: 4px; border: 0; border-radius: 9px; padding: 8px 10px; background: var(--pool-ink); color: #fff; font-size: 9px; font-weight: 700; cursor: pointer; }
+.fireGameBoard footer button, .fireContextRail button { display: flex; align-items: center; gap: 4px; border: 0; border-radius: 9px; padding: 9px 11px; background: var(--pool-ink); color: #fff; font-size: 10px; font-weight: 700; cursor: pointer; }
 .fireGameBoard footer button:hover, .fireContextRail button:hover { background: var(--pool-ink-hover); }
 .fireContextRail { display: grid; align-content: start; gap: 10px; }
-.fireContextRail section { display: flex; flex-direction: column; padding: 17px; }
+.fireContextRail section { display: flex; flex-direction: column; padding: 19px; }
 .fireContextRail section > span { color: var(--fire-muted); font-size: 8px; font-weight: 750; letter-spacing: .08em; }
-.fireContextRail section > strong { margin-top: 8px; color: var(--pool-ink); font-size: 16px; letter-spacing: -.025em; }
-.fireContextRail section > small { margin-top: 4px; color: var(--fire-secondary); font-size: 9px; }
+.fireContextRail section > strong { margin-top: 9px; color: var(--pool-ink); font-size: 18px; letter-spacing: -.03em; }
+.fireContextRail section > small { margin-top: 5px; color: var(--fire-secondary); font-size: 10px; }
 .fireContextRail section button { align-self: flex-start; margin-top: 14px; }
 .fireContextRail section em { margin-top: 9px; color: var(--fire-muted); font-size: 8px; font-style: normal; line-height: 1.4; }
 .fireProgress { overflow: hidden; height: 5px; margin-top: 14px; border-radius: 99px; background: var(--fire-control); }
@@ -186,6 +201,14 @@
 .fireContextRail .firePinkCard { border-color: #ead3e2; background: var(--pool-pink-soft); }
 .fireContextRail .fireRepairCard { border-color: #efd4d0; background: #fff4f2; }
 .fireMobileNav { display: none; }
+
+@media (max-width: 1180px) and (min-width: 901px) {
+  .variantB { grid-template-columns: 250px minmax(0, 1fr); }
+  .fireBoardLayout { grid-template-columns: 1fr; }
+  .fireContextRail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fireTopActions button span { display: none; }
+  .fireTopActions button { width: 42px; justify-content: center; padding: 0; }
+}
 
 .variantC { background: #f3f1ea; }
 .variantC main { width: min(1050px, calc(100% - 40px)); margin: 0 auto; }
@@ -225,7 +248,7 @@
 .prototypeSwitcher small { color: #7f8e86; font-size: 7px; font-weight: 850; letter-spacing: .13em; }
 .prototypeSwitcher strong { margin-top: 4px; font-size: 11px; }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .scenarioControls { top: 8px; width: calc(100% - 16px); justify-content: stretch; overflow-x: auto; }
   .scenarioControls label { flex: 1; min-width: max-content; }
   .appHeader { height: 58px; margin-top: 54px; padding: 0 16px; }
@@ -240,18 +263,50 @@
   .taskHeading h2 { font-size: 22px; }
   .readinessGrid { grid-template-columns: 1fr; }
   .ownerActions { flex-wrap: wrap; }
-  .variantB { display: block; }
-  .sideNav { position: static; height: auto; margin-top: 54px; padding: 13px 14px; }
-  .sideNav .brand, .sideNav .poolIdentity, .sideNav .statusPill { display: none; }
-  .sideNav nav { display: flex; overflow-x: auto; }
-  .sideNav nav button { flex: none; }
-  .boardMain { padding: 26px 12px 30px; }
-  .boardHeader > div:last-child button { display: none; }
-  .boardLayout { min-width: 0; }
-  .boardColumnHeads { display: none; }
-  .boardGame { grid-template-columns: 1fr; gap: 10px; }
-  .boardGame > b { position: absolute; right: 25px; }
-  .contextRail { grid-template-columns: repeat(3, minmax(180px,1fr)); overflow-x: auto; }
+  .variantB { display: block; padding-top: 110px; padding-bottom: 92px; }
+  .fireSidebar { display: none; }
+  .fireTopbar { position: sticky; z-index: 20; top: 110px; height: 62px; padding: 0 12px; }
+  .firePoolSelect { min-width: 0; height: 42px; padding: 0 10px; }
+  .firePoolSelect strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .fireTopActions { gap: 5px; }
+  .fireTopActions button { width: 40px; justify-content: center; padding: 0; }
+  .fireTopActions button span { display: none; }
+  .fireTopActions .fireProfile { display: grid; }
+  .fireHero { min-height: auto; align-items: flex-start; flex-direction: column; gap: 22px; padding: 30px 16px 24px; }
+  .fireHero > div:first-child { padding: 8px 16px 8px 0; }
+  .fireHero h1 { font-size: 38px; }
+  .fireHero p { max-width: 310px; font-size: 11px; line-height: 1.5; }
+  .firePhase { width: 100%; min-width: 0; }
+  .fireWeekBar { position: sticky; z-index: 15; top: 172px; display: block; padding: 10px 12px; background: rgba(249,249,249,.96); backdrop-filter: blur(10px); }
+  .fireWeekTabs { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .fireWeekTabs button { justify-content: center; padding: 0 6px; }
+  .fireFreshness { display: none; }
+  .fireBoardLayout { display: block; padding: 14px 12px 20px; }
+  .fireGameBoard { overflow: visible; border: 0; background: transparent; }
+  .fireGameBoard > header { border: 1px solid var(--fire-border); border-radius: 14px; padding: 16px; background: var(--fire-surface); }
+  .fireGameBoard h2 { font-size: 16px; }
+  .fireGameBoard header p { max-width: 270px; line-height: 1.45; }
+  .fireBoardHeads { display: none; }
+  .fireGames { display: grid; gap: 10px; margin-top: 10px; }
+  .fireGame { display: grid; grid-template-columns: 1fr auto; gap: 12px; min-height: 0; border: 1px solid var(--fire-border); border-radius: 14px; padding: 14px; background: var(--fire-surface); }
+  .fireGameMeta { grid-column: 1 / -1; min-height: 25px; border-bottom: 1px solid var(--fire-border); padding-bottom: 10px; }
+  .fireMatchup { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  .fireMatchup button { min-height: 58px; padding: 10px 12px; }
+  .fireMatchup b { font-size: 14px; }
+  .fireValue { grid-column: 1 / -1; align-items: center; flex-direction: row; justify-content: space-between; border-radius: 9px; padding: 9px 11px; background: var(--fire-canvas); }
+  .fireValue strong { margin-top: 0; font-size: 14px; }
+  .fireLocked { background: #fcfcfc; }
+  .fireGameBoard > footer { position: static; align-items: stretch; flex-direction: column; margin-top: 10px; border: 1px solid var(--fire-border); border-radius: 14px; padding: 13px; background: var(--fire-surface); }
+  .fireGameBoard footer button { min-height: 42px; justify-content: center; }
+  .fireContextRail { grid-template-columns: 1fr; margin-top: 10px; }
+  .fireContextRail section { min-height: 118px; }
+  .fireMobileNav { position: fixed; z-index: 40; right: 10px; bottom: 10px; left: 10px; display: grid; grid-template-columns: repeat(4,1fr); overflow: hidden; border: 1px solid #d2d1d7; border-radius: 16px; padding: 5px; background: rgba(255,255,255,.96); box-shadow: 0 12px 32px rgba(54,52,73,.18); backdrop-filter: blur(14px); }
+  .fireMobileNav button { display: flex; min-height: 50px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 11px; background: transparent; color: var(--fire-muted); font-size: 8px; font-weight: 650; }
+  .fireMobileNav .fireMobileActive { background: var(--pool-pink-soft); color: #5a3652; }
+  .variantB + .prototypeSwitcher { top: 58px; bottom: auto; }
+  .cleanPreview .variantB { padding-top: 0; }
+  .cleanPreview .fireTopbar { top: 0; }
+  .cleanPreview .fireWeekBar { top: 62px; }
   .timelineHero h1 { font-size: 38px; }
   .timelineLayout { gap: 16px; }
   .timelineAside { grid-row: 1; }
@@ -268,6 +323,12 @@
   .miniGames button > span:nth-child(2) { display: none; }
   .standingRows > div { grid-template-columns: 24px 1fr auto; }
   .standingRows em { grid-column: 2 / -1; text-align: left; }
+  .firePoolSelect { max-width: calc(100vw - 24px); }
+  .fireTopActions button:not(.fireProfile) { display: none; }
+  .fireGameBoard > header { align-items: flex-start; }
+  .fireGameBoard header > span { margin-top: 1px; }
+  .fireContextRail { display: grid; }
+  .variantB + .prototypeSwitcher { width: calc(100% - 36px); max-width: 270px; }
   .timeline article { grid-template-columns: 46px 14px 1fr; gap: 8px; }
   .timeline article::after { left: 60px; }
 }

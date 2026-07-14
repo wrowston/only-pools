@@ -17,10 +17,10 @@ const variants: Array<{ key: Variant; name: string }> = [
 ];
 
 const confidenceGames = [
-  { away: "BAL", home: "CLE", kickoff: "Final", value: 16, locked: true, score: "24–17" },
-  { away: "GB", home: "MIN", kickoff: "Q3 · 4:12", value: 15, locked: true, score: "20–21" },
-  { away: "KC", home: "LV", kickoff: "4:25 PM", value: 14, locked: false, score: "—" },
-  { away: "DAL", home: "SF", kickoff: "8:20 PM", value: 13, locked: false, score: "—" },
+  { away: "BAL", home: "CLE", kickoff: "Final", value: 16, locked: true, score: "24–17", winner: "BAL" },
+  { away: "GB", home: "MIN", kickoff: "Final", value: 15, locked: true, score: "23–21", winner: "GB" },
+  { away: "KC", home: "LV", kickoff: "4:25 PM", value: 14, locked: false, score: "—", winner: null },
+  { away: "DAL", home: "SF", kickoff: "8:20 PM", value: 13, locked: false, score: "—", winner: null },
 ];
 
 const standings = [
@@ -37,7 +37,7 @@ const survivorRows = [
   { name: "Rosa", team: "BAL", state: "Advanced · verified", private: false },
 ];
 
-type IconName = "week" | "standings" | "people" | "rules" | "settings" | "bell" | "help" | "chevron" | "calendar" | "check" | "activity" | "collapse";
+type IconName = "week" | "standings" | "people" | "rules" | "settings" | "bell" | "monitor" | "help" | "plus" | "chevron" | "calendar" | "check" | "x" | "activity" | "collapse";
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -47,10 +47,13 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     rules: <><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06-2.83 2.83-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21h-4v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06-2.83-2.83.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3v-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06 2.83-2.83.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3h4v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06 2.83 2.83-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21v4h-.34c-.61 0-1.14.4-1.26 1Z"/></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></>,
+    monitor: <><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></>,
     help: <><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 1 1 5.1 2.2c-1.2.8-2.2 1.4-2.2 2.8"/><path d="M12 18h.01"/></>,
+    plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
     chevron: <path d="m9 18 6-6-6-6"/>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M3 11h18"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
+    x: <><path d="m7 7 10 10"/><path d="m17 7-10 10"/></>,
     activity: <><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></>,
     collapse: <path d="m15 18-6-6 6-6"/>,
   };
@@ -289,24 +292,40 @@ function VariantA(props: SharedVariantProps) {
 }
 
 function VariantB(props: SharedVariantProps) {
+  const [boardPicks, setBoardPicks] = useState<Record<string, string>>({});
   const phaseCopy = {
     picking: { title: "Picks are open", detail: "2 games still need your pick", tone: "open" },
     live: { title: "Games in progress", detail: "Official scoring is current", tone: "live" },
     repair: { title: "Standings repair underway", detail: "Last official revision remains visible", tone: "repair" },
   }[props.phase];
+  const completedConfidencePicks = Math.min(4, 2 + Object.keys(boardPicks).length);
+  const chooseBoardTeam = (gameKey: string, team: string) => {
+    if (props.poolType === "confidence") setBoardPicks((current) => ({ ...current, [gameKey]: team }));
+    props.onPick(team);
+  };
 
   return (
     <div className={`${styles.variant} ${styles.variantB}`}>
       <aside className={styles.fireSidebar}>
         <div className={styles.fireBrand}><span>OP</span><strong>Only Pools</strong></div>
+        <div className={`${styles.fireNavGroup} ${styles.fireOverviewNav}`}>
+          <button><Icon name="week"/><span>Overview</span></button>
+        </div>
+        <div className={styles.fireNavGroup}>
+          <small>THIS WEEK</small>
+          <button className={styles.fireActive}><Icon name="week"/><span>Make picks</span><b>2</b></button>
+          <button><Icon name="standings"/><span>Live standings</span></button>
+        </div>
         <div className={styles.fireNavGroup}>
           <small>POOL</small>
-          <button className={styles.fireActive}><Icon name="week"/><span>Week 8</span></button>
-          <button><Icon name="standings"/><span>Standings</span></button>
           <button><Icon name="people"/><span>Participants</span></button>
           <button><Icon name="rules"/><span>Pool rules</span></button>
         </div>
-        {props.role === "owner" && <div className={styles.fireNavGroup}><small>MANAGE</small><button><Icon name="settings"/><span>Owner tools</span></button></div>}
+        <div className={styles.fireNavGroup}>
+          <small>ACCOUNT</small>
+          <button><Icon name="activity"/><span>Activity log</span></button>
+          <button><Icon name="settings"/><span>{props.role === "owner" ? "Pool settings" : "Settings"}</span></button>
+        </div>
         <div className={styles.fireSidebarBottom}>
           <button><Icon name="activity"/><span>What&apos;s new</span><b>3</b></button>
           <button className={styles.fireUser}><span>RS</span><div><strong>Riley Smith</strong><small>{props.role === "owner" ? "Pool Owner" : "Participant"}</small></div></button>
@@ -319,7 +338,10 @@ function VariantB(props: SharedVariantProps) {
           <button className={styles.firePoolSelect}><span>SB</span><strong>Sunday Best Friends</strong><Icon name="chevron" size={14}/></button>
           <div className={styles.fireTopActions}>
             <button aria-label="Notifications"><Icon name="bell"/></button>
+            <button aria-label="Display"><Icon name="monitor"/></button>
             <button><Icon name="help"/><span>Help</span></button>
+            <button><Icon name="rules"/><span>Rules</span></button>
+            <button className={styles.firePrimaryAction}><Icon name="plus" size={16}/><span>New pool</span></button>
             <button className={styles.fireProfile}>RS</button>
           </div>
         </header>
@@ -341,18 +363,23 @@ function VariantB(props: SharedVariantProps) {
               <div className={styles.fireBoardHeads}><span>Matchup & status</span><span>Your pick</span><span>{props.poolType === "confidence" ? "Value" : "Used"}</span></div>
               <div className={styles.fireGames}>
                 {confidenceGames.map((game, index) => {
-                  const lockedTeam = index === 0 ? game.away : index === 1 ? game.home : "";
-                  const awayChosen = props.selectedTeam === game.away || lockedTeam === game.away;
-                  const homeChosen = props.selectedTeam === game.home || lockedTeam === game.home;
+                  const lockedTeam = props.poolType === "confidence" ? (index === 0 ? game.away : index === 1 ? game.home : "") : "";
+                  const selectedTeam = props.poolType === "confidence" ? boardPicks[game.away] : props.selectedTeam;
+                  const awayChosen = selectedTeam === game.away || lockedTeam === game.away;
+                  const homeChosen = selectedTeam === game.home || lockedTeam === game.home;
+                  const awayResult = awayChosen && game.winner ? (game.winner === game.away ? "success" : "failure") : null;
+                  const homeResult = homeChosen && game.winner ? (game.winner === game.home ? "success" : "failure") : null;
+                  const awayOutcome = awayResult === "success" ? styles.firePickSuccess : awayResult === "failure" ? styles.firePickFailure : "";
+                  const homeOutcome = homeResult === "success" ? styles.firePickSuccess : homeResult === "failure" ? styles.firePickFailure : "";
                   const disabled = game.locked || props.phase !== "picking";
                   return (
                     <article className={`${styles.fireGame} ${game.locked ? styles.fireLocked : ""}`} key={game.away}>
                       <div className={styles.fireGameMeta}><span>{game.locked ? <><Icon name="check" size={13}/> {game.kickoff}</> : <><Icon name="calendar" size={13}/> {game.kickoff} ET</>}</span><em>{game.score}</em></div>
                       <div className={styles.fireMatchup}>
-                        <button className={awayChosen ? styles.fireChosen : ""} disabled={disabled} onClick={() => props.onPick(game.away)}><span><b>{game.away}</b><small>Away</small></span>{awayChosen && <Icon name="check" size={15}/>}</button>
-                        <button className={homeChosen ? styles.fireChosen : ""} disabled={disabled} onClick={() => props.onPick(game.home)}><span><b>{game.home}</b><small>Home</small></span>{homeChosen && <Icon name="check" size={15}/>}</button>
+                        <button className={`${awayChosen ? styles.fireChosen : ""} ${awayOutcome}`} disabled={disabled} onClick={() => chooseBoardTeam(game.away, game.away)}><span><b>{game.away}</b><small>{awayResult ? `Pick ${awayResult === "success" ? "won" : "lost"}` : "Away"}</small></span>{awayChosen && <Icon name={awayResult === "failure" ? "x" : "check"} size={15}/>}</button>
+                        <button className={`${homeChosen ? styles.fireChosen : ""} ${homeOutcome}`} disabled={disabled} onClick={() => chooseBoardTeam(game.away, game.home)}><span><b>{game.home}</b><small>{homeResult ? `Pick ${homeResult === "success" ? "won" : "lost"}` : "Home"}</small></span>{homeChosen && <Icon name={homeResult === "failure" ? "x" : "check"} size={15}/>}</button>
                       </div>
-                      <div className={styles.fireValue}><small>{props.poolType === "confidence" ? "CONFIDENCE" : "TEAM STATUS"}</small><strong>{props.poolType === "confidence" ? game.value : game.locked ? "Used" : "Available"}</strong></div>
+                      <div className={styles.fireValue}><small>{props.poolType === "confidence" ? "CONFIDENCE" : "TEAM STATUS"}</small><strong>{props.poolType === "confidence" ? game.value : game.locked ? "Locked" : "Available"}</strong></div>
                     </article>
                   );
                 })}
@@ -361,7 +388,7 @@ function VariantB(props: SharedVariantProps) {
             </section>
 
             <aside className={styles.fireContextRail}>
-              <section><span>YOUR WEEK</span><strong>{props.poolType === "confidence" ? "2 of 4 shown picked" : props.selectedTeam ? `${props.selectedTeam} saved` : "No team saved"}</strong><small>Locked 2 · Open 2</small><div className={styles.fireProgress}><i/></div></section>
+              <section><span>YOUR WEEK</span><strong>{props.poolType === "confidence" ? `${completedConfidencePicks} of 4 shown picked` : props.selectedTeam ? `${props.selectedTeam} saved` : "No team saved"}</strong><small>Locked 2 · Open 2</small><div className={styles.fireProgress}><i style={{ width: props.poolType === "confidence" ? `${completedConfidencePicks * 25}%` : props.selectedTeam ? "100%" : "0%" }}/></div></section>
               {props.role === "owner" ? <section className={styles.firePinkCard}><span>POOL READINESS</span><strong>4 need attention</strong><small>3 incomplete · 1 untouched</small><button>View participants <Icon name="chevron" size={14}/></button><em>Completion only. Hidden picks stay private.</em></section> : <section className={styles.firePinkCard}><span>WEEKLY STANDING</span><strong>2nd · 68 pts</strong><small>105 possible points</small><button>View standings <Icon name="chevron" size={14}/></button></section>}
               <section className={props.phase === "repair" ? styles.fireRepairCard : ""}><span>OFFICIAL STATE</span><strong>{props.phase === "repair" ? "Repair underway" : "Scoring current"}</strong><small>{props.phase === "repair" ? "Showing revision from 2:41 PM" : "No scoring delays detected"}</small></section>
             </aside>
@@ -469,6 +496,7 @@ export default function GameDayFlowsPrototype() {
   const searchParams = useSearchParams();
   const rawVariant = searchParams.get("variant")?.toUpperCase();
   const variant: Variant = rawVariant === "B" || rawVariant === "C" ? rawVariant : "A";
+  const cleanPreview = searchParams.get("preview") === "1";
   const [role, setRole] = useState<Role>("participant");
   const [poolType, setPoolType] = useState<PoolType>("confidence");
   const [phase, setPhase] = useState<Phase>("picking");
@@ -482,12 +510,12 @@ export default function GameDayFlowsPrototype() {
   };
 
   return (
-    <div className={styles.prototypeShell}>
-      <ScenarioControls role={role} setRole={setRole} poolType={poolType} setPoolType={setPoolType} phase={phase} setPhase={setPhase} />
+    <div className={`${styles.prototypeShell} ${cleanPreview ? styles.cleanPreview : ""}`}>
+      {!cleanPreview && <ScenarioControls role={role} setRole={setRole} poolType={poolType} setPoolType={setPoolType} phase={phase} setPhase={setPhase} />}
       {variant === "A" && <VariantA {...shared} />}
       {variant === "B" && <VariantB {...shared} />}
       {variant === "C" && <VariantC {...shared} />}
-      <PrototypeSwitcher variant={variant} onChange={changeVariant} />
+      {!cleanPreview && <PrototypeSwitcher variant={variant} onChange={changeVariant} />}
     </div>
   );
 }

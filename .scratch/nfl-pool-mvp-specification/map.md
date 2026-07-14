@@ -30,10 +30,10 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Select the production NFL data provider](./issues/16-select-production-nfl-data-provider.md) — TheSportsDB's $90 annual plan is the sole MVP feed, with two-minute best-effort NFL data and application-confirmed finality, correction polling, normalized-fact licensing limits, and no fallback provider.
 - [Design the provider normalization and synchronization contract](./issues/08-design-provider-normalization-sync-contract.md) — A Convex-only pipeline isolates TheSportsDB behind stable NFL Team and NFL Game identities, normalized evidence, guarded finality and corrections, freshness states, and versioned idempotent triggers.
 - [Define scoring, standings, and recalculation guarantees](./issues/09-define-scoring-standings-recalculation.md) — Verified Results publish progressive atomic Weekly Standings, completed weeks advance Season Standings, immutable Scoring Revisions make replay deterministic, and recovery remains automatic or Production Operator-controlled.
+- [Prototype participant and Pool Owner game-day flows](./issues/10-prototype-game-day-flows.md) — A mobile-first Week Board, expanded into a Firecrawl-like desktop shell with Only Pools colors, keeps picks, save/lock/result trust, standings, and Owner readiness in one responsive hierarchy that must be rebuilt as production React components.
 
 ## Not yet specified
 
-- Component-level responsive interactions and visual system details. The game-day flow prototype must first establish which interactions need fidelity.
 - Deployment environments, seed/bootstrap mechanics, and release sequencing. The production trust standard must first reveal the required operational boundary.
 
 ## Out of scope
