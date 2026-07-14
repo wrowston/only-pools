@@ -26,7 +26,7 @@ What canonical states and transitions govern a Pool from creation through active
 
 ### Pool Season and Start Week
 
-- New Pools may use only SportsDataIO's current NFL regular season. Creation is unavailable until that season's schedule has synchronized and at least one valid Start Week remains.
+- New Pools may use only the current NFL regular season synchronized from TheSportsDB. Creation is unavailable until that season's schedule has synchronized and at least one valid Start Week remains.
 - The Start Week may be any regular-season week whose first game has not kicked off when the Pool is created. Once a week's first game starts, the next regular-season week is the earliest valid Start Week.
 - All MVP Pools exclude the postseason and have Week 18 as their latest scheduled week, although a Survivor Pool may reach its rule-defined terminal outcome earlier.
 - Pools never roll over. A new NFL season requires a separately created Pool with fresh identity and competitive history.

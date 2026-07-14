@@ -12,8 +12,8 @@ How should Survivor and Confidence Pools behave when NFL games are tied, forfeit
 
 ### Authority, finality, and projections
 
-- A provider `Final` observation is provisional. It may drive clearly labeled Projected Results, but it cannot establish elimination, official points or ranks, winner designations, or Pool completion.
-- A game affects official competition only after the authoritative provider reports it closed and the outcome becomes a Verified Result. Delayed verification leaves the affected Pool Week Pending; it never causes the app to assume a winner or final score.
+- A first TheSportsDB `FT` or `AOT` observation is provisional. It may drive clearly labeled Projected Results, but it cannot establish elimination, official points or ranks, winner designations, or Pool completion.
+- Because TheSportsDB has no provider-issued closed state, a game affects official competition only after the selected-provider contract in [Select the production NFL data provider](./16-select-production-nfl-data-provider.md) confirms the same terminal status and score through repeated observations and the outcome becomes a Verified Result. Delayed or contradictory confirmation leaves the affected Pool Week Pending; it never causes the app to assume a winner or final score.
 - Participants may see live scores, projected Confidence points and ranks, and projected Survivor advancement or elimination after the applicable picks become visible. Official standings and eligibility remain on the last successfully applied Verified Results.
 - A later Confidence Pick Window may open under the settled lifecycle while an earlier disrupted Pool Week remains formally Pending.
 

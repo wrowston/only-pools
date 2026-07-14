@@ -8,7 +8,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 
 ## Notes
 
-- The [NFL Pool Web App Architecture Brief](./brief.md) is the locked baseline. Its explicit technology choices, product defaults, MVP boundaries, and exclusions are constraints rather than questions to reopen.
+- The [NFL Pool Web App Architecture Brief](./brief.md) is the locked baseline. Its original SportsDataIO selection has been superseded by TheSportsDB in [Select the production NFL data provider](./issues/16-select-production-nfl-data-provider.md); its other explicit technology choices, product defaults, MVP boundaries, and exclusions remain constraints rather than questions to reopen.
 - This map produces decisions, not implementation deliverables. Do not write application code while working it.
 - Use the repository's [domain glossary](../../CONTEXT.md) and consult the `grilling` and `domain-modeling` skills in every decision session. Use `research` or `prototype` when the ticket type calls for it.
 - Refer to the map and every ticket by its linked title, never by a bare local number.
@@ -24,13 +24,15 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Settle survivor rules and participant state](./issues/03-settle-survivor-rules-participant-state.md) — Survivor is fixed single-elimination: one-use-per-participant, win-only advancement, Thursday eligibility, chronological provisional-pick resolution, and deterministic sole or joint winners without strikes or revivals.
 - [Settle confidence rules and scoring semantics](./issues/04-settle-confidence-rules-scoring.md) — Confidence uses a season-ceiling high-to-low default ranking, automatic home-team picks for untouched weeks, per-pick scoring, a final-game weekly tiebreaker, cumulative season points, and sole or joint winners.
 - [Define pick submission, locking, and visibility](./issues/05-define-pick-submission-locking-visibility.md) — Autosaved, server-authoritative per-game or Sunday-cutoff locks keep unlocked choices private, reveal locked provenance, auto-fill only untouched Confidence Pick Sets, and enforce confidence-value uniqueness in both client and server.
-- [Define disrupted and corrected game policy](./issues/07-define-disrupted-corrected-game-policy.md) — Only verified closed results settle Pools; frozen games survive disruption without reopened locks, cancellations use explicit Survivor and Confidence outcomes, and authoritative corrections replay downstream results with visible projections and audit.
+- [Define disrupted and corrected game policy](./issues/07-define-disrupted-corrected-game-policy.md) — Only Verified Results that meet the selected provider's confirmation policy settle Pools; frozen games survive disruption without reopened locks, cancellations use explicit Survivor and Confidence outcomes, and authoritative corrections replay downstream results with visible projections and audit.
 - [Define the security, privacy, and abuse boundary](./issues/12-define-security-privacy-abuse-boundary.md) — Verified adult identities, deny-by-default authorization, protected invites and Hidden Picks, transparent audits, bounded contact exposure, tiered abuse controls, and history-preserving recovery define the free private service's trust boundary.
+- [Obtain SportsDataIO production proposals](./issues/14-obtain-sportsdataio-production-proposals.md) — SportsDataIO quoted production access at $600 per year, which the project owner rejected as too expensive for the free MVP.
+- [Select the production NFL data provider](./issues/16-select-production-nfl-data-provider.md) — TheSportsDB's $90 annual plan is the sole MVP feed, with two-minute best-effort NFL data and application-confirmed finality, correction polling, normalized-fact licensing limits, and no fallback provider.
 
 ## Not yet specified
 
 - The exact Convex persistence model, indexes, aggregate boundaries, and focused query surface. The domain and scoring decisions must first reveal the invariants and access patterns this design must preserve.
-- The precise scheduled-job topology, polling cadence, retry windows, and cost controls. SportsDataIO's real contract and the provider-normalization decision must first bound this question.
+- The precise scheduled-job topology, polling cadence, retry windows, and cost controls. The selected provider's real contract and the provider-normalization decision must first bound this question.
 - Component-level responsive interactions and visual system details. The game-day flow prototype must first establish which interactions need fidelity.
 - Deployment environments, seed/bootstrap mechanics, and release sequencing. The production trust standard must first reveal the required operational boundary.
 
@@ -39,3 +41,4 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - Phase 2 features identified in the source brief, including reminders, email recaps, chat, commissioner notes, playoff-specific pool formats, spread-based play, advanced tiebreakers, public leaderboards, exports, historical archives, mobile apps, odds integration, manual result overrides, and advanced admin tooling.
 - Billing, paid plans, buy-ins, prizes, wagering, payouts, wallets, payment processing, and Stripe.
 - Public pools, custom branding, and push notifications.
+- [Choose the SportsDataIO production contract](./issues/15-choose-sportsdataio-production-contract.md) — SportsDataIO-specific selection was retired because its $600 annual production price exceeds the acceptable cost for this free MVP.

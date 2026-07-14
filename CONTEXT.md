@@ -119,7 +119,7 @@ An earlier Pool Week that still has at least one result required to settle its P
 _Avoid_: Current week, delayed week
 
 **Verified Result**:
-A closed NFL game outcome confirmed by the authoritative data source and successfully applied to the Pool's competitive results. A provisional final is not yet a Verified Result and cannot determine elimination, standings, or Pool completion; a later Corrected Result may supersede it.
+A terminal NFL game outcome that satisfies the selected provider's confirmation policy and has been successfully applied to the Pool's competitive results. Under TheSportsDB, matching terminal status and score observations must meet the required confirmation interval; the first `FT` or `AOT` observation remains provisional. A provisional final cannot determine elimination, standings, or Pool completion, and a later Corrected Result may supersede a Verified Result.
 _Avoid_: Final score, provisional result
 
 **Corrected Result**:

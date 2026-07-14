@@ -54,7 +54,7 @@ Use:
 * **Tailwind CSS** and **shadcn/ui** for UI.
 * **Convex** for backend, database, server functions, scheduled jobs, and realtime updates.
 * **Clerk** for authentication.
-* **SportsDataIO** for NFL schedule, live game status, scores, and final results.
+* **TheSportsDB Single Developer annual plan** for NFL schedule, live game status, scores, and terminal results, with application-level final-result verification.
 * Optional later: **The Odds API** if spreads, moneylines, or odds-based confidence features are needed.
 
 Do not use Stripe.
@@ -146,7 +146,7 @@ All access control should be enforced in Convex functions, not only in the front
 
 ## NFL Data Provider
 
-Use **SportsDataIO** as the primary data source.
+Use **TheSportsDB** as the sole MVP data source. The selected production plan is Single Developer annual at $90 per year.
 
 The app needs:
 
@@ -165,7 +165,7 @@ Do not call the provider directly from the frontend.
 Provider data should flow like this:
 
 ```text
-SportsDataIO
+TheSportsDB
   → Convex scheduled sync job
   → Internal normalized game data
   → Scoring jobs
@@ -463,9 +463,10 @@ Suggested approach:
 * Offseason: minimal/manual syncing.
 * Before season: sync full schedule.
 * Non-game days: sync current week occasionally.
-* Game days: poll live games every 30–60 seconds.
-* After games are final: reduce polling.
-* Finalize scores and trigger scoring jobs.
+* Game days: poll the NFL livescore feed every two minutes while games are active.
+* Treat the first `FT` or `AOT` observation as projected, not verified.
+* Verify only after the same terminal status and score are observed at least twice, at least 15 minutes apart, with the later observation at least 60 minutes after the first terminal observation.
+* Re-fetch terminal games daily for seven days and once before Pool completion so corrections trigger deterministic recalculation.
 
 The planning agent should account for provider rate limits and API costs.
 
@@ -659,7 +660,7 @@ Use Convex for backend/database/realtime.
 
 Use Clerk for auth.
 
-Use SportsDataIO for NFL schedule, game status, scores, and final results.
+Use TheSportsDB for NFL schedule, game status, scores, and terminal results; apply the selected confirmation and correction-polling policy before results become official.
 
 Keep the app free.
 
