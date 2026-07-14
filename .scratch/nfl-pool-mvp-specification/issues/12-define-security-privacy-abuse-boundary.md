@@ -38,7 +38,7 @@ What MVP policy should govern identity lifecycle, least-privilege authorization,
 
 ### Audit, telemetry, and operational access
 
-- Sanitized Pool Audit Events cover role and membership changes, invite rotation, archival and restoration, recalculation requests, and other Pool-facing administrative actions. Every current participant may view them. Raw credentials and contact fields never appear.
+- Sanitized Pool Audit Events cover role and membership changes, invite rotation, archival and restoration, and other Pool-facing administrative actions. Every current participant may view them. Provider synchronization and scoring repair are not Pool administrative actions; participants receive incident status while sensitive Production Operator records remain access-restricted. Raw credentials and contact fields never appear.
 - Pool Audit Events remain for the Pool's lifetime, including while Archived. Sensitive security details and production-operator access records are restricted to the Pool Owner and support and retained for one year.
 - Logs, analytics, and error reports use opaque internal identifiers and sanitized event categories. They exclude email addresses, phone numbers, raw invite credentials, Hidden Pick values, session tokens, authentication secrets, and full sensitive request payloads.
 

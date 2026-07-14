@@ -45,12 +45,16 @@ The single participant who holds a Pool's ultimate authority, including ownershi
 _Avoid_: Creator, commissioner
 
 **Pool Admin**:
-A participant delegated limited Pool-management authority by the Pool Owner; a Pool Admin may manage ordinary Pool Invites, remove Pool Members, and request recalculation, but cannot alter administrative roles or act on the Pool Owner or another Pool Admin.
+A participant delegated limited Pool-management authority by the Pool Owner; a Pool Admin may manage ordinary Pool Invites and remove Pool Members, but cannot alter administrative roles, act on the Pool Owner or another Pool Admin, or control provider synchronization and scoring repair.
 _Avoid_: Moderator
 
 **Pool Member**:
 A participant who belongs to a Pool without ownership or delegated administration authority.
 _Avoid_: User, player
+
+**Production Operator**:
+The service-level human responsible for investigating NFL-data and scoring failures and, when automatic recovery is insufficient, initiating audited resynchronization or deterministic replay; this authority is separate from every Pool role and cannot edit authoritative NFL facts or competitive inputs.
+_Avoid_: Pool Admin, commissioner, support admin
 
 **Participant**:
 Any person age 18 or older who has confirmed that eligibility and competes in a Pool, regardless of whether they are also its Pool Owner or a Pool Admin.
@@ -85,7 +89,7 @@ A person-specific, single-use Pool Invite created from a Pool Template for a pri
 _Avoid_: Copied membership, renewed membership
 
 **Pool Audit Event**:
-An immutable account of a Pool-facing administrative action, identifying when it occurred, who acted, who was affected, the action, and the prior and resulting state without retaining a raw Pool Invite credential or contact field. Every current participant may view sanitized events for role and membership changes, invite rotation, archival and restoration, and recalculation requests. Sanitized events remain for the Pool's lifetime, including while Archived; sensitive security details and production-operator access records remain visible only to the Pool Owner and support and are retained for one year.
+An immutable account of a Pool-facing administrative action, identifying when it occurred, who acted, who was affected, the action, and the prior and resulting state without retaining a raw Pool Invite credential or contact field. Every current participant may view sanitized events for role and membership changes, invite rotation, archival, and restoration. Sanitized events remain for the Pool's lifetime, including while Archived; sensitive security details and Production Operator access records remain visible only to the Pool Owner and support and are retained for one year.
 _Avoid_: Activity log, history entry
 
 **Ownership Recovery**:
@@ -97,6 +101,14 @@ A participant's private request for support review of a Pool or another particip
 _Avoid_: Flag, block, moderation case
 
 ## Picks and results
+
+**NFL Team**:
+One provider-independent NFL team identity used by NFL Games, Survivor Picks, and used-team history. Provider-specific team IDs are aliases and display names or abbreviations may change without changing the NFL Team's competitive identity.
+_Avoid_: Provider team, team name
+
+**NFL Game**:
+One provider-independent NFL matchup in a Pool Season, identified internally and preserved through postponement, rescheduling, or replacement provider records. It may retain multiple TheSportsDB event IDs over its lifetime; a new provider record is reconciled automatically only when season, teams, and schedule history identify exactly one existing NFL Game, while ambiguous matches remain unresolved for operator review.
+_Avoid_: Provider event, game record
 
 **Pool Week**:
 An NFL season week included in a Pool's competition.
@@ -125,6 +137,10 @@ _Avoid_: Final score, provisional result
 **Corrected Result**:
 An authoritative replacement for a previously applied Verified Result. It supersedes the prior outcome and re-evaluates every affected Pool result in Pool Week order while preserving the prior result in audit history.
 _Avoid_: Commissioner override, manual score
+
+**Scoring Revision**:
+An immutable official application of a specific set of authoritative competitive inputs to one Pool Week; a newer Scoring Revision may supersede it, while the prior revision remains part of the Pool's audit history.
+_Avoid_: Scoring run, snapshot version
 
 **Projected Result**:
 A clearly provisional competitive outcome derived from live or provisionally final NFL data for participant awareness. It may preview Confidence points or Survivor advancement but never changes official standings, eligibility, winner designations, or Pool completion.
@@ -207,11 +223,11 @@ An accepted Survivor Pick or Confidence prediction that remains visible through 
 _Avoid_: Private pick, secret pick
 
 **Weekly Standing**:
-A participant's result and rank within one Pool week. Confidence Pool participants rank first by weekly points, then by Weekly Tiebreaker Prediction accuracy; among otherwise tied participants, any valid tiebreaker prediction ranks ahead of an omitted prediction, and equal or jointly omitted predictions share a competition rank such as 1, 2, 2, 4.
+A participant's official result and rank within one Pool Week, updated progressively as each Verified Result is successfully scored. Confidence Pool participants rank first by weekly points, then by Weekly Tiebreaker Prediction accuracy; among otherwise tied participants, any valid tiebreaker prediction ranks ahead of an omitted prediction, and equal or jointly omitted predictions share a competition rank such as 1, 2, 2, 4.
 _Avoid_: Weekly score
 
 **Season Standing**:
-A participant's cumulative result and rank within one Pool season, calculated as the sum of every Weekly Standing point total from the Pool's Start Week through Week 18. Weeks are neither dropped nor normalized; an untouched week contributes the points earned by its Automatic Confidence Pick Set. Equal season point totals share a competition rank such as 1, 2, 2, 4; Weekly Tiebreaker Predictions add no points and do not break a Season Standing tie.
+A participant's cumulative official result and rank within one Pool Season, calculated only from fully resolved Pool Weeks and advanced atomically after each week's scoring succeeds. Weeks are neither dropped nor normalized; an untouched week contributes the points earned by its Automatic Confidence Pick Set. Equal season point totals share a competition rank such as 1, 2, 2, 4; Weekly Tiebreaker Predictions add no points and do not break a Season Standing tie.
 _Avoid_: Overall standing, leaderboard position
 
 **Confidence Winner**:

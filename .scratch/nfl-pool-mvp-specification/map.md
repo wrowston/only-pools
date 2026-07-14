@@ -12,7 +12,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - This map produces decisions, not implementation deliverables. Do not write application code while working it.
 - Use the repository's [domain glossary](../../CONTEXT.md) and consult the `grilling` and `domain-modeling` skills in every decision session. Use `research` or `prototype` when the ticket type calls for it.
 - Refer to the map and every ticket by its linked title, never by a bare local number.
-- Optimize every decision for trustworthy live NFL Sundays, simple social participation, and commissioner-friendly recovery.
+- Optimize every decision for trustworthy live NFL Sundays, simple social participation, clear incident communication, and operator-controlled recovery.
 
 ## Decisions so far
 
@@ -28,11 +28,11 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Define the security, privacy, and abuse boundary](./issues/12-define-security-privacy-abuse-boundary.md) — Verified adult identities, deny-by-default authorization, protected invites and Hidden Picks, transparent audits, bounded contact exposure, tiered abuse controls, and history-preserving recovery define the free private service's trust boundary.
 - [Obtain SportsDataIO production proposals](./issues/14-obtain-sportsdataio-production-proposals.md) — SportsDataIO quoted production access at $600 per year, which the project owner rejected as too expensive for the free MVP.
 - [Select the production NFL data provider](./issues/16-select-production-nfl-data-provider.md) — TheSportsDB's $90 annual plan is the sole MVP feed, with two-minute best-effort NFL data and application-confirmed finality, correction polling, normalized-fact licensing limits, and no fallback provider.
+- [Design the provider normalization and synchronization contract](./issues/08-design-provider-normalization-sync-contract.md) — A Convex-only pipeline isolates TheSportsDB behind stable NFL Team and NFL Game identities, normalized evidence, guarded finality and corrections, freshness states, and versioned idempotent triggers.
+- [Define scoring, standings, and recalculation guarantees](./issues/09-define-scoring-standings-recalculation.md) — Verified Results publish progressive atomic Weekly Standings, completed weeks advance Season Standings, immutable Scoring Revisions make replay deterministic, and recovery remains automatic or Production Operator-controlled.
 
 ## Not yet specified
 
-- The exact Convex persistence model, indexes, aggregate boundaries, and focused query surface. The domain and scoring decisions must first reveal the invariants and access patterns this design must preserve.
-- The precise scheduled-job topology, polling cadence, retry windows, and cost controls. The selected provider's real contract and the provider-normalization decision must first bound this question.
 - Component-level responsive interactions and visual system details. The game-day flow prototype must first establish which interactions need fidelity.
 - Deployment environments, seed/bootstrap mechanics, and release sequencing. The production trust standard must first reveal the required operational boundary.
 

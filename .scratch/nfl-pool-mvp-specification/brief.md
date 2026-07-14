@@ -41,7 +41,7 @@ Users should be able to:
 * See confidence pool rankings. (weekly/yearly)
 * Manage pools they created.
 * Remove members if they are the pool owner/admin.
-* Trigger standings recalculation if needed.
+* See clear status when standings are awaiting automatic or Production Operator-controlled repair.
 
 ---
 
@@ -125,13 +125,11 @@ Owner:
 * Can invite users.
 * Can remove users.
 * Can archive the pool.
-* Can trigger recalculation.
 
 Admin:
 
 * Can invite users.
 * Can remove members if allowed.
-* Can trigger recalculation.
 * Can help manage the pool.
 
 Member:
@@ -357,7 +355,7 @@ The planning agent should design:
 * Weekly standings snapshots.
 * Season standings snapshots.
 * Recalculation jobs.
-* Admin-triggered recalculation.
+* Automatic and Production Operator-controlled recalculation.
 * Idempotent scoring logic.
 
 Raw picks should be the source of truth.
@@ -450,7 +448,7 @@ Recommended jobs:
 
 ### Repair/Recalculate Job
 
-* Allows admin to recalculate a week or season if provider sync or scoring had an issue.
+* Allows automatic recovery and the Production Operator to replay the system-determined safe scope if provider sync or scoring had an issue.
 
 ---
 
@@ -480,7 +478,6 @@ Pool owners/admins should have tools for:
 * Removing users.
 * Viewing members.
 * Viewing missing picks.
-* Triggering standings recalculation.
 * Archiving a pool.
 * Optional manual result override later.
 
@@ -701,7 +698,7 @@ Build this first:
 13. Confidence scoring.
 14. Weekly standings.
 15. Season standings.
-16. Admin recalculation.
+16. Automatic and Production Operator-controlled repair.
 17. Basic responsive UI.
 
 Do not build in MVP:
@@ -757,5 +754,5 @@ The MVP is successful when:
 9. Survivor eliminations are calculated correctly.
 10. Confidence points are calculated correctly.
 11. Standings update reliably.
-12. Admins can recalculate standings if needed.
+12. Scoring failures recover automatically or through audited Production Operator repair without exposing controls to Pool roles.
 13. The app feels trustworthy and easy to use during NFL game days.

@@ -29,7 +29,7 @@ What complete membership and authority contract should govern Pool Owners, Pool 
 
 - A Pool always has exactly one Pool Owner.
 - Only the Pool Owner may transfer ownership, promote or demote Pool Admins, remove Pool Admins, archive or restore the Pool, edit the Pool Ruleset before it freezes, or create a Returning Participant Invite proposing Pool Admin.
-- Pool Owners and Pool Admins may manage ordinary Pool Invites, remove Pool Members, and trigger standings recalculation.
+- Pool Owners and Pool Admins may manage ordinary Pool Invites and remove Pool Members. Provider synchronization, standings recalculation, and scoring repair are system and Production Operator responsibilities rather than Pool-role powers, as superseded by [Define scoring, standings, and recalculation guarantees](./09-define-scoring-standings-recalculation.md).
 - A Pool Admin cannot alter another Pool Admin, affect the Pool Owner, or grant administrative authority.
 - A Pool Member has competitive participation and permitted viewing authority but no administrative authority.
 - Role changes never alter the participant's picks, results, or standings.
@@ -50,7 +50,7 @@ What complete membership and authority contract should govern Pool Owners, Pool 
 - Departure or removal blocks normal Pool access and all future picking. Every already-accepted pick, result, and standing remains intact and visibly attributed under a Departed or Removed status; departure never rewrites competitive history.
 - A removed person cannot accept an ordinary or Returning Participant Invite for that Pool. Only the Pool Owner may explicitly reinstate the existing membership, at Pool Member authority, through an audited action.
 - Reactivation or reinstatement never reopens a Pick Lock, restores a missed opportunity, or automatically restores former Pool Admin authority.
-- Completed Pools permit neither voluntary departure nor removal. They do permit the Pool Owner to promote or demote existing participants so stewardship and authorized repair can continue.
+- Completed Pools permit neither voluntary departure nor removal. They do permit the Pool Owner to promote or demote existing participants so stewardship can continue.
 - Archived Pools permit only ownership transfer. Other role or membership changes require restoration first.
 
 ### Accountability

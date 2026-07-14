@@ -1,6 +1,6 @@
 Type: grilling
 Status: open
-Blocked by: 08, 09, 10
+Blocked by: 08, 09, 10, 18
 
 # Define the production trust and recovery standard
 
