@@ -9,9 +9,11 @@
  */
 
 import type * as bootstrap from "../bootstrap.js";
+import type * as confidencePicks from "../confidencePicks.js";
 import type * as invites from "../invites.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_bootstrapAvailability from "../lib/bootstrapAvailability.js";
+import type * as lib_confidenceScale from "../lib/confidenceScale.js";
 import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
 import type * as lib_inviteThrottle from "../lib/inviteThrottle.js";
 import type * as lib_membershipCutoff from "../lib/membershipCutoff.js";
@@ -35,9 +37,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   bootstrap: typeof bootstrap;
+  confidencePicks: typeof confidencePicks;
   invites: typeof invites;
   "lib/auth": typeof lib_auth;
   "lib/bootstrapAvailability": typeof lib_bootstrapAvailability;
+  "lib/confidenceScale": typeof lib_confidenceScale;
   "lib/inviteCrypto": typeof lib_inviteCrypto;
   "lib/inviteThrottle": typeof lib_inviteThrottle;
   "lib/membershipCutoff": typeof lib_membershipCutoff;

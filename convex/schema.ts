@@ -260,4 +260,76 @@ export default defineSchema({
       "nflTeamId",
     ])
     .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+
+  /**
+   * Frozen Confidence Pick Sheet for one Pool Week — identical for every
+   * eligible participant. Created when the Confidence Pick Window opens.
+   */
+  confidencePickSheets: defineTable({
+    poolId: v.id("pools"),
+    week: v.number(),
+    /** Ordered Required Confidence Game ids (Pick Sheet order). */
+    gameIds: v.array(v.id("nflGames")),
+    /** Season Confidence Scale maximum used to derive default ranking. */
+    scaleMax: v.number(),
+    /** Chronologically last scheduled Required Confidence Game at freeze. */
+    tiebreakerGameId: v.id("nflGames"),
+    frozenAtMs: v.number(),
+  }).index("by_poolId_and_week", ["poolId", "week"]),
+
+  /**
+   * Per-participant Confidence Pick Set for one Pool Week.
+   * origin=untouched until first accepted edit or Automatic materialization.
+   */
+  confidencePickSets: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    week: v.number(),
+    origin: v.union(
+      v.literal("untouched"),
+      v.literal("authored"),
+      v.literal("automatic"),
+    ),
+    /** Whole number 0–200; absent means omitted. */
+    tiebreakerPrediction: v.optional(v.number()),
+    tiebreakerLocked: v.boolean(),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId_and_participantId_and_week", [
+      "poolId",
+      "participantId",
+      "week",
+    ])
+    .index("by_poolId_and_week", ["poolId", "week"]),
+
+  /**
+   * One Required Confidence Game row within a Confidence Pick Set.
+   * Unlocked predictions are Hidden Picks — never expose to non-authors.
+   */
+  confidencePicks: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    week: v.number(),
+    pickSetId: v.id("confidencePickSets"),
+    gameId: v.id("nflGames"),
+    /** Absent while blank (unlocked) or locked omission in a started set. */
+    pickedTeamId: v.optional(v.id("nflTeams")),
+    confidenceValue: v.number(),
+    locked: v.boolean(),
+    lockedAtMs: v.optional(v.number()),
+    provenance: v.union(
+      v.literal("authored"),
+      v.literal("automatic"),
+      v.literal("omission"),
+    ),
+    updatedAtMs: v.number(),
+  })
+    .index("by_pickSetId", ["pickSetId"])
+    .index("by_poolId_and_participantId_and_week", [
+      "poolId",
+      "participantId",
+      "week",
+    ])
+    .index("by_poolId_and_week_and_gameId", ["poolId", "week", "gameId"])
+    .index("by_poolId_and_week", ["poolId", "week"]),
 });

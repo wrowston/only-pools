@@ -11,6 +11,7 @@ import {
   computeWeeklyCutoffMs,
   isSurvivorPickLocked,
 } from "./lib/pickLock";
+import { defaultConfidenceRanking } from "./lib/confidenceScale";
 
 const poolTypeValidator = v.union(
   v.literal("survivor"),
@@ -276,6 +277,7 @@ export const listAvailableStartWeeks = query({
  * Week Board: published NFL slate for a Pool week. Membership required.
  * Survivor: own pick visible; opponents Hidden until Pick Lock. Owner/Admin
  * see completion (hasPick) without Hidden Pick team identity.
+ * Confidence: own predictions/values visible; opponents Hidden until lock.
  */
 export const getWeekBoard = query({
   args: {
@@ -360,12 +362,35 @@ export const getWeekBoard = query({
           displayName: string;
           hasPick: boolean;
           locked: true;
-          nflTeamId: Id<"nflTeams"> | null;
-          provenance: "authored" | "omission";
-          teamAbbreviation: string | null;
+          nflTeamId?: Id<"nflTeams"> | null;
+          provenance: "authored" | "automatic" | "omission";
+          teamAbbreviation?: string | null;
+          picks?: Array<{
+            gameId: Id<"nflGames">;
+            pickedTeamId: Id<"nflTeams"> | null;
+            confidenceValue: number;
+            provenance: "authored" | "automatic" | "omission";
+            teamAbbreviation: string | null;
+          }>;
+          tiebreakerPrediction?: number | null;
         };
 
     const participantPickStates: ParticipantPickState[] = [];
+
+    let myConfidencePickSet: {
+      origin: "untouched" | "authored" | "automatic";
+      tiebreakerPrediction: number | null;
+      tiebreakerLocked: boolean;
+      tiebreakerGameId: Id<"nflGames"> | null;
+      defaultRanking: number[];
+      picks: Array<{
+        gameId: Id<"nflGames">;
+        pickedTeamId: Id<"nflTeams"> | null;
+        confidenceValue: number;
+        locked: boolean;
+        provenance: "authored" | "automatic" | "omission";
+      }>;
+    } | null = null;
 
     if (pool.type === "survivor") {
       const picks = await ctx.db
@@ -429,6 +454,127 @@ export const getWeekBoard = query({
           });
         }
       }
+    } else if (pool.type === "confidence") {
+      const sheet = await ctx.db
+        .query("confidencePickSheets")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .unique();
+
+      const mySet = await ctx.db
+        .query("confidencePickSets")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", pool._id)
+            .eq("participantId", participant._id)
+            .eq("week", week),
+        )
+        .unique();
+
+      if (sheet && mySet) {
+        const myPicks = await ctx.db
+          .query("confidencePicks")
+          .withIndex("by_pickSetId", (q) => q.eq("pickSetId", mySet._id))
+          .take(64);
+        myConfidencePickSet = {
+          origin: mySet.origin,
+          tiebreakerPrediction: mySet.tiebreakerPrediction ?? null,
+          tiebreakerLocked: mySet.tiebreakerLocked,
+          tiebreakerGameId: sheet.tiebreakerGameId,
+          defaultRanking: defaultConfidenceRanking(
+            sheet.gameIds.length,
+            sheet.scaleMax,
+          ),
+          picks: myPicks.map((p) => ({
+            gameId: p.gameId,
+            pickedTeamId: p.pickedTeamId ?? null,
+            confidenceValue: p.confidenceValue,
+            locked: p.locked,
+            provenance: p.provenance,
+          })),
+        };
+      } else if (sheet) {
+        myConfidencePickSet = {
+          origin: "untouched",
+          tiebreakerPrediction: null,
+          tiebreakerLocked: false,
+          tiebreakerGameId: sheet.tiebreakerGameId,
+          defaultRanking: defaultConfidenceRanking(
+            sheet.gameIds.length,
+            sheet.scaleMax,
+          ),
+          picks: [],
+        };
+      }
+
+      const allSets = await ctx.db
+        .query("confidencePickSets")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .take(120);
+      const allPicks = await ctx.db
+        .query("confidencePicks")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .take(2000);
+
+      const memberships = await ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+        .take(120);
+
+      for (const m of memberships) {
+        if (m.status !== "active") continue;
+        if (m.participantId === participant._id) continue;
+        const member = await ctx.db.get(m.participantId);
+        const set = allSets.find((s) => s.participantId === m.participantId);
+        const picks = allPicks.filter(
+          (p) => p.participantId === m.participantId,
+        );
+        const hasPick =
+          set !== undefined &&
+          (set.origin === "authored" || set.origin === "automatic");
+        const anyLocked = picks.some((p) => p.locked);
+
+        if (anyLocked && set) {
+          const revealedPicks = [];
+          for (const pick of picks.filter((p) => p.locked)) {
+            let teamAbbreviation: string | null = null;
+            if (pick.pickedTeamId) {
+              const team = await ctx.db.get(pick.pickedTeamId);
+              teamAbbreviation = team?.abbreviation ?? null;
+            }
+            revealedPicks.push({
+              gameId: pick.gameId,
+              pickedTeamId: pick.pickedTeamId ?? null,
+              confidenceValue: pick.confidenceValue,
+              provenance: pick.provenance,
+              teamAbbreviation,
+            });
+          }
+          participantPickStates.push({
+            participantId: m.participantId,
+            displayName: member?.displayName ?? "Participant",
+            hasPick,
+            locked: true,
+            provenance: set.origin === "untouched" ? "omission" : set.origin,
+            picks: revealedPicks,
+            tiebreakerPrediction: set.tiebreakerLocked
+              ? (set.tiebreakerPrediction ?? null)
+              : undefined,
+          });
+        } else {
+          participantPickStates.push({
+            participantId: m.participantId,
+            displayName: member?.displayName ?? "Participant",
+            hasPick,
+            locked: false,
+          });
+        }
+      }
     }
 
     return {
@@ -445,6 +591,7 @@ export const getWeekBoard = query({
       week,
       slate,
       mySurvivorPick,
+      myConfidencePickSet,
       participantPickStates,
     };
   },

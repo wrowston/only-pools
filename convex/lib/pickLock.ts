@@ -100,9 +100,10 @@ function alignToEasternHour(approxUtcMs: number, hourEt: number): number {
 }
 
 /**
- * Whether a Survivor Pick targeting `game` is past its Pick Lock under the
- * Pool's lock mode. Weekly Cutoff freezes remaining choices at Sunday 1pm ET
- * while earlier games still lock individually at kickoff.
+ * Whether a Survivor Pick or Confidence game component targeting `game` is
+ * past its Pick Lock under the Pool's lock mode. Weekly Cutoff freezes
+ * remaining choices at Sunday 1pm ET while earlier games still lock
+ * individually at kickoff.
  */
 export function isSurvivorPickLocked(args: {
   pickLockMode: "gameKickoff" | "weeklyCutoff";
@@ -121,6 +122,34 @@ export function isSurvivorPickLocked(args: {
     return true;
   }
   return false;
+}
+
+/** Alias — Confidence prediction + confidence value lock with the game. */
+export const isConfidenceGameLocked = isSurvivorPickLocked;
+
+/**
+ * Weekly Tiebreaker Prediction lock: under Game Kickoff Lock, locks with the
+ * designated last Required Confidence Game; under Weekly Cutoff Lock, locks
+ * at Sunday 1:00 p.m. Eastern (even before that game's kickoff).
+ */
+export function isTiebreakerLocked(args: {
+  pickLockMode: "gameKickoff" | "weeklyCutoff";
+  tiebreakerGame: { scheduledKickoffMs: number; lifecycle: string };
+  weeklyCutoffMs: number | null;
+  nowMs: number;
+}): boolean {
+  if (args.pickLockMode === "weeklyCutoff") {
+    if (
+      args.weeklyCutoffMs !== null &&
+      args.nowMs >= args.weeklyCutoffMs
+    ) {
+      return true;
+    }
+    // Earlier games still lock individually; tiebreaker also locks if its
+    // designated game has reached Game Kickoff Lock before Sunday cutoff.
+    return isGameKickoffLocked(args.tiebreakerGame, args.nowMs);
+  }
+  return isGameKickoffLocked(args.tiebreakerGame, args.nowMs);
 }
 
 export type SaveTrustState =
