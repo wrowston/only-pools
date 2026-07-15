@@ -38,10 +38,11 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Design the Convex persistence and query model](./issues/19-design-convex-persistence-query-model.md) — Separate authoritative and projection tables, participant-week pick docs, Scoring Revision–published standing rows, NFL identity plus evidence, hashed invites, index-guarded uniqueness, and a closed role-filtered query catalog.
 - [Define the responsive component and visual interaction contract](./issues/20-define-responsive-component-visual-contract.md) — My Pools → Week Board with secondary Standings/Pool pages, 900px shadcn shell, closed component inventory, inherited Only Pools tokens/states, and quiet degradation via a single incident banner.
 - [Define production deployment, bootstrap, and release sequencing](./issues/21-define-production-deployment-bootstrap-release.md) — Convex Production and Dev with Preview on Dev only, separated secrets, operator Season Bootstrap to Available, Convex-first releases, Sync Gate controls, and ordered go-live without game-window cutover.
+- [Define the implementation acceptance contract](./issues/13-define-implementation-acceptance-contract.md) — A closed catalog of 52 trust-critical scenarios across twelve sections, with plan-complete and ship-ready demonstration bars, is the MVP acceptance gate; nothing outside the catalog is required.
 
 ## Not yet specified
 
-<!-- Fog cleared through deployment/bootstrap/release. Remaining route is the implementation acceptance contract. -->
+<!-- Destination reached: no open tickets and no remaining in-scope fog. The way is clear for implementation-planning handoff. -->
 
 ## Out of scope
 
