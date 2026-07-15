@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Bootstrap an Available Season; 10 — Handle disrupted and corrected games; 13 — Surface Operator Incidents and recovery; 14 — Finish the responsive game-day shell
 
-**Status:** ready-for-agent
+**Status:** blocked-on-human — production env isolation, Vercel/Clerk/Convex Production wiring, paid SportsDB key, go-live smoke. Local/Dev implementation of tickets 01–14 is complete; leave this ticket for the operator.
 
 - [ ] Env isolation: Preview/local → Convex Dev only; Production secrets absent from Preview (CI fails otherwise)
 - [ ] Sync Gate: Production ON after bootstrap; Dev OFF by default with short TTL when enabled for testing
