@@ -4,11 +4,11 @@
 
 **Blocked by:** 03 — Create an Active Pool and open the Week Board
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Invite URL alone does not enroll; authenticated accept creates exactly one membership; repeat accept is idempotent
-- [ ] Contact-visibility disclosure is required before accept
-- [ ] Membership cutoff at Start Week’s first scheduled kickoff never reopens on reschedule
-- [ ] Retrieve/rotate invite requires step-up; raw credentials never appear in logs, audit, or analytics
-- [ ] Invalid/expired/probing attempts get generic errors and progressive throttle without auto-rotating a valid invite
-- [ ] Acceptance scenarios 2–3, 38 covered; Pool panel member visibility matches settled privacy rules
+- [x] Invite URL alone does not enroll; authenticated accept creates exactly one membership; repeat accept is idempotent
+- [x] Contact-visibility disclosure is required before accept
+- [x] Membership cutoff at Start Week’s first scheduled kickoff never reopens on reschedule
+- [x] Retrieve/rotate invite requires step-up; raw credentials never appear in logs, audit, or analytics
+- [x] Invalid/expired/probing attempts get generic errors and progressive throttle without auto-rotating a valid invite
+- [x] Acceptance scenarios 2–3, 38 covered; Pool panel member visibility matches settled privacy rules

@@ -23,8 +23,8 @@ const membershipRole = v.union(
 );
 
 /**
- * MVP schema through ticket 03 — Participant identity, Season Bootstrap,
- * NFL Teams / Games, Sync Gate, Active Pools, and Pool Memberships.
+ * MVP schema through ticket 04 — Participant identity, Season Bootstrap,
+ * NFL Teams / Games, Sync Gate, Active Pools, Pool Memberships, and Pool Invites.
  */
 export default defineSchema({
   participants: defineTable({
@@ -47,6 +47,12 @@ export default defineSchema({
      * New session → email + phone must both be verified again.
      */
     lastClerkSessionId: v.optional(v.string()),
+    /**
+     * MVP local Step-up Verification marker. Production should use Clerk
+     * second factor; tests call confirmStepUp in setup. Short TTL enforced
+     * in invite retrieve/rotate helpers.
+     */
+    stepUpVerifiedAtMs: v.optional(v.number()),
   })
     .index("by_tokenIdentifier", ["tokenIdentifier"])
     .index("by_clerkUserId", ["clerkUserId"]),
@@ -109,6 +115,12 @@ export default defineSchema({
     rulesFrozen: v.boolean(),
     ownerParticipantId: v.id("participants"),
     createdAtMs: v.number(),
+    /**
+     * Latched when membership admission first closes (Start Week earliest
+     * kickoff reached). A later reschedule never clears this — admission
+     * never reopens.
+     */
+    admissionClosedAtMs: v.optional(v.number()),
   })
     .index("by_ownerParticipantId", ["ownerParticipantId"])
     .index("by_seasonId", ["seasonId"]),
@@ -143,6 +155,54 @@ export default defineSchema({
     atMs: v.number(),
     detailsJson: v.optional(v.string()),
   }).index("by_atMs", ["atMs"]),
+
+  /**
+   * Ordinary Pool Invite — at most one active per Pool. Accept lookup uses
+   * credentialHash only; credentialSecret is returned solely after step-up
+   * via createOrRetrieveInvite / rotateInvite and never logged or audited.
+   */
+  poolInvites: defineTable({
+    poolId: v.id("pools"),
+    credentialHash: v.string(),
+    /** Opaque at-rest secret for Owner/Admin retrieve after step-up. */
+    credentialSecret: v.string(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("rotated"),
+      v.literal("expired"),
+    ),
+    expiresAtMs: v.number(),
+    createdByParticipantId: v.id("participants"),
+    createdAtMs: v.number(),
+    rotatedAtMs: v.optional(v.number()),
+  })
+    .index("by_poolId", ["poolId"])
+    .index("by_poolId_and_status", ["poolId", "status"])
+    .index("by_credentialHash", ["credentialHash"]),
+
+  /**
+   * Progressive throttle for invalid / expired / probing invite attempts.
+   * Keyed by Clerk tokenIdentifier (account) — never auto-rotates a valid invite.
+   */
+  inviteThrottle: defineTable({
+    key: v.string(),
+    attemptCount: v.number(),
+    windowStartMs: v.number(),
+    blockedUntilMs: v.optional(v.number()),
+  }).index("by_key", ["key"]),
+
+  /**
+   * Sanitized Pool Audit Events — no raw invite credentials or contact fields.
+   */
+  poolAuditEvents: defineTable({
+    poolId: v.id("pools"),
+    action: v.string(),
+    actorParticipantId: v.id("participants"),
+    atMs: v.number(),
+    metadataJson: v.optional(v.string()),
+  })
+    .index("by_poolId_and_atMs", ["poolId", "atMs"])
+    .index("by_atMs", ["atMs"]),
 
   /**
    * Stub queue of provider fetch claim attempts — demonstrates Sync Gate

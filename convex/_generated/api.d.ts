@@ -9,8 +9,12 @@
  */
 
 import type * as bootstrap from "../bootstrap.js";
+import type * as invites from "../invites.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_bootstrapAvailability from "../lib/bootstrapAvailability.js";
+import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
+import type * as lib_inviteThrottle from "../lib/inviteThrottle.js";
+import type * as lib_membershipCutoff from "../lib/membershipCutoff.js";
 import type * as lib_operator from "../lib/operator.js";
 import type * as lib_poolRules from "../lib/poolRules.js";
 import type * as lib_syncGate from "../lib/syncGate.js";
@@ -29,8 +33,12 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   bootstrap: typeof bootstrap;
+  invites: typeof invites;
   "lib/auth": typeof lib_auth;
   "lib/bootstrapAvailability": typeof lib_bootstrapAvailability;
+  "lib/inviteCrypto": typeof lib_inviteCrypto;
+  "lib/inviteThrottle": typeof lib_inviteThrottle;
+  "lib/membershipCutoff": typeof lib_membershipCutoff;
   "lib/operator": typeof lib_operator;
   "lib/poolRules": typeof lib_poolRules;
   "lib/syncGate": typeof lib_syncGate;
