@@ -7,7 +7,7 @@ type SaveTrustProps = {
 
 /**
  * Quiet inline save confirmation — no toast. Polite live region for
- * save-trust only (scenario 19 / shell contract).
+ * save-trust only (scenario 47 / shell contract).
  */
 export function SaveTrust({ status, explanation }: SaveTrustProps) {
   if (status === "idle") {
@@ -25,11 +25,12 @@ export function SaveTrust({ status, explanation }: SaveTrustProps) {
     <p
       className={
         status === "error"
-          ? "text-sm text-red-700 dark:text-red-400"
-          : "text-sm text-zinc-500 dark:text-zinc-400"
+          ? "text-sm text-op-lost-fg"
+          : "text-sm text-op-secondary"
       }
       aria-live="polite"
       data-save-trust={status}
+      data-live-region="save-trust"
     >
       {label}
     </p>

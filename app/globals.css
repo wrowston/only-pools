@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
+/*
+ * Only Pools tokens — mapped into the theme (settled Week Board palette).
+ * Spec issue 20 / ticket 14. Prefer these over ad-hoc zinc for shell surfaces.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f9f9f9;
+  --foreground: #262626;
+
+  --op-canvas: #f9f9f9;
+  --op-surface: #ffffff;
+  --op-control: #efefef;
+  --op-border: #e4e4e4;
+  --op-border-strong: #dbdbdb;
+  --op-text: #262626;
+  --op-secondary: #616161;
+  --op-muted: #a5a5a5;
+  --op-ink: #363449;
+  --op-ink-hover: #2e2c40;
+  --op-ink-pressed: #252334;
+  --op-selected: #f8eaf4;
+  --op-selected-fg: #5a3652;
+  --op-accent: #f2a6d7;
+  --op-mint: #29e7a5;
+  --op-won-bg: #eef9f2;
+  --op-won-border: #b9e1c6;
+  --op-won-fg: #356c49;
+  --op-lost-bg: #fff2f2;
+  --op-lost-border: #edc6c8;
+  --op-lost-fg: #8a484c;
+  --op-banner-bg: #fff8e8;
+  --op-banner-border: #f0d9a8;
+  --op-banner-fg: #5c4810;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-op-canvas: var(--op-canvas);
+  --color-op-surface: var(--op-surface);
+  --color-op-control: var(--op-control);
+  --color-op-border: var(--op-border);
+  --color-op-border-strong: var(--op-border-strong);
+  --color-op-text: var(--op-text);
+  --color-op-secondary: var(--op-secondary);
+  --color-op-muted: var(--op-muted);
+  --color-op-ink: var(--op-ink);
+  --color-op-ink-hover: var(--op-ink-hover);
+  --color-op-ink-pressed: var(--op-ink-pressed);
+  --color-op-selected: var(--op-selected);
+  --color-op-selected-fg: var(--op-selected-fg);
+  --color-op-accent: var(--op-accent);
+  --color-op-mint: var(--op-mint);
+  --color-op-won-bg: var(--op-won-bg);
+  --color-op-won-border: var(--op-won-border);
+  --color-op-won-fg: var(--op-won-fg);
+  --color-op-lost-bg: var(--op-lost-bg);
+  --color-op-lost-border: var(--op-lost-border);
+  --color-op-lost-fg: var(--op-lost-fg);
+  --color-op-banner-bg: var(--op-banner-bg);
+  --color-op-banner-border: var(--op-banner-border);
+  --color-op-banner-fg: var(--op-banner-fg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--op-canvas);
+  color: var(--op-text);
+  font-family: var(--font-geist-sans), "Helvetica Neue", sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Visible focus — ink plum; not hover-only. */
+:focus-visible {
+  outline: 2px solid var(--op-ink);
+  outline-offset: 2px;
+}
+
+/* Reduced motion — no required animation to understand state. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

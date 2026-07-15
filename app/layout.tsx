@@ -41,10 +41,10 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ClerkProvider>
           <ConvexClientProvider>
-            <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
+            <header className="flex items-center justify-between border-b border-op-border bg-op-surface px-6 py-4">
               <Link
                 href="/"
-                className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+                className="text-sm font-semibold tracking-tight text-op-ink"
               >
                 Only Pools
               </Link>
@@ -56,7 +56,7 @@ export default function RootLayout({
                 <Show when="signed-in">
                   <Link
                     href="/my-pools"
-                    className="text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-300"
+                    className="text-sm text-op-secondary underline-offset-4 hover:underline"
                   >
                     My Pools
                   </Link>

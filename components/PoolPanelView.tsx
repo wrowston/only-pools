@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { PoolShell } from "./PoolShell";
 
 function absoluteInviteUrl(path: string): string {
   if (typeof window === "undefined") return path;
@@ -129,18 +130,13 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     members.callerRole === "owner" || members.callerRole === "admin";
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-10">
-      <div className="flex flex-col gap-3">
-        <Link
-          href={`/pools/${poolId}`}
-          className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-        >
-          ← Week Board
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {members.poolName}
+    <PoolShell poolId={poolId} poolName={members.poolName}>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-op-text">
+          Pool
         </h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           Members, roles, and Pool Invite
           {members.archived ? " · Archived" : ""}
         </p>
@@ -557,5 +553,6 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
         )}
       </section>
     </div>
+    </PoolShell>
   );
 }

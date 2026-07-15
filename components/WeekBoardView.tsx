@@ -5,8 +5,18 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  officialWinnerTeamId,
+  pickOutcomeLabel,
+  pickOutcomeMark,
+  resolvePickOutcome,
+  teamPickAccessibleName,
+} from "@/lib/pickPresentation";
+import { TOUCH_TARGET_MIN_CLASS } from "@/lib/gameDayShell";
 import { ConfidenceStandingsPeek } from "./ConfidenceStandingsPeek";
+import { PoolShell } from "./PoolShell";
 import { SaveTrust } from "./SaveTrust";
+import { SurvivorStandingsPeek } from "./SurvivorStandingsPeek";
 
 function formatKickoff(ms: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -327,55 +337,34 @@ export function WeekBoardView({
     .map((p) => localConfidence[p.gameId] ?? p.confidenceValue)
     .sort((a, b) => b - a);
 
+  const contextRail = isConfidence ? (
+    <ConfidenceStandingsPeek poolId={poolId} week={board.week} />
+  ) : (
+    <SurvivorStandingsPeek poolId={poolId} />
+  );
+
   return (
-    <div className="mx-auto flex w-full max-w-2xl gap-6 px-6 py-10 min-[900px]:max-w-4xl">
-      <div className="flex min-w-0 flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <Link
-          href="/my-pools"
-          className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-        >
-          ← My Pools
-        </Link>
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              {board.pool.name}
-            </h1>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Week {board.week} ·{" "}
-              {isSurvivor ? "Survivor" : "Confidence"}
-              {board.pool.seasonLabel
-                ? ` · Season ${board.pool.seasonLabel}`
-                : null}
-            </p>
-          </div>
-          <nav
-            aria-label="Pool sections"
-            className="flex flex-wrap gap-2 text-sm"
-          >
-            <span className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">
-              Board
-            </span>
-            <Link
-              href={`/pools/${poolId}/standings`}
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
-            >
-              Standings
-            </Link>
-            <Link
-              href={`/pools/${poolId}/pool`}
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
-            >
-              Pool
-            </Link>
-          </nav>
-        </header>
-      </div>
+    <PoolShell
+      poolId={poolId}
+      poolName={board.pool.name}
+      contextRail={contextRail}
+    >
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:max-w-3xl min-[900px]:px-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-op-text min-[900px]:text-3xl">
+          Week Board
+        </h1>
+        <p className="text-sm text-op-secondary">
+          Week {board.week} · {isSurvivor ? "Survivor" : "Confidence"}
+          {board.pool.seasonLabel
+            ? ` · Season ${board.pool.seasonLabel}`
+            : null}
+        </p>
+      </header>
 
       {isSurvivor ? (
         <div className="flex flex-col gap-1">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-op-secondary">
             {myPickLocked
               ? board.mySurvivorPick?.provenance === "omission"
                 ? "Locked omission — no pick"
@@ -395,7 +384,7 @@ export function WeekBoardView({
 
       {isConfidence ? (
         <div className="flex flex-col gap-1">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-op-secondary">
             {mySet?.origin === "automatic"
               ? "Automatic Confidence Pick Set — later unlocked games remain editable. Origin retained."
               : "Pick winners and unique confidence values. Autosaves; hidden until Pick Lock."}
@@ -409,7 +398,7 @@ export function WeekBoardView({
             explanation={trust.explanation}
           />
           {confidenceConflict ? (
-            <p className="text-sm text-red-700 dark:text-red-400" role="alert">
+            <p className="text-sm text-op-lost-fg" role="alert">
               {confidenceConflict}
             </p>
           ) : null}
@@ -419,16 +408,16 @@ export function WeekBoardView({
       <section aria-labelledby="slate-heading" className="flex flex-col gap-3">
         <h2
           id="slate-heading"
-          className="text-sm font-medium uppercase tracking-wide text-zinc-500"
+          className="text-sm font-medium uppercase tracking-wide text-op-muted"
         >
-          Week Board
+          Slate
         </h2>
         {board.slate.length === 0 ? (
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          <p className="text-sm text-op-text">
             No published slate for this week.
           </p>
         ) : (
-          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface min-[900px]:overflow-hidden">
             {board.slate.map((game) => {
               const confPick = mySet?.picks.find(
                 (p) => p.gameId === game.gameId,
@@ -438,18 +427,47 @@ export function WeekBoardView({
                 localConfidence[game.gameId] ??
                 confPick?.confidenceValue ??
                 null;
+              const winnerId = officialWinnerTeamId({
+                isOfficial: game.isOfficial,
+                verifiedResult: game.verifiedResult,
+                homeTeamId: game.homeTeam?.id,
+                awayTeamId: game.awayTeam?.id,
+              });
+              const survivorOutcome = isSurvivor
+                ? resolvePickOutcome({
+                    pickedTeamId: selectedTeamId,
+                    winnerTeamId: winnerId,
+                  })
+                : null;
+              const confidenceOutcome = isConfidence
+                ? resolvePickOutcome({
+                    pickedTeamId: confPick?.pickedTeamId,
+                    winnerTeamId: winnerId,
+                  })
+                : null;
+              const rowOutcome = survivorOutcome ?? confidenceOutcome;
               return (
-                <li key={game.gameId} className="flex flex-col gap-3 py-4">
+                <li
+                  key={game.gameId}
+                  className={[
+                    "flex flex-col gap-3 px-4 py-4 min-[900px]:px-5",
+                    rowOutcome === "won"
+                      ? "bg-op-won-bg"
+                      : rowOutcome === "lost"
+                        ? "bg-op-lost-bg"
+                        : "",
+                  ].join(" ")}
+                >
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                    <div className="text-sm font-medium text-op-text">
                       {game.awayTeam?.abbreviation ?? "?"} @{" "}
                       {game.homeTeam?.abbreviation ?? "?"}
-                      <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+                      <span className="mt-0.5 block text-xs font-normal text-op-muted">
                         {game.awayTeam?.name ?? "Away"} at{" "}
                         {game.homeTeam?.name ?? "Home"}
                       </span>
                     </div>
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-op-muted">
                       {formatKickoff(game.scheduledKickoffMs)}
                       {game.projectedHomeScore !== null &&
                       game.projectedAwayScore !== null &&
@@ -463,18 +481,18 @@ export function WeekBoardView({
                           {game.projectedAwayScore} – {game.projectedHomeScore}{" "}
                           {game.homeTeam?.abbreviation ?? "HOM"}
                           {game.isOfficial ? (
-                            <span className="ml-1 text-zinc-600 dark:text-zinc-400">
+                            <span className="ml-1 text-op-secondary">
                               · Verified Result
                             </span>
                           ) : (
-                            <span className="ml-1 text-amber-700 dark:text-amber-400">
+                            <span className="ml-1 text-amber-800">
                               · Projected (non-official)
                             </span>
                           )}
                         </span>
                       ) : null}
                       {game.locked || confPick?.locked ? (
-                        <span className="mt-0.5 block text-zinc-400">
+                        <span className="mt-0.5 block text-op-muted">
                           Pick Lock reached
                           {confPick?.provenance === "omission"
                             ? " · omission"
@@ -485,6 +503,19 @@ export function WeekBoardView({
                                 : ""}
                         </span>
                       ) : null}
+                      {rowOutcome ? (
+                        <span
+                          className={
+                            rowOutcome === "won"
+                              ? "mt-0.5 flex items-center gap-1 font-medium text-op-won-fg"
+                              : "mt-0.5 flex items-center gap-1 font-medium text-op-lost-fg"
+                          }
+                          data-pick-outcome={rowOutcome}
+                        >
+                          <span aria-hidden>{pickOutcomeMark(rowOutcome)}</span>
+                          {pickOutcomeLabel(rowOutcome)}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                   {isSurvivor ? (
@@ -493,6 +524,8 @@ export function WeekBoardView({
                         if (!team) return null;
                         const selected = selectedTeamId === team.id;
                         const disabled = myPickLocked || game.locked;
+                        const teamOutcome =
+                          selected && survivorOutcome ? survivorOutcome : null;
                         return (
                           <button
                             key={team.id}
@@ -500,14 +533,21 @@ export function WeekBoardView({
                             disabled={disabled}
                             onClick={() => onSelectTeam(team.id, game.locked)}
                             aria-pressed={selected}
+                            aria-label={teamPickAccessibleName({
+                              teamAbbreviation: team.abbreviation,
+                              selected,
+                              locked: disabled,
+                              outcome: teamOutcome,
+                            })}
                             className={[
-                              "min-h-11 min-w-11 rounded-md border px-4 py-2.5 text-sm font-medium transition-colors",
+                              TOUCH_TARGET_MIN_CLASS,
+                              "rounded-md border px-4 py-2.5 text-sm font-medium transition-colors",
                               selected
-                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                                : "border-zinc-300 text-zinc-800 dark:border-zinc-600 dark:text-zinc-200",
+                                ? "border-op-selected-fg bg-op-selected text-op-selected-fg"
+                                : "border-op-border-strong bg-op-surface text-op-text",
                               disabled
                                 ? "cursor-not-allowed opacity-50"
-                                : "hover:border-zinc-500",
+                                : "hover:border-op-ink",
                             ].join(" ")}
                           >
                             {team.abbreviation}
@@ -522,6 +562,10 @@ export function WeekBoardView({
                         {[game.awayTeam, game.homeTeam].map((team) => {
                           if (!team) return null;
                           const selected = confPick?.pickedTeamId === team.id;
+                          const teamOutcome =
+                            selected && confidenceOutcome
+                              ? confidenceOutcome
+                              : null;
                           return (
                             <button
                               key={team.id}
@@ -531,14 +575,21 @@ export function WeekBoardView({
                                 onPickWinner(game.gameId, team.id, confLocked)
                               }
                               aria-pressed={selected}
+                              aria-label={teamPickAccessibleName({
+                                teamAbbreviation: team.abbreviation,
+                                selected,
+                                locked: confLocked,
+                                outcome: teamOutcome,
+                              })}
                               className={[
-                                "min-h-11 min-w-11 rounded-md border px-4 py-2.5 text-sm font-medium transition-colors",
+                                TOUCH_TARGET_MIN_CLASS,
+                                "rounded-md border px-4 py-2.5 text-sm font-medium transition-colors",
                                 selected
-                                  ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                                  : "border-zinc-300 text-zinc-800 dark:border-zinc-600 dark:text-zinc-200",
+                                  ? "border-op-selected-fg bg-op-selected text-op-selected-fg"
+                                  : "border-op-border-strong bg-op-surface text-op-text",
                                 confLocked
                                   ? "cursor-not-allowed opacity-50"
-                                  : "hover:border-zinc-500",
+                                  : "hover:border-op-ink",
                               ].join(" ")}
                             >
                               {team.abbreviation}
@@ -546,12 +597,12 @@ export function WeekBoardView({
                           );
                         })}
                       </div>
-                      <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                        <span className="text-xs uppercase tracking-wide text-zinc-500">
+                      <label className="flex items-center gap-2 text-sm text-op-text">
+                        <span className="text-xs uppercase tracking-wide text-op-muted">
                           Conf
                         </span>
                         <select
-                          className="min-h-11 rounded-md border border-zinc-300 bg-transparent px-3 dark:border-zinc-600"
+                          className="min-h-11 rounded-md border border-op-border-strong bg-op-surface px-3"
                           disabled={confLocked || confValue === null}
                           value={confValue ?? ""}
                           onChange={(e) => {
@@ -588,11 +639,11 @@ export function WeekBoardView({
         >
           <h2
             id="tiebreaker-heading"
-            className="text-sm font-medium uppercase tracking-wide text-zinc-500"
+            className="text-sm font-medium uppercase tracking-wide text-op-muted"
           >
             Weekly Tiebreaker Prediction
           </h2>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-op-muted">
             Combined final points for the last Pick Sheet game (0–200).
           </p>
           <input
@@ -605,7 +656,7 @@ export function WeekBoardView({
             value={tiebreakerDraft}
             onChange={(e) => setTiebreakerDraft(e.target.value)}
             onBlur={() => void onTiebreakerBlur()}
-            className="min-h-11 w-full max-w-xs rounded-md border border-zinc-300 bg-transparent px-3 text-sm dark:border-zinc-600"
+            className="min-h-11 w-full max-w-xs rounded-md border border-op-border-strong bg-op-surface px-3 text-sm"
             aria-label="Weekly Tiebreaker Prediction"
           />
         </section>
@@ -618,20 +669,18 @@ export function WeekBoardView({
         >
           <h2
             id="participants-heading"
-            className="text-sm font-medium uppercase tracking-wide text-zinc-500"
+            className="text-sm font-medium uppercase tracking-wide text-op-muted"
           >
             Participants
           </h2>
-          <ul className="divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+          <ul className="divide-y divide-op-border text-sm">
             {board.participantPickStates.map((row) => (
               <li
                 key={row.participantId}
                 className="flex items-center justify-between py-2"
               >
-                <span className="text-zinc-800 dark:text-zinc-200">
-                  {row.displayName}
-                </span>
-                <span className="text-zinc-500">
+                <span className="text-op-text">{row.displayName}</span>
+                <span className="text-op-secondary">
                   {row.locked
                     ? isSurvivor
                       ? row.provenance === "omission"
@@ -652,9 +701,6 @@ export function WeekBoardView({
         </section>
       ) : null}
       </div>
-      {isConfidence ? (
-        <ConfidenceStandingsPeek poolId={poolId} week={board.week} />
-      ) : null}
-    </div>
+    </PoolShell>
   );
 }

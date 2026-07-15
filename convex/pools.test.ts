@@ -366,6 +366,47 @@ describe("getWeekBoard", () => {
     expect(board.participantPickStates).toEqual([]);
   });
 
+  it("scopes Week Board to one week without entire-season picks (scenario 48)", async () => {
+    const t = convexTest(schema, modules);
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Scoped Board",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    const board = await asAlex.query(api.pools.getWeekBoard, {
+      poolId: created.poolId,
+    });
+
+    expect(board.week).toBe(1);
+    expect(board.slate.every((g) => g.week === 1)).toBe(true);
+    // Ordinary board payload must not dump season-wide pick collections.
+    expect(board).not.toHaveProperty("seasonPicks");
+    expect(board).not.toHaveProperty("allWeeks");
+    expect(Object.keys(board).sort()).toEqual(
+      [
+        "myConfidencePickSet",
+        "mySurvivorPick",
+        "participantPickStates",
+        "pool",
+        "slate",
+        "syncFreshness",
+        "week",
+      ].sort(),
+    );
+
+    const home = await asAlex.query(api.participants.myPools, {});
+    expect(home.memberships[0]).not.toHaveProperty("picks");
+    expect(home.memberships[0]).toMatchObject({
+      poolId: created.poolId,
+      name: "Scoped Board",
+    });
+  });
+
   it("denies non-members", async () => {
     const t = convexTest(schema, modules);
     await seedAvailableSeasonWithSlate(t);
