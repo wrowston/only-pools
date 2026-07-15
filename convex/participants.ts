@@ -33,40 +33,55 @@ export const confirmMyAge = mutation({
 
 /**
  * My Pools home: membership list with next-action status + Create Pool gate.
+ * Archived Pools are excluded from the normal list unless includeArchived.
  */
 export const myPools = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    includeArchived: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
     const createPoolEnabled = await hasAvailableSeason(ctx);
+    const includeArchived = args.includeArchived === true;
 
     const membershipRows = await ctx.db
       .query("poolMemberships")
       .withIndex("by_participantId", (q) =>
         q.eq("participantId", participant._id),
       )
-      .take(50);
+      .take(80);
 
     const memberships = [];
+    const archivedMemberships = [];
     for (const row of membershipRows) {
       if (row.status !== "active") continue;
       const pool = await ctx.db.get(row.poolId);
       if (!pool || (pool.status !== "active" && pool.status !== "completed")) {
         continue;
       }
-      memberships.push({
+      const entry = {
         poolId: pool._id,
         name: pool.name,
         role: row.role,
         type: pool.type,
         startWeek: pool.startWeek,
         status: pool.status,
+        archived: pool.archived === true,
         nextAction: "open_week_board" as const,
-      });
+      };
+      if (pool.archived === true) {
+        archivedMemberships.push(entry);
+        if (includeArchived) {
+          memberships.push(entry);
+        }
+      } else {
+        memberships.push(entry);
+      }
     }
 
     return {
       memberships,
+      archivedCount: archivedMemberships.length,
       createPoolEnabled,
     };
   },

@@ -13,6 +13,11 @@ import {
 } from "./lib/pickLock";
 import { defaultConfidenceRanking } from "./lib/confidenceScale";
 import { deriveFreshness } from "./lib/freshness";
+import { isPoolArchived } from "./lib/poolArchive";
+import {
+  MAX_MEMBERSHIPS_PER_SEASON,
+  MAX_OWNED_POOLS,
+} from "./lib/quotas";
 
 const poolTypeValidator = v.union(
   v.literal("survivor"),
@@ -22,8 +27,6 @@ const pickLockModeValidator = v.union(
   v.literal("gameKickoff"),
   v.literal("weeklyCutoff"),
 );
-
-const MAX_OWNED_POOLS = 10;
 
 class PoolError extends Error {
   constructor(message: string) {
@@ -119,6 +122,27 @@ export const createPool = mutation({
       throw new PoolError(`Pool Owner may create at most ${MAX_OWNED_POOLS} Pools`);
     }
 
+    // ≤50 active memberships per season (create counts as a membership).
+    const seasonMemberships = await ctx.db
+      .query("poolMemberships")
+      .withIndex("by_participantId", (q) =>
+        q.eq("participantId", participant._id),
+      )
+      .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
+    let seasonActiveCount = 0;
+    for (const row of seasonMemberships) {
+      if (row.status !== "active") continue;
+      const existingPool = await ctx.db.get(row.poolId);
+      if (existingPool && existingPool.seasonId === season._id) {
+        seasonActiveCount += 1;
+      }
+    }
+    if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
+      throw new PoolError(
+        `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,
+      );
+    }
+
     const nowMs = Date.now();
     const games = await loadWeekGames(ctx, season._id, args.startWeek);
     assertValidStartWeekSlate({ games, nowMs });
@@ -131,6 +155,7 @@ export const createPool = mutation({
       pickLockMode: args.pickLockMode,
       status: "active",
       rulesFrozen: false,
+      archived: false,
       ownerParticipantId: participant._id,
       createdAtMs: nowMs,
     });
@@ -171,6 +196,12 @@ export const updatePoolRules = mutation({
 
     await requirePoolMembership(ctx, pool._id, participant._id);
     await requirePoolOwner(ctx, pool, participant._id);
+
+    if (isPoolArchived(pool)) {
+      throw new PoolError(
+        "Archived Pools are read-only — restore before editing rules",
+      );
+    }
 
     const patch: {
       startWeek?: number;

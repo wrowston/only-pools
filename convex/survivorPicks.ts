@@ -8,6 +8,7 @@ import {
   isSurvivorPickLocked,
   type SaveTrustState,
 } from "./lib/pickLock";
+import { isPoolArchived } from "./lib/poolArchive";
 
 class SurvivorPickError extends Error {
   constructor(message: string) {
@@ -183,6 +184,11 @@ export const autosaveSurvivorPick = mutation({
     if (pool.status === "completed") {
       throw new SurvivorPickError(
         "This Pool is Completed — Survivor Picks are closed",
+      );
+    }
+    if (isPoolArchived(pool)) {
+      throw new SurvivorPickError(
+        "Archived Pools are read-only for picks — restore to edit",
       );
     }
 

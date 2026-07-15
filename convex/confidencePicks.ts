@@ -16,6 +16,7 @@ import {
   isTiebreakerLocked,
   type SaveTrustState,
 } from "./lib/pickLock";
+import { isPoolArchived } from "./lib/poolArchive";
 
 class ConfidencePickError extends Error {
   constructor(message: string) {
@@ -340,6 +341,11 @@ export const autosaveConfidence = mutation({
       );
     }
     await requirePoolMembership(ctx, pool._id, participant._id);
+    if (isPoolArchived(pool)) {
+      throw new ConfidencePickError(
+        "Archived Pools are read-only for picks — restore to edit",
+      );
+    }
 
     if (args.week < pool.startWeek || args.week > 18) {
       throw new ConfidencePickError("Week is outside this Pool's included weeks");

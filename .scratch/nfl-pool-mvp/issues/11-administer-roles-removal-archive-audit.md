@@ -4,12 +4,12 @@
 
 **Blocked by:** 04 — Invite and join a Pool
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Ownership transfer requires step-up + explicit accept; roles swap atomically; sole Owner cannot leave/delete while owning
-- [ ] Removal preserves attributed picks/standings; contact visibility ends; reinstatement is audited Owner-only at Member authority
-- [ ] Archive hides from normal My Pools, blocks joins/picks/rules edits, continues locks/sync/scoring; restore does not undo missed locks
-- [ ] Sanitized audit events for role/membership/invite/archive/restore without raw invite credentials
-- [ ] Quotas enforced (≤10 owned / ≤50 memberships per season / ≤100 per Pool); Abuse Report creates no automatic penalty and never copies Hidden Picks or raw invites
-- [ ] No buy-in/prize/payout/wager fields or workflows
-- [ ] Acceptance scenarios 4–6, 10, 39–41 covered
+- [x] Ownership transfer requires step-up + explicit accept; roles swap atomically; sole Owner cannot leave/delete while owning
+- [x] Removal preserves attributed picks/standings; contact visibility ends; reinstatement is audited Owner-only at Member authority
+- [x] Archive hides from normal My Pools, blocks joins/picks/rules edits, continues locks/sync/scoring; restore does not undo missed locks
+- [x] Sanitized audit events for role/membership/invite/archive/restore without raw invite credentials
+- [x] Quotas enforced (≤10 owned / ≤50 memberships per season / ≤100 per Pool); Abuse Report creates no automatic penalty and never copies Hidden Picks or raw invites
+- [x] No buy-in/prize/payout/wager fields or workflows
+- [x] Acceptance scenarios 4–6, 10, 39–41 covered

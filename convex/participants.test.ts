@@ -101,6 +101,7 @@ describe("My Pools for authenticated Participant", () => {
     const home = await asAlex.query(api.participants.myPools, {});
     expect(home).toEqual({
       memberships: [],
+      archivedCount: 0,
       createPoolEnabled: false,
     });
   });

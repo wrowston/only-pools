@@ -167,6 +167,8 @@ export default defineSchema({
   /**
    * Active Pool competitive container. Pool Type and Pool Season are immutable
    * after create; Start Week / Pick Lock mode freeze via rulesFrozen.
+   * `archived` is a reversible read-only overlay — does not pause lifecycle,
+   * locks, sync, or scoring.
    */
   pools: defineTable({
     name: v.string(),
@@ -177,6 +179,12 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("completed")),
     /** True after first accepted competitive edit or first Pick Lock. */
     rulesFrozen: v.boolean(),
+    /**
+     * Reversible admin overlay. Absent/false = normal; true = Archived Pool.
+     * Does not change status (active/completed) or pause locks/sync/scoring.
+     */
+    archived: v.optional(v.boolean()),
+    archivedAtMs: v.optional(v.number()),
     ownerParticipantId: v.id("participants"),
     createdAtMs: v.number(),
     /**
@@ -197,11 +205,51 @@ export default defineSchema({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
     role: membershipRole,
-    status: v.literal("active"),
+    status: v.union(
+      v.literal("active"),
+      v.literal("removed"),
+      v.literal("left"),
+    ),
+    /** Short reason required for removal / reinstatement. */
+    statusReason: v.optional(v.string()),
+    statusChangedAtMs: v.optional(v.number()),
   })
     .index("by_participantId", ["participantId"])
     .index("by_poolId", ["poolId"])
     .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+
+  /**
+   * Pending ownership offer — only to a current Pool Admin. Current Owner
+   * retains full authority until explicit accept; cancel anytime before accept.
+   */
+  ownershipTransferOffers: defineTable({
+    poolId: v.id("pools"),
+    fromParticipantId: v.id("participants"),
+    toParticipantId: v.id("participants"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("cancelled"),
+    ),
+    createdAtMs: v.number(),
+    resolvedAtMs: v.optional(v.number()),
+  })
+    .index("by_poolId_and_status", ["poolId", "status"])
+    .index("by_toParticipantId_and_status", ["toParticipantId", "status"]),
+
+  /**
+   * Private Abuse Report intake — never stores Hidden Pick values or raw
+   * invite credentials. Creates no automatic penalty.
+   */
+  abuseReports: defineTable({
+    reporterParticipantId: v.id("participants"),
+    poolId: v.optional(v.id("pools")),
+    reason: v.string(),
+    description: v.optional(v.string()),
+    createdAtMs: v.number(),
+  })
+    .index("by_reporterParticipantId", ["reporterParticipantId"])
+    .index("by_createdAtMs", ["createdAtMs"]),
 
   /**
    * Deployment Sync Gate singleton (key = "deployment").

@@ -327,9 +327,11 @@ describe("myPools after create", () => {
         type: "survivor",
         startWeek: 1,
         status: "active",
+        archived: false,
         nextAction: "open_week_board",
       },
     ]);
+    expect(home.archivedCount).toBe(0);
   });
 });
 

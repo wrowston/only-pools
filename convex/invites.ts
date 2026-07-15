@@ -17,10 +17,14 @@ import {
   earliestStartWeekKickoffMs,
   resolveAdmissionClosedAtMs,
 } from "./lib/membershipCutoff";
+import { isPoolArchived } from "./lib/poolArchive";
+import {
+  MAX_MEMBERSHIPS_PER_SEASON,
+  MAX_POOL_MEMBERS,
+} from "./lib/quotas";
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 const INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_POOL_MEMBERS = 100;
 
 export const CONTACT_VISIBILITY_DISCLOSURE =
   "By joining, you acknowledge that the Pool Owner and Pool Admins can view your verified email address and phone number while this Pool is Active, Completed, or Archived. There is no per-Pool opt-out.";
@@ -252,6 +256,11 @@ export const createOrRetrieveInvite = mutation({
     if (!pool || pool.status !== "active") {
       throw new InviteError("Pool not found");
     }
+    if (isPoolArchived(pool)) {
+      throw new InviteError(
+        "Archived Pools accept no invitation changes — restore first",
+      );
+    }
     await requireOwnerOrAdmin(ctx, pool._id, participant._id);
     const nowMs = Date.now();
     requireFreshStepUp(participant, nowMs);
@@ -313,6 +322,11 @@ export const rotateInvite = mutation({
     const pool = await ctx.db.get(args.poolId);
     if (!pool || pool.status !== "active") {
       throw new InviteError("Pool not found");
+    }
+    if (isPoolArchived(pool)) {
+      throw new InviteError(
+        "Archived Pools accept no invitation changes — restore first",
+      );
     }
     await requireOwnerOrAdmin(ctx, pool._id, participant._id);
     const nowMs = Date.now();
@@ -386,7 +400,7 @@ export const previewInvite = query({
     }
 
     const pool = await ctx.db.get(invite.poolId);
-    if (!pool || pool.status !== "active") {
+    if (!pool || pool.status !== "active" || isPoolArchived(pool)) {
       return null;
     }
 
@@ -465,7 +479,7 @@ export const acceptInvite = mutation({
     const activeInvite = invite!;
 
     const pool = await ctx.db.get(activeInvite.poolId);
-    if (!pool || pool.status !== "active") {
+    if (!pool || pool.status !== "active" || isPoolArchived(pool)) {
       await recordFailedInviteAttempt(ctx, participant.tokenIdentifier, nowMs);
     }
     const activePool = pool!;
@@ -497,6 +511,11 @@ export const acceptInvite = mutation({
       };
     }
 
+    // Removed members cannot rejoin via ordinary invite — Owner reinstate only.
+    if (existingMembership?.status === "removed") {
+      throw new InviteError(INVITE_UNAVAILABLE);
+    }
+
     const memberCount = await ctx.db
       .query("poolMemberships")
       .withIndex("by_poolId", (q) => q.eq("poolId", activePool._id))
@@ -506,8 +525,54 @@ export const acceptInvite = mutation({
       throw new InviteError("This Pool has reached its participant limit");
     }
 
-    // Returning after voluntary leave could reactivate — MVP: insert new member
-    // row only when no prior membership exists; removed status is out of scope.
+    // ≤50 active memberships per season.
+    const seasonMemberships = await ctx.db
+      .query("poolMemberships")
+      .withIndex("by_participantId", (q) =>
+        q.eq("participantId", participant._id),
+      )
+      .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
+    let seasonActiveCount = 0;
+    for (const row of seasonMemberships) {
+      if (row.status !== "active") continue;
+      const existingPool = await ctx.db.get(row.poolId);
+      if (existingPool && existingPool.seasonId === activePool.seasonId) {
+        seasonActiveCount += 1;
+      }
+    }
+    if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
+      throw new InviteError(
+        `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,
+      );
+    }
+
+    // Voluntary leave before cutoff may reactivate the same membership.
+    if (existingMembership?.status === "left") {
+      await ctx.db.patch(existingMembership._id, {
+        status: "active",
+        role: "member",
+        statusChangedAtMs: nowMs,
+        statusReason: undefined,
+      });
+
+      await writeAudit(ctx, {
+        poolId: activePool._id,
+        actorParticipantId: participant._id,
+        action: "invite_accepted",
+        metadata: {
+          inviteId: activeInvite._id,
+          reactivated: true,
+        },
+      });
+
+      return {
+        poolId: activePool._id,
+        role: "member" as const,
+        created: false as const,
+        reactivated: true as const,
+      };
+    }
+
     if (existingMembership) {
       throw new InviteError(INVITE_UNAVAILABLE);
     }
@@ -562,15 +627,16 @@ export const listPoolMembers = query({
 
     const members = [];
     for (const row of memberships) {
-      if (row.status !== "active") continue;
       const person = await ctx.db.get(row.participantId);
       if (!person) continue;
+      const isActive = row.status === "active";
       members.push({
         participantId: person._id,
         displayName: person.displayName,
         avatarUrl: person.avatarUrl ?? null,
         role: row.role,
-        ...(canSeeContacts
+        status: row.status,
+        ...(canSeeContacts && isActive
           ? {
               email: person.email ?? null,
               phone: person.phone ?? null,
@@ -580,6 +646,10 @@ export const listPoolMembers = query({
     }
 
     members.sort((a, b) => {
+      const statusRank = { active: 0, removed: 1, left: 2 } as const;
+      const sa = statusRank[a.status as keyof typeof statusRank] ?? 3;
+      const sb = statusRank[b.status as keyof typeof statusRank] ?? 3;
+      if (sa !== sb) return sa - sb;
       const rank = { owner: 0, admin: 1, member: 2 } as const;
       const ra = rank[a.role as keyof typeof rank] ?? 3;
       const rb = rank[b.role as keyof typeof rank] ?? 3;
@@ -593,6 +663,7 @@ export const listPoolMembers = query({
       callerRole: callerMembership.role,
       canManageInvites: canSeeContacts,
       admissionClosed: pool.admissionClosedAtMs !== undefined,
+      archived: isPoolArchived(pool),
       members,
     };
   },

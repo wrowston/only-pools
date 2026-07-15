@@ -3,7 +3,8 @@
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { CreatePoolForm } from "@/components/CreatePoolForm";
 import { api } from "@/convex/_generated/api";
 import {
@@ -125,10 +126,12 @@ function VerificationIncomplete({ missing }: { missing: string[] }) {
 
 function MyPoolsHome() {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const searchParams = useSearchParams();
+  const includeArchived = searchParams.get("archived") === "1";
   const ensureMyParticipant = useMutation(api.participants.ensureMyParticipant);
   const myPools = useQuery(
     api.participants.myPools,
-    isAuthenticated ? {} : "skip",
+    isAuthenticated ? { includeArchived } : "skip",
   );
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [ensured, setEnsured] = useState(false);
@@ -186,9 +189,18 @@ function MyPoolsHome() {
           My Pools
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Your Pool memberships and entry points to create or join.
+          {includeArchived
+            ? "Including archived Pools in this list."
+            : "Your Pool memberships and entry points to create or join."}
         </p>
-      </header>
+        {includeArchived ? (
+          <Link
+            href="/my-pools"
+            className="text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            Hide archived
+          </Link>
+        ) : null}      </header>
 
       <section aria-labelledby="memberships-heading" className="flex flex-col gap-3">
         <h2
@@ -213,15 +225,27 @@ function MyPoolsHome() {
                     {m.name}
                   </span>
                   <span className="text-xs text-zinc-500">
-                    {m.role === "owner" ? "Owner" : m.role} · Week {m.startWeek}{" "}
-                    · Open Week Board
-                  </span>
-                </Link>
+                    {m.role === "owner" ? "Owner" : m.role}
+                    {m.archived ? " · Archived" : ""} · Week {m.startWeek} · Open
+                    Week Board
+                  </span>                </Link>
               </li>
             ))}
           </ul>
         )}
-      </section>
+        {myPools.archivedCount > 0 ? (
+          <p className="text-xs text-zinc-500">
+            {myPools.archivedCount} archived{" "}
+            {myPools.archivedCount === 1 ? "Pool is" : "Pools are"} hidden from
+            this list.{" "}
+            <Link
+              href="/my-pools?archived=1"
+              className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              Show archived
+            </Link>
+          </p>
+        ) : null}      </section>
 
       {showCreate && myPools.createPoolEnabled ? (
         <CreatePoolForm onCancel={() => setShowCreate(false)} />
@@ -265,6 +289,20 @@ function MyPoolsHome() {
 }
 
 export default function MyPoolsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
+          Loading My Pools…
+        </div>
+      }
+    >
+      <MyPoolsGate />
+    </Suspense>
+  );
+}
+
+function MyPoolsGate() {
   const { isLoaded, isSignedIn } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
   const [ageBump, setAgeBump] = useState(0);
