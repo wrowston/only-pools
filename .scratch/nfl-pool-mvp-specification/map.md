@@ -35,6 +35,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Research Convex scheduling and provider constraints](./issues/17-research-convex-scheduling-provider-constraints.md) — Convex requires mutation-owned durable orchestration around at-most-once fetch actions; TheSportsDB capacity is ample but has no freshness SLA, and production plan, retry, cadence, observability, and budget choices remain explicit.
 - [Define the Convex synchronization schedule and cost controls](./issues/18-define-convex-sync-schedule-cost-controls.md) — A one-minute Convex dispatcher drives phase-aware schedule, live, confirmation, and correction work with coalesced retries, explicit freshness states, audited operator recovery, and protected Starter/provider budgets.
 - [Define the production trust and recovery standard](./issues/11-define-production-trust-recovery-standard.md) — Best-effort live Sundays with Operator Incidents plus Sentry, relaxed single-operator response times, quiet-when-healthy participant banners, production-only scope, no custom backups, and one allowlisted Production Operator.
+- [Design the Convex persistence and query model](./issues/19-design-convex-persistence-query-model.md) — Separate authoritative and projection tables, participant-week pick docs, Scoring Revision–published standing rows, NFL identity plus evidence, hashed invites, index-guarded uniqueness, and a closed role-filtered query catalog.
 
 ## Not yet specified
 
