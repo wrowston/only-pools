@@ -1,0 +1,58 @@
+{
+  "teams": [
+    {
+      "idTeam": "134939",
+      "strTeam": "Detroit Lions",
+      "strTeamShort": "DET",
+      "strTeamAlternate": "Lions",
+      "idLeague": "4391",
+      "strLeague": "NFL",
+      "strSport": "American Football"
+    },
+    {
+      "idTeam": "135908",
+      "strTeam": "Los Angeles Chargers",
+      "strTeamShort": "LAC",
+      "strTeamAlternate": "Chargers",
+      "idLeague": "4391",
+      "strLeague": "NFL",
+      "strSport": "American Football"
+    },
+    {
+      "idTeam": "134922",
+      "strTeam": "Baltimore Ravens",
+      "strTeamShort": "BAL",
+      "strTeamAlternate": "Ravens",
+      "idLeague": "4391",
+      "strLeague": "NFL",
+      "strSport": "American Football"
+    },
+    {
+      "idTeam": "134927",
+      "strTeam": "Indianapolis Colts",
+      "strTeamShort": "IND",
+      "strTeamAlternate": "Colts",
+      "idLeague": "4391",
+      "strLeague": "NFL",
+      "strSport": "American Football"
+    },
+    {
+      "idTeam": "134946",
+      "strTeam": "Arizona Cardinals",
+      "strTeamShort": "ARI",
+      "strTeamAlternate": "Cardinals",
+      "idLeague": "4391",
+      "strLeague": "NFL",
+      "strSport": "American Football"
+    },
+    {
+      "idTeam": "134921",
+      "strTeam": "Atlanta Falcons",
+      "strTeamShort": "ATL",
+      "strTeamAlternate": "Falcons",
+      "idLeague": "4391",
+      "strLeague": "NFL",
+      "strSport": "American Football"
+    }
+  ]
+}

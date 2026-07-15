@@ -110,6 +110,7 @@ describe("My Pools for authenticated Participant", () => {
     await t.run(async (ctx) => {
       await ctx.db.insert("poolSeasons", {
         label: "2026",
+        year: 2026,
         status: "available",
       });
     });
