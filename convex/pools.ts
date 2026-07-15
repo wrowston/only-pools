@@ -7,6 +7,10 @@ import {
   assertRulesEditable,
   assertValidStartWeekSlate,
 } from "./lib/poolRules";
+import {
+  computeWeeklyCutoffMs,
+  isSurvivorPickLocked,
+} from "./lib/pickLock";
 
 const poolTypeValidator = v.union(
   v.literal("survivor"),
@@ -270,7 +274,8 @@ export const listAvailableStartWeeks = query({
 
 /**
  * Week Board: published NFL slate for a Pool week. Membership required.
- * Picks remain read-only placeholders until later tickets.
+ * Survivor: own pick visible; opponents Hidden until Pick Lock. Owner/Admin
+ * see completion (hasPick) without Hidden Pick team identity.
  */
 export const getWeekBoard = query({
   args: {
@@ -289,16 +294,33 @@ export const getWeekBoard = query({
     const week = args.week ?? pool.startWeek;
     const games = await loadWeekGames(ctx, pool.seasonId, week);
     const season = await ctx.db.get(pool.seasonId);
+    const nowMs = Date.now();
+
+    const earliestKickoff =
+      games.length > 0
+        ? Math.min(...games.map((g) => g.scheduledKickoffMs))
+        : null;
+    const weeklyCutoffMs =
+      pool.pickLockMode === "weeklyCutoff" && earliestKickoff !== null
+        ? computeWeeklyCutoffMs(earliestKickoff)
+        : null;
 
     const slate = [];
     for (const game of games) {
       const home = await ctx.db.get(game.homeTeamId);
       const away = await ctx.db.get(game.awayTeamId);
+      const gameLocked = isSurvivorPickLocked({
+        pickLockMode: pool.pickLockMode,
+        game,
+        weeklyCutoffMs,
+        nowMs,
+      });
       slate.push({
         gameId: game._id,
         week: game.week,
         scheduledKickoffMs: game.scheduledKickoffMs,
         lifecycle: game.lifecycle,
+        locked: gameLocked,
         homeTeam: home
           ? {
               id: home._id,
@@ -313,11 +335,101 @@ export const getWeekBoard = query({
               abbreviation: away.abbreviation,
             }
           : null,
-        pickPlaceholder: "read_only" as const,
       });
     }
 
     slate.sort((a, b) => a.scheduledKickoffMs - b.scheduledKickoffMs);
+
+    let mySurvivorPick: {
+      nflTeamId: Id<"nflTeams"> | null;
+      locked: boolean;
+      provenance: "authored" | "omission";
+      provisional: boolean;
+      updatedAtMs: number;
+    } | null = null;
+
+    type ParticipantPickState =
+      | {
+          participantId: Id<"participants">;
+          displayName: string;
+          hasPick: boolean;
+          locked: false;
+        }
+      | {
+          participantId: Id<"participants">;
+          displayName: string;
+          hasPick: boolean;
+          locked: true;
+          nflTeamId: Id<"nflTeams"> | null;
+          provenance: "authored" | "omission";
+          teamAbbreviation: string | null;
+        };
+
+    const participantPickStates: ParticipantPickState[] = [];
+
+    if (pool.type === "survivor") {
+      const picks = await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .take(200);
+
+      const myPick = picks.find((p) => p.participantId === participant._id);
+      if (myPick) {
+        mySurvivorPick = {
+          nflTeamId:
+            myPick.provenance === "omission"
+              ? null
+              : (myPick.nflTeamId ?? null),
+          locked: myPick.locked,
+          provenance: myPick.provenance,
+          provisional: myPick.provisional,
+          updatedAtMs: myPick.updatedAtMs,
+        };
+      }
+
+      const memberships = await ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+        .take(120);
+
+      for (const m of memberships) {
+        if (m.status !== "active") continue;
+        if (m.participantId === participant._id) continue;
+        const member = await ctx.db.get(m.participantId);
+        const pick = picks.find((p) => p.participantId === m.participantId);
+        const hasPick =
+          pick !== undefined && pick.provenance === "authored";
+        const locked = pick?.locked === true;
+
+        if (locked && pick) {
+          let teamAbbreviation: string | null = null;
+          if (pick.provenance === "authored" && pick.nflTeamId) {
+            const team = await ctx.db.get(pick.nflTeamId);
+            teamAbbreviation = team?.abbreviation ?? null;
+          }
+          participantPickStates.push({
+            participantId: m.participantId,
+            displayName: member?.displayName ?? "Participant",
+            hasPick,
+            locked: true,
+            nflTeamId:
+              pick.provenance === "authored" ? (pick.nflTeamId ?? null) : null,
+            provenance: pick.provenance,
+            teamAbbreviation,
+          });
+        } else {
+          // Hidden: completion only — never nflTeamId / abbreviation.
+          participantPickStates.push({
+            participantId: m.participantId,
+            displayName: member?.displayName ?? "Participant",
+            hasPick,
+            locked: false,
+          });
+        }
+      }
+    }
 
     return {
       pool: {
@@ -332,6 +444,8 @@ export const getWeekBoard = query({
       },
       week,
       slate,
+      mySurvivorPick,
+      participantPickStates,
     };
   },
 });

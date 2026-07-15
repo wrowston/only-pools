@@ -357,8 +357,10 @@ describe("getWeekBoard", () => {
       scheduledKickoffMs: week1Kickoff,
       homeTeam: { abbreviation: "KC" },
       awayTeam: { abbreviation: "BUF" },
-      pickPlaceholder: "read_only",
+      locked: false,
     });
+    expect(board.mySurvivorPick).toBeNull();
+    expect(board.participantPickStates).toEqual([]);
   });
 
   it("denies non-members", async () => {

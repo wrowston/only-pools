@@ -214,4 +214,50 @@ export default defineSchema({
     reason: v.optional(v.string()),
     claimedAtMs: v.number(),
   }).index("by_claimedAtMs", ["claimedAtMs"]),
+
+  /**
+   * Survivor Pick — one team per participant per included week.
+   * Unlocked rows are Hidden Picks: never expose nflTeamId to non-authors.
+   */
+  survivorPicks: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    week: v.number(),
+    /** Absent for locked omissions (no team was chosen). */
+    nflTeamId: v.optional(v.id("nflTeams")),
+    gameId: v.optional(v.id("nflGames")),
+    locked: v.boolean(),
+    lockedAtMs: v.optional(v.number()),
+    provenance: v.union(v.literal("authored"), v.literal("omission")),
+    /** Advance / future-week pick while earlier weeks are unsettled. */
+    provisional: v.boolean(),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId_and_participantId_and_week", [
+      "poolId",
+      "participantId",
+      "week",
+    ])
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+
+  /**
+   * One-use team reservation for Survivor. Unlocked pick changes release the
+   * prior reservation and reserve the new team. Locked / still-valid picks
+   * keep released=false.
+   */
+  survivorTeamReservations: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    nflTeamId: v.id("nflTeams"),
+    week: v.number(),
+    released: v.boolean(),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId_and_participantId_and_nflTeamId", [
+      "poolId",
+      "participantId",
+      "nflTeamId",
+    ])
+    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
 });
