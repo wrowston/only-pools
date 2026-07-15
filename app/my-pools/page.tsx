@@ -16,88 +16,14 @@ function claimsFromClerkUser(
   user: {
     primaryEmailAddress?: { verification?: { status?: string | null } } | null;
     primaryPhoneNumber?: { verification?: { status?: string | null } } | null;
-    publicMetadata?: Record<string, unknown>;
-    unsafeMetadata?: Record<string, unknown>;
   } | null | undefined,
 ): VerificationClaims {
-  const ageConfirmed =
-    user?.publicMetadata?.ageConfirmed === true ||
-    user?.unsafeMetadata?.ageConfirmed === true;
-
   return {
     emailVerified:
       user?.primaryEmailAddress?.verification?.status === "verified",
     phoneVerified:
       user?.primaryPhoneNumber?.verification?.status === "verified",
-    ageConfirmed,
   };
-}
-
-/**
- * Age confirmation gate.
- *
- * Clerk Dashboard options (pick one):
- * 1. Custom sign-up field that writes `publicMetadata.ageConfirmed`, OR
- * 2. This post-auth gate writing `unsafeMetadata.ageConfirmed` (MVP default).
- *
- * Also enable Email + Phone verification in Clerk (Identifiers & authentication).
- */
-function AgeConfirmationGate({
-  onConfirmed,
-}: {
-  onConfirmed: () => void;
-}) {
-  const { user } = useUser();
-  const { isAuthenticated, isLoading } = useConvexAuth();
-  const confirmMyAge = useMutation(api.participants.confirmMyAge);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function confirmAge() {
-    if (!user || !isAuthenticated) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await user.update({
-        unsafeMetadata: {
-          ...user.unsafeMetadata,
-          ageConfirmed: true,
-        },
-      });
-      await confirmMyAge({});
-      onConfirmed();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save confirmation");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-        Confirm you are 18 or older
-      </h1>
-      <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-        Only Pools is for adults. Confirm your age to continue to My Pools.
-      </p>
-      {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <button
-        type="button"
-        disabled={busy || isLoading || !isAuthenticated}
-        onClick={() => void confirmAge()}
-        className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
-      >
-        {busy || isLoading
-          ? "Saving…"
-          : "I confirm I am 18 or older"}
-      </button>
-    </div>
-  );
 }
 
 function VerificationIncomplete({ missing }: { missing: string[] }) {
@@ -107,15 +33,12 @@ function VerificationIncomplete({ missing }: { missing: string[] }) {
         Finish verification
       </h1>
       <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-        Sign-in requires a verified email, a verified phone number, and age
-        confirmation before you can open Pool surfaces.
+        Sign-in requires a verified email and a verified phone number before you
+        can open Pool surfaces.
       </p>
       <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700 dark:text-zinc-300">
         {missing.includes("email") ? <li>Verify your email address</li> : null}
         {missing.includes("phone") ? <li>Verify your phone number</li> : null}
-        {missing.includes("age") ? (
-          <li>Confirm you are 18 or older</li>
-        ) : null}
       </ul>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
         Use your account menu to manage email and phone, then refresh this page.
@@ -200,7 +123,8 @@ function MyPoolsHome() {
           >
             Hide archived
           </Link>
-        ) : null}      </header>
+        ) : null}
+      </header>
 
       <section aria-labelledby="memberships-heading" className="flex flex-col gap-3">
         <h2
@@ -228,7 +152,8 @@ function MyPoolsHome() {
                     {m.role === "owner" ? "Owner" : m.role}
                     {m.archived ? " · Archived" : ""} · Week {m.startWeek} · Open
                     Week Board
-                  </span>                </Link>
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -245,7 +170,8 @@ function MyPoolsHome() {
               Show archived
             </Link>
           </p>
-        ) : null}      </section>
+        ) : null}
+      </section>
 
       {showCreate && myPools.createPoolEnabled ? (
         <CreatePoolForm onCancel={() => setShowCreate(false)} />
@@ -305,20 +231,12 @@ export default function MyPoolsPage() {
 function MyPoolsGate() {
   const { isLoaded, isSignedIn } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
-  const [ageBump, setAgeBump] = useState(0);
 
-  const claims = useMemo(
-    () => claimsFromClerkUser(user),
-    // ageBump forces re-read after unsafeMetadata write
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, ageBump],
-  );
+  const claims = useMemo(() => claimsFromClerkUser(user), [user]);
 
   const decision = useMemo(
     () =>
       evaluateVerificationGate(claims, {
-        // Client gate treats each page load after auth as establishing access;
-        // mid-session lapse continuity is enforced on the Convex path.
         previouslyEstablished: false,
       }),
     [claims],
@@ -344,11 +262,6 @@ function MyPoolsGate() {
   }
 
   if (decision.action === "refuse") {
-    if (decision.missing.length === 1 && decision.missing[0] === "age") {
-      return (
-        <AgeConfirmationGate onConfirmed={() => setAgeBump((n) => n + 1)} />
-      );
-    }
     return <VerificationIncomplete missing={decision.missing} />;
   }
 

@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   AuthError,
-  confirmAge,
   ensureParticipant,
   hasAvailableSeason,
   requireParticipant,
@@ -15,18 +14,6 @@ export const ensureMyParticipant = mutation({
   args: {},
   handler: async (ctx) => {
     const participantId = await ensureParticipant(ctx);
-    return { participantId };
-  },
-});
-
-/**
- * Record age 18+ confirmation after the in-app gate (or Clerk custom field).
- * Requires verified email + phone from the JWT.
- */
-export const confirmMyAge = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const participantId = await confirmAge(ctx);
     return { participantId };
   },
 });

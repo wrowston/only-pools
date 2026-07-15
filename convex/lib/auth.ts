@@ -29,8 +29,7 @@ export type IdentityClaims = VerificationClaims & {
  * Map Clerk JWT identity into verification claims.
  *
  * Email / phone verification come from Clerk JWT claims.
- * Age confirmation may arrive as a custom JWT claim `ageConfirmed`, or be
- * stored on the Participant via `confirmMyAge` after the in-app gate.
+ * Age 18+ is attested by account creation (no separate confirmation gate).
  */
 export function claimsFromIdentity(
   identity: Record<string, unknown> & {
@@ -44,11 +43,6 @@ export function claimsFromIdentity(
     pictureUrl?: string;
   },
 ): IdentityClaims {
-  const ageConfirmed =
-    identity.ageConfirmed === true ||
-    (identity.publicMetadata as { ageConfirmed?: boolean } | undefined)
-      ?.ageConfirmed === true;
-
   const clerkSessionId =
     (typeof identity.sid === "string" && identity.sid) ||
     (typeof identity.session_id === "string" && identity.session_id) ||
@@ -68,19 +62,8 @@ export function claimsFromIdentity(
       typeof identity.pictureUrl === "string" ? identity.pictureUrl : undefined,
     emailVerified: identity.emailVerified === true,
     phoneVerified: identity.phoneNumberVerified === true,
-    ageConfirmed,
     clerkSessionId,
   };
-}
-
-function mergeStoredAge(
-  claims: IdentityClaims,
-  existing: Doc<"participants"> | null,
-): IdentityClaims {
-  if (existing?.ageConfirmed) {
-    return { ...claims, ageConfirmed: true };
-  }
-  return claims;
 }
 
 /**
@@ -94,7 +77,6 @@ function isPreviouslyEstablishedSession(
 ): boolean {
   return (
     existing !== null &&
-    existing.ageConfirmed &&
     existing.emailVerified &&
     existing.phoneVerified &&
     !existing.suspended &&
@@ -127,9 +109,8 @@ export async function requireParticipant(
     throw new AuthError("Unauthenticated");
   }
 
-  const rawClaims = claimsFromIdentity(identity);
-  const existing = await loadParticipantByToken(ctx, rawClaims.tokenIdentifier);
-  const claims = mergeStoredAge(rawClaims, existing);
+  const claims = claimsFromIdentity(identity);
+  const existing = await loadParticipantByToken(ctx, claims.tokenIdentifier);
 
   const previouslyEstablished = isPreviouslyEstablishedSession(
     existing,
@@ -166,9 +147,8 @@ export async function ensureParticipant(
     throw new AuthError("Unauthenticated");
   }
 
-  const rawClaims = claimsFromIdentity(identity);
-  const existing = await loadParticipantByToken(ctx, rawClaims.tokenIdentifier);
-  const claims = mergeStoredAge(rawClaims, existing);
+  const claims = claimsFromIdentity(identity);
+  const existing = await loadParticipantByToken(ctx, claims.tokenIdentifier);
 
   const previouslyEstablished = isPreviouslyEstablishedSession(
     existing,
@@ -183,11 +163,7 @@ export async function ensureParticipant(
   }
 
   if (existing === null) {
-    if (
-      !claims.emailVerified ||
-      !claims.phoneVerified ||
-      !claims.ageConfirmed
-    ) {
+    if (!claims.emailVerified || !claims.phoneVerified) {
       throw new AuthError("Verification incomplete for new Participant");
     }
 
@@ -199,6 +175,7 @@ export async function ensureParticipant(
       phone: claims.phone,
       emailVerified: claims.emailVerified,
       phoneVerified: claims.phoneVerified,
+      // Account creation attests adult eligibility; no separate age gate.
       ageConfirmed: true,
       suspended: false,
       avatarUrl: claims.avatarUrl,
@@ -215,79 +192,21 @@ export async function ensureParticipant(
     email: claims.email,
     phone: claims.phone,
     avatarUrl: claims.avatarUrl,
+    ageConfirmed: true,
   };
 
   // Only strengthen verification flags when the current identity still has them.
   if (claims.emailVerified) patch.emailVerified = true;
   if (claims.phoneVerified) patch.phoneVerified = true;
-  if (claims.ageConfirmed) patch.ageConfirmed = true;
 
   // Record session id when this access is fully verified (new sign-in ok).
-  if (claims.emailVerified && claims.phoneVerified && claims.ageConfirmed) {
+  if (claims.emailVerified && claims.phoneVerified) {
     if (claims.clerkSessionId) {
       patch.lastClerkSessionId = claims.clerkSessionId;
     }
   }
 
   await ctx.db.patch(existing._id, patch);
-  return existing._id;
-}
-
-/**
- * Persist age 18+ confirmation on the Participant after the in-app gate.
- * Requires verified email + phone from the Clerk JWT. Calling this mutation
- * is the attestation — no client-supplied boolean is trusted.
- */
-export async function confirmAge(ctx: MutationCtx): Promise<Id<"participants">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) {
-    throw new AuthError("Unauthenticated");
-  }
-
-  const claims = claimsFromIdentity(identity);
-  if (!claims.emailVerified || !claims.phoneVerified) {
-    throw new AuthError(
-      "Verification incomplete: missing " +
-        [
-          !claims.emailVerified ? "email" : null,
-          !claims.phoneVerified ? "phone" : null,
-        ]
-          .filter(Boolean)
-          .join(", "),
-    );
-  }
-
-  const existing = await loadParticipantByToken(ctx, claims.tokenIdentifier);
-  if (existing === null) {
-    return await ctx.db.insert("participants", {
-      tokenIdentifier: claims.tokenIdentifier,
-      clerkUserId: claims.clerkUserId,
-      displayName: claims.displayName,
-      email: claims.email,
-      phone: claims.phone,
-      emailVerified: true,
-      phoneVerified: true,
-      ageConfirmed: true,
-      suspended: false,
-      avatarUrl: claims.avatarUrl,
-      lastClerkSessionId: claims.clerkSessionId ?? undefined,
-    });
-  }
-
-  if (existing.suspended) {
-    throw new AuthError("Participant suspended");
-  }
-
-  await ctx.db.patch(existing._id, {
-    displayName: claims.displayName,
-    email: claims.email,
-    phone: claims.phone,
-    avatarUrl: claims.avatarUrl,
-    emailVerified: true,
-    phoneVerified: true,
-    ageConfirmed: true,
-    lastClerkSessionId: claims.clerkSessionId ?? existing.lastClerkSessionId,
-  });
   return existing._id;
 }
 

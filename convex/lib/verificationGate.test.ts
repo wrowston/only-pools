@@ -5,19 +5,18 @@ import {
 } from "./verificationGate";
 
 describe("adult dual verification (acceptance scenario 1)", () => {
-  it("refuses sign-in without verified email, phone, and age confirmation", () => {
+  it("refuses sign-in without verified email and phone", () => {
     expect(
       evaluateVerificationGate(
         {
           emailVerified: false,
           phoneVerified: false,
-          ageConfirmed: false,
         },
         { previouslyEstablished: false },
       ),
     ).toEqual({
       action: "refuse",
-      missing: ["age", "email", "phone"],
+      missing: ["email", "phone"],
     });
   });
 
@@ -27,7 +26,6 @@ describe("adult dual verification (acceptance scenario 1)", () => {
         {
           emailVerified: true,
           phoneVerified: false,
-          ageConfirmed: true,
         },
         { previouslyEstablished: false },
       ),
@@ -43,7 +41,6 @@ describe("adult dual verification (acceptance scenario 1)", () => {
         {
           emailVerified: false,
           phoneVerified: true,
-          ageConfirmed: true,
         },
         { previouslyEstablished: false },
       ),
@@ -53,29 +50,12 @@ describe("adult dual verification (acceptance scenario 1)", () => {
     });
   });
 
-  it("refuses when contacts are verified but age is not confirmed", () => {
+  it("allows a dual-verified adult on a new sign-in", () => {
     expect(
       evaluateVerificationGate(
         {
           emailVerified: true,
           phoneVerified: true,
-          ageConfirmed: false,
-        },
-        { previouslyEstablished: false },
-      ),
-    ).toEqual({
-      action: "refuse",
-      missing: ["age"],
-    });
-  });
-
-  it("allows a fully verified adult on a new sign-in", () => {
-    expect(
-      evaluateVerificationGate(
-        {
-          emailVerified: true,
-          phoneVerified: true,
-          ageConfirmed: true,
         },
         { previouslyEstablished: false },
       ),
@@ -83,13 +63,11 @@ describe("adult dual verification (acceptance scenario 1)", () => {
   });
 
   it("requires both email and phone again on the next sign-in if either lapsed", () => {
-    // New sign-in after a prior session ended — previouslyEstablished is false.
     expect(
       evaluateVerificationGate(
         {
           emailVerified: true,
           phoneVerified: false,
-          ageConfirmed: true,
         },
         { previouslyEstablished: false },
       ),
@@ -103,7 +81,6 @@ describe("adult dual verification (acceptance scenario 1)", () => {
         {
           emailVerified: false,
           phoneVerified: true,
-          ageConfirmed: true,
         },
         { previouslyEstablished: false },
       ),
@@ -119,7 +96,6 @@ describe("adult dual verification (acceptance scenario 1)", () => {
         {
           emailVerified: false,
           phoneVerified: true,
-          ageConfirmed: true,
         },
         { previouslyEstablished: true },
       ),
@@ -130,42 +106,23 @@ describe("adult dual verification (acceptance scenario 1)", () => {
         {
           emailVerified: true,
           phoneVerified: false,
-          ageConfirmed: true,
         },
         { previouslyEstablished: true },
       ),
     ).toEqual({ action: "allow" });
   });
 
-  it("still refuses mid-session if age confirmation is missing", () => {
-    expect(
-      evaluateVerificationGate(
-        {
-          emailVerified: true,
-          phoneVerified: true,
-          ageConfirmed: false,
-        },
-        { previouslyEstablished: true },
-      ),
-    ).toEqual({
-      action: "refuse",
-      missing: ["age"],
-    });
-  });
-
-  it("isFullyVerified matches dual verification + age", () => {
+  it("isFullyVerified matches email + phone verification", () => {
     expect(
       isFullyVerified({
         emailVerified: true,
         phoneVerified: true,
-        ageConfirmed: true,
       }),
     ).toBe(true);
     expect(
       isFullyVerified({
         emailVerified: true,
         phoneVerified: false,
-        ageConfirmed: true,
       }),
     ).toBe(false);
   });
