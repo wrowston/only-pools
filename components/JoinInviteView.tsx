@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { EmptyState } from "./EmptyState";
 
 export function JoinInviteView({ token }: { token: string }) {
   const router = useRouter();
@@ -42,52 +43,60 @@ export function JoinInviteView({ token }: { token: string }) {
 
   if (!token) {
     return (
-      <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Join a Pool
-        </h1>
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Open a Pool Invite link from a Pool Owner or Pool Admin to join.
-        </p>
-      </div>
+      <EmptyState
+        title="Join a Pool"
+        description="Open a Pool Invite link from a Pool Owner or Pool Admin to join. Opening a link alone does not enroll you."
+        action={
+          <Link
+            href="/my-pools"
+            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+          >
+            Back to My Pools
+          </Link>
+        }
+      />
     );
   }
 
   if (!isSignedIn) {
     return (
-      <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Join a Pool
-        </h1>
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Sign in with a verified email and phone to preview this Pool Invite.
-          Opening the link alone does not enroll you.
-        </p>
-        <SignInButton mode="modal">
-          <button
-            type="button"
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-          >
-            Sign in to continue
-          </button>
-        </SignInButton>
-      </div>
+      <EmptyState
+        title="Join a Pool"
+        description="Sign in with a verified email and phone to preview this Pool Invite. Opening the link alone does not enroll you."
+        action={
+          <SignInButton mode="modal">
+            <button
+              type="button"
+              className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+            >
+              Sign in to continue
+            </button>
+          </SignInButton>
+        }
+      />
     );
   }
 
   if (isLoading || preview === undefined) {
     return (
-      <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
-        Loading invite…
-      </div>
+      <EmptyState title="Loading invite" description="Checking this invite…" />
     );
   }
 
   if (preview === null) {
     return (
-      <div className="mx-auto max-w-md px-6 py-16 text-sm text-zinc-600">
-        Invite unavailable.
-      </div>
+      <EmptyState
+        title="Invite unavailable"
+        description="This invite link is invalid, expired, or no longer active."
+        action={
+          <Link
+            href="/my-pools"
+            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+          >
+            Back to My Pools
+          </Link>
+        }
+      />
     );
   }
 

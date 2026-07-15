@@ -14,6 +14,7 @@ import {
 } from "@/lib/pickPresentation";
 import { TOUCH_TARGET_MIN_CLASS } from "@/lib/gameDayShell";
 import { ConfidenceStandingsPeek } from "./ConfidenceStandingsPeek";
+import { EmptyState } from "./EmptyState";
 import { PoolShell } from "./PoolShell";
 import { SaveTrust } from "./SaveTrust";
 import { SurvivorStandingsPeek } from "./SurvivorStandingsPeek";
@@ -120,25 +121,45 @@ export function WeekBoardView({
 
   if (isLoading || (isAuthenticated && board === undefined)) {
     return (
-      <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
-        Loading Week Board…
-      </div>
+      <EmptyState
+        title="Loading Week Board"
+        description="Loading this week’s slate…"
+      />
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="mx-auto max-w-md px-6 py-16 text-sm">
-        <Link href="/sign-in" className="underline">
-          Sign in
-        </Link>{" "}
-        to open this Pool.
-      </div>
+      <EmptyState
+        title="Sign in to open this Pool"
+        description="Week Board is available after you sign in as a Pool member."
+        action={
+          <Link
+            href="/sign-in"
+            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+          >
+            Sign in
+          </Link>
+        }
+      />
     );
   }
 
   if (!board) {
-    return null;
+    return (
+      <EmptyState
+        title="Pool not available"
+        description="This Week Board could not be loaded. You may not be a member, or the Pool may no longer be available."
+        action={
+          <Link
+            href="/my-pools"
+            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+          >
+            Back to My Pools
+          </Link>
+        }
+      />
+    );
   }
 
   const isSurvivor = board.pool.type === "survivor";
@@ -413,9 +434,10 @@ export function WeekBoardView({
           Slate
         </h2>
         {board.slate.length === 0 ? (
-          <p className="text-sm text-op-text">
-            No published slate for this week.
-          </p>
+          <EmptyState
+            title="No slate this week"
+            description="There is no published slate for this Pool Week yet."
+          />
         ) : (
           <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface min-[900px]:overflow-hidden">
             {board.slate.map((game) => {

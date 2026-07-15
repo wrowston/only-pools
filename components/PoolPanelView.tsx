@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { EmptyState } from "./EmptyState";
 import { PoolShell } from "./PoolShell";
 
 function absoluteInviteUrl(path: string): string {
@@ -104,25 +105,41 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
 
   if (isLoading || (isAuthenticated && members === undefined)) {
     return (
-      <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
-        Loading Pool…
-      </div>
+      <EmptyState title="Loading Pool" description="Loading members…" />
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="mx-auto max-w-md px-6 py-16 text-sm">
-        <Link href="/sign-in" className="underline">
-          Sign in
-        </Link>{" "}
-        to open this Pool.
-      </div>
+      <EmptyState
+        title="Sign in to open this Pool"
+        action={
+          <Link
+            href="/sign-in"
+            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+          >
+            Sign in
+          </Link>
+        }
+      />
     );
   }
 
   if (!members) {
-    return null;
+    return (
+      <EmptyState
+        title="Pool not available"
+        description="Members could not be loaded. You may not have access to this Pool."
+        action={
+          <Link
+            href="/my-pools"
+            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+          >
+            Back to My Pools
+          </Link>
+        }
+      />
+    );
   }
 
   const isOwner = members.callerRole === "owner";
@@ -533,7 +550,10 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
         {audit === undefined ? (
           <p className="text-sm text-zinc-500">Loading audit…</p>
         ) : audit.events.length === 0 ? (
-          <p className="text-sm text-zinc-500">No events yet.</p>
+          <EmptyState
+            title="No audit events yet"
+            description="Role changes, invites, archive, and restore actions will show up here."
+          />
         ) : (
           <ul className="divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
             {audit.events.map((e, i) => (

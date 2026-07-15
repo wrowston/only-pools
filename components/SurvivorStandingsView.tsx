@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PoolShell } from "./PoolShell";
+import { EmptyState } from "./EmptyState";
 
 function eligibilityLabel(eligibility: string): string {
   if (eligibility === "alive") return "Alive";
@@ -45,26 +46,28 @@ export function SurvivorStandingsView({
   if (isLoading || standings === undefined) {
     return (
       <PoolShell poolId={poolId}>
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10">
-          <p className="text-sm text-op-muted">Loading standings…</p>
-        </div>
+        <EmptyState
+          title="Loading standings"
+          description="Fetching Survivor standings…"
+        />
       </PoolShell>
     );
   }
 
   if (standings === null) {
     return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10">
-        <p className="text-sm text-op-secondary">
-          Standings are available only to Pool members.
-        </p>
-        <Link
-          href="/my-pools"
-          className="text-sm text-op-muted hover:text-op-text"
-        >
-          ← My Pools
-        </Link>
-      </div>
+      <EmptyState
+        title="Standings unavailable"
+        description="Standings are available only to Pool members."
+        action={
+          <Link
+            href="/my-pools"
+            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+          >
+            Back to My Pools
+          </Link>
+        }
+      />
     );
   }
 
@@ -87,35 +90,44 @@ export function SurvivorStandingsView({
           </p>
         </header>
 
-        <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
-          {standings.rows.map((row) => (
-            <li
-              key={row.participantId}
-              className="flex items-baseline justify-between gap-4 py-3"
-            >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate font-medium text-op-text">
-                  {row.displayName}
-                  {row.isViewer ? (
-                    <span className="ml-2 text-xs font-normal text-op-muted">
-                      you
-                    </span>
-                  ) : null}
-                </span>
-                <span className="text-xs text-op-muted">{weekContext(row)}</span>
-              </div>
-              <span
-                className={
-                  row.eligibility === "alive" || row.eligibility === "winner"
-                    ? "shrink-0 text-sm font-medium text-op-text"
-                    : "shrink-0 text-sm text-op-muted"
-                }
+        {standings.rows.length === 0 ? (
+          <EmptyState
+            title="No standings yet"
+            description="Standings appear after Verified Results are scored for this Pool."
+          />
+        ) : (
+          <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
+            {standings.rows.map((row) => (
+              <li
+                key={row.participantId}
+                className="flex items-baseline justify-between gap-4 py-3"
               >
-                {eligibilityLabel(row.eligibility)}
-              </span>
-            </li>
-          ))}
-        </ul>
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate font-medium text-op-text">
+                    {row.displayName}
+                    {row.isViewer ? (
+                      <span className="ml-2 text-xs font-normal text-op-muted">
+                        you
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-xs text-op-muted">
+                    {weekContext(row)}
+                  </span>
+                </div>
+                <span
+                  className={
+                    row.eligibility === "alive" || row.eligibility === "winner"
+                      ? "shrink-0 text-sm font-medium text-op-text"
+                      : "shrink-0 text-sm text-op-muted"
+                  }
+                >
+                  {eligibilityLabel(row.eligibility)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </PoolShell>
   );

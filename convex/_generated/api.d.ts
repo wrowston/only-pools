@@ -21,6 +21,7 @@ import type * as lib_confidenceScale from "../lib/confidenceScale.js";
 import type * as lib_confidenceScoring from "../lib/confidenceScoring.js";
 import type * as lib_confirmationPolicy from "../lib/confirmationPolicy.js";
 import type * as lib_freshness from "../lib/freshness.js";
+import type * as lib_identityClaims from "../lib/identityClaims.js";
 import type * as lib_incidents from "../lib/incidents.js";
 import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
 import type * as lib_inviteDisclosure from "../lib/inviteDisclosure.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   "lib/confidenceScoring": typeof lib_confidenceScoring;
   "lib/confirmationPolicy": typeof lib_confirmationPolicy;
   "lib/freshness": typeof lib_freshness;
+  "lib/identityClaims": typeof lib_identityClaims;
   "lib/incidents": typeof lib_incidents;
   "lib/inviteCrypto": typeof lib_inviteCrypto;
   "lib/inviteDisclosure": typeof lib_inviteDisclosure;

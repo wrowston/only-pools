@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TOUCH_TARGET_MIN_CLASS } from "@/lib/gameDayShell";
+import { EmptyState } from "./EmptyState";
 import { PoolShell } from "./PoolShell";
 
 export function ConfidenceStandingsView({
@@ -23,26 +24,28 @@ export function ConfidenceStandingsView({
   if (isLoading || standings === undefined) {
     return (
       <PoolShell poolId={poolId}>
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10">
-          <p className="text-sm text-op-muted">Loading standings…</p>
-        </div>
+        <EmptyState
+          title="Loading standings"
+          description="Fetching Confidence standings…"
+        />
       </PoolShell>
     );
   }
 
   if (standings === null) {
     return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10">
-        <p className="text-sm text-op-secondary">
-          Standings are available only to Pool members.
-        </p>
-        <Link
-          href="/my-pools"
-          className="text-sm text-op-muted hover:text-op-text"
-        >
-          ← My Pools
-        </Link>
-      </div>
+      <EmptyState
+        title="Standings unavailable"
+        description="Standings are available only to Pool members."
+        action={
+          <Link
+            href="/my-pools"
+            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+          >
+            Back to My Pools
+          </Link>
+        }
+      />
     );
   }
 
@@ -103,35 +106,47 @@ export function ConfidenceStandingsView({
         ) : null}
 
         {tab === "weekly" ? (
-          <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
-            {standings.weekly.rows.map((row) => (
-              <li
-                key={row.participantId}
-                className="flex items-baseline justify-between gap-4 py-3"
-              >
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate font-medium text-op-text">
-                    {row.rank !== null ? `${row.rank}. ` : ""}
-                    {row.displayName}
-                    {row.isViewer ? (
-                      <span className="ml-2 text-xs font-normal text-op-muted">
-                        you
-                      </span>
-                    ) : null}
+          standings.weekly.rows.length === 0 ? (
+            <EmptyState
+              title="No weekly standings yet"
+              description="Weekly standings appear as Verified Results are scored for this week."
+            />
+          ) : (
+            <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
+              {standings.weekly.rows.map((row) => (
+                <li
+                  key={row.participantId}
+                  className="flex items-baseline justify-between gap-4 py-3"
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate font-medium text-op-text">
+                      {row.rank !== null ? `${row.rank}. ` : ""}
+                      {row.displayName}
+                      {row.isViewer ? (
+                        <span className="ml-2 text-xs font-normal text-op-muted">
+                          you
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-xs text-op-muted">
+                      {row.correctPickCount} correct
+                      {!standings.weekSettled
+                        ? ` · ${row.possibleRemainingPoints} possible remaining`
+                        : null}
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-sm font-medium text-op-text">
+                    {row.points} pts
                   </span>
-                  <span className="text-xs text-op-muted">
-                    {row.correctPickCount} correct
-                    {!standings.weekSettled
-                      ? ` · ${row.possibleRemainingPoints} possible remaining`
-                      : null}
-                  </span>
-                </div>
-                <span className="shrink-0 text-sm font-medium text-op-text">
-                  {row.points} pts
-                </span>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : standings.season.rows.length === 0 ? (
+          <EmptyState
+            title="No season standings yet"
+            description="Season standings advance only after a Pool Week fully resolves."
+          />
         ) : (
           <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
             {standings.season.rows.map((row) => (

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { EmptyState } from "./EmptyState";
 
 type IncidentRow = {
   _id: Id<"operatorIncidents">;
@@ -75,9 +76,12 @@ export function OperatorIncidentsPanel() {
         </p>
       ) : null}
       {incidents === undefined ? (
-        <p className="mt-4 text-sm text-zinc-500">Loading…</p>
+        <p className="mt-4 text-sm text-op-muted">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">No open incidents.</p>
+        <EmptyState
+          title="No open incidents"
+          description="Provider Exception, Stale-in-window, delayed scoring, quarantine, and capacity incidents appear here when they need attention."
+        />
       ) : (
         <ul className="mt-4 space-y-3">
           {rows.map((inc) => (
