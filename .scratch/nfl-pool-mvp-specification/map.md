@@ -37,10 +37,11 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Define the production trust and recovery standard](./issues/11-define-production-trust-recovery-standard.md) — Best-effort live Sundays with Operator Incidents plus Sentry, relaxed single-operator response times, quiet-when-healthy participant banners, production-only scope, no custom backups, and one allowlisted Production Operator.
 - [Design the Convex persistence and query model](./issues/19-design-convex-persistence-query-model.md) — Separate authoritative and projection tables, participant-week pick docs, Scoring Revision–published standing rows, NFL identity plus evidence, hashed invites, index-guarded uniqueness, and a closed role-filtered query catalog.
 - [Define the responsive component and visual interaction contract](./issues/20-define-responsive-component-visual-contract.md) — My Pools → Week Board with secondary Standings/Pool pages, 900px shadcn shell, closed component inventory, inherited Only Pools tokens/states, and quiet degradation via a single incident banner.
+- [Define production deployment, bootstrap, and release sequencing](./issues/21-define-production-deployment-bootstrap-release.md) — Convex Production and Dev with Preview on Dev only, separated secrets, operator Season Bootstrap to Available, Convex-first releases, Sync Gate controls, and ordered go-live without game-window cutover.
 
 ## Not yet specified
 
-<!-- Fog cleared for deployment/bootstrap/release — graduated into a ticket after the trust boundary settled. -->
+<!-- Fog cleared through deployment/bootstrap/release. Remaining route is the implementation acceptance contract. -->
 
 ## Out of scope
 

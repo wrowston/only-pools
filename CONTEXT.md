@@ -12,6 +12,14 @@ _Avoid_: League, group
 The current NFL regular season selected when a Pool is created and within which all of that Pool's competitive weeks occur; it never changes for that Pool and excludes the postseason.
 _Avoid_: League year, year
 
+**Season Bootstrap**:
+The audited Production Operator action that seeds NFL Teams and the authoritative regular-season schedule for a Pool Season on a Convex deployment until that season becomes Available; it is never performed by participants or Pool roles and is not calendar-triggered.
+_Avoid_: Season sync, season import, auto-rollover
+
+**Available Season**:
+A Pool Season that has finished Season Bootstrap successfully with at least one usable Start Week slate, so Create Pool may target it; until then Create Pool remains disabled.
+_Avoid_: Open season, published season, active season
+
 **Pool Ruleset**:
 A Pool's outcome-affecting rules, including its Pick Lock mode, shared by every participant. It becomes immutable at the earlier of the first server-accepted competitive edit or the first included game reaching a Pick Lock.
 _Avoid_: Settings, configuration
@@ -53,8 +61,12 @@ A participant who belongs to a Pool without ownership or delegated administratio
 _Avoid_: User, player
 
 **Production Operator**:
-The single allowlisted service-level human responsible for investigating NFL-data and scoring failures and, when automatic recovery is insufficient, initiating audited resynchronization or deterministic replay; this authority is separate from every Pool role and cannot edit authoritative NFL facts or competitive inputs.
+The single allowlisted service-level human responsible for Season Bootstrap, the Production Sync Gate, investigating NFL-data and scoring failures, and, when automatic recovery is insufficient, initiating audited resynchronization or deterministic replay; this authority is separate from every Pool role and cannot edit authoritative NFL facts or competitive inputs.
 _Avoid_: Pool Admin, commissioner, support admin
+
+**Sync Gate**:
+An application-level enable or disable for provider synchronization fetch work on a Convex deployment; Production defaults ON after Season Bootstrap and only the Production Operator may toggle it with step-up and audit, while Dev defaults OFF so idle Preview cannot poll the provider.
+_Avoid_: Deployment pause, kill switch, cron disable
 
 **Operator Incident**:
 A production-only record that an automatic recovery path needs human attention — such as a Provider Exception, Stale live or confirmation work in an active game window, delayed scoring after a Verified Result, a quarantine blocking verification, or a Convex capacity incident — including its acknowledgment, recovery actions, and resolution.
