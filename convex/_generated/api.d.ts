@@ -24,6 +24,7 @@ import type * as lib_operator from "../lib/operator.js";
 import type * as lib_pickLock from "../lib/pickLock.js";
 import type * as lib_poolRules from "../lib/poolRules.js";
 import type * as lib_providerBudget from "../lib/providerBudget.js";
+import type * as lib_survivorScoring from "../lib/survivorScoring.js";
 import type * as lib_syncGate from "../lib/syncGate.js";
 import type * as lib_syncObservations from "../lib/syncObservations.js";
 import type * as lib_verificationGate from "../lib/verificationGate.js";
@@ -32,6 +33,7 @@ import type * as pools from "../pools.js";
 import type * as providers_thesportsdb_adapter from "../providers/thesportsdb/adapter.js";
 import type * as providers_thesportsdb_client from "../providers/thesportsdb/client.js";
 import type * as survivorPicks from "../survivorPicks.js";
+import type * as survivorScoring from "../survivorScoring.js";
 import type * as sync from "../sync.js";
 import type * as syncLive from "../syncLive.js";
 
@@ -58,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   "lib/pickLock": typeof lib_pickLock;
   "lib/poolRules": typeof lib_poolRules;
   "lib/providerBudget": typeof lib_providerBudget;
+  "lib/survivorScoring": typeof lib_survivorScoring;
   "lib/syncGate": typeof lib_syncGate;
   "lib/syncObservations": typeof lib_syncObservations;
   "lib/verificationGate": typeof lib_verificationGate;
@@ -66,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   "providers/thesportsdb/adapter": typeof providers_thesportsdb_adapter;
   "providers/thesportsdb/client": typeof providers_thesportsdb_client;
   survivorPicks: typeof survivorPicks;
+  survivorScoring: typeof survivorScoring;
   sync: typeof sync;
   syncLive: typeof syncLive;
 }>;

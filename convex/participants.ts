@@ -51,13 +51,16 @@ export const myPools = query({
     for (const row of membershipRows) {
       if (row.status !== "active") continue;
       const pool = await ctx.db.get(row.poolId);
-      if (!pool || pool.status !== "active") continue;
+      if (!pool || (pool.status !== "active" && pool.status !== "completed")) {
+        continue;
+      }
       memberships.push({
         poolId: pool._id,
         name: pool.name,
         role: row.role,
         type: pool.type,
         startWeek: pool.startWeek,
+        status: pool.status,
         nextAction: "open_week_board" as const,
       });
     }

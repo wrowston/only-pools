@@ -326,6 +326,7 @@ describe("myPools after create", () => {
         role: "owner",
         type: "survivor",
         startWeek: 1,
+        status: "active",
         nextAction: "open_week_board",
       },
     ]);

@@ -180,7 +180,25 @@ export const autosaveSurvivorPick = mutation({
 
     await requirePoolMembership(ctx, pool._id, participant._id);
 
-    // Alive stub until ticket 08 scores elimination — all active members are Alive.
+    if (pool.status === "completed") {
+      throw new SurvivorPickError(
+        "This Pool is Completed — Survivor Picks are closed",
+      );
+    }
+
+    // Alive Participant only — eliminated / winner cannot submit new picks.
+    const standing = await ctx.db
+      .query("seasonStandings")
+      .withIndex("by_poolId_and_participantId", (q) =>
+        q.eq("poolId", pool._id).eq("participantId", participant._id),
+      )
+      .unique();
+    if (standing && standing.eligibility !== "alive") {
+      throw new SurvivorPickError(
+        "Only Alive Participants may submit Survivor Picks",
+      );
+    }
+
     if (args.week < pool.startWeek || args.week > 18) {
       throw new SurvivorPickError("Week is outside this Pool's included weeks");
     }

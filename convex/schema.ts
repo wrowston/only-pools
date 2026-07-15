@@ -153,7 +153,7 @@ export default defineSchema({
     seasonId: v.id("poolSeasons"),
     startWeek: v.number(),
     pickLockMode: pickLockMode,
-    status: v.literal("active"),
+    status: v.union(v.literal("active"), v.literal("completed")),
     /** True after first accepted competitive edit or first Pick Lock. */
     rulesFrozen: v.boolean(),
     ownerParticipantId: v.id("participants"),
@@ -164,6 +164,9 @@ export default defineSchema({
      * never reopens.
      */
     admissionClosedAtMs: v.optional(v.number()),
+    /** Set when Survivor (or later Confidence) reaches a terminal outcome. */
+    completedAtMs: v.optional(v.number()),
+    completedWeek: v.optional(v.number()),
   })
     .index("by_ownerParticipantId", ["ownerParticipantId"])
     .index("by_seasonId", ["seasonId"]),
@@ -347,6 +350,12 @@ export default defineSchema({
     provenance: v.union(v.literal("authored"), v.literal("omission")),
     /** Advance / future-week pick while earlier weeks are unsettled. */
     provisional: v.boolean(),
+    /**
+     * Set when earlier elimination invalidates a later Provisional Survivor
+     * Pick — team reservation is released and the team is not consumed.
+     */
+    invalidated: v.optional(v.boolean()),
+    invalidatedAtMs: v.optional(v.number()),
     updatedAtMs: v.number(),
   })
     .index("by_poolId_and_participantId_and_week", [
@@ -448,4 +457,93 @@ export default defineSchema({
     ])
     .index("by_poolId_and_week_and_gameId", ["poolId", "week", "gameId"])
     .index("by_poolId_and_week", ["poolId", "week"]),
+
+  /**
+   * Pool Week lifecycle + current Scoring Revision pointer.
+   * Survivor weeks have no Pick Sheet; Confidence weeks may.
+   */
+  poolWeeks: defineTable({
+    poolId: v.id("pools"),
+    week: v.number(),
+    /** True when every Alive-entering participant has a resolved outcome. */
+    settled: v.boolean(),
+    currentScoringRevisionId: v.optional(v.id("scoringRevisions")),
+    currentRevisionNumber: v.optional(v.number()),
+    updatedAtMs: v.number(),
+  }).index("by_poolId_and_week", ["poolId", "week"]),
+
+  /**
+   * Immutable official Scoring Revision for one Pool Week.
+   * Identical authoritative input fingerprint is an idempotent no-op.
+   */
+  scoringRevisions: defineTable({
+    poolId: v.id("pools"),
+    week: v.number(),
+    kind: v.literal("survivor"),
+    revisionNumber: v.number(),
+    fingerprint: v.string(),
+    publishedAtMs: v.number(),
+    status: v.literal("published"),
+  })
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_week_and_revisionNumber", [
+      "poolId",
+      "week",
+      "revisionNumber",
+    ]),
+
+  /**
+   * Survivor pick outcome projection — published atomically with a Scoring
+   * Revision. Official outcomes only from Verified Results (never provisional).
+   */
+  survivorPickOutcomes: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    week: v.number(),
+    pickId: v.optional(v.id("survivorPicks")),
+    outcome: v.union(
+      v.literal("win"),
+      v.literal("loss"),
+      v.literal("tie"),
+      v.literal("missing_pick"),
+      v.literal("pending"),
+      v.literal("invalidated"),
+    ),
+    revisionId: v.id("scoringRevisions"),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_participantId_and_week", [
+      "poolId",
+      "participantId",
+      "week",
+    ]),
+
+  /**
+   * Season Standing / Survivor eligibility projection — one row per member.
+   * Rebuildable from Verified Results + picks; never an authoritative input.
+   */
+  seasonStandings: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    eligibility: v.union(
+      v.literal("alive"),
+      v.literal("eliminated"),
+      v.literal("winner"),
+    ),
+    eliminatedWeek: v.optional(v.number()),
+    eliminationReason: v.optional(
+      v.union(
+        v.literal("loss"),
+        v.literal("tie"),
+        v.literal("missing_pick"),
+      ),
+    ),
+    /** Week that established winner designation (sole or joint). */
+    wonAtWeek: v.optional(v.number()),
+    revisionId: v.optional(v.id("scoringRevisions")),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId", ["poolId"])
+    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
 });

@@ -143,6 +143,14 @@ export const applyLiveObservation = internalMutation({
 
       await ctx.db.patch(game._id, patch);
 
+      if (outcome.justVerified) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+          { gameId: game._id, nowMs: observation.observedAtMs },
+        );
+      }
+
       const scheduled: string[] = [];
       // Schedule 15- and 60-minute confirmation lookups on first provisional.
       if (
@@ -257,6 +265,15 @@ export const applyConfirmationObservationMutation = internalMutation({
     }
 
     await ctx.db.patch(game._id, patch);
+
+    // Verified Result → schedule Survivor Scoring Revisions for affected pools.
+    if (outcome.justVerified) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId: game._id, nowMs: observation.observedAtMs },
+      );
+    }
 
     // On restart, reschedule confirmation lookups.
     if (
