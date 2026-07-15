@@ -13,6 +13,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - Use the repository's [domain glossary](../../CONTEXT.md) and consult the `grilling` and `domain-modeling` skills in every decision session. Use `research` or `prototype` when the ticket type calls for it.
 - Refer to the map and every ticket by its linked title, never by a bare local number.
 - Optimize every decision for trustworthy live NFL Sundays, simple social participation, clear incident communication, and operator-controlled recovery.
+- Production observability uses Sentry together with in-product Operator Incidents, as settled in [Define the production trust and recovery standard](./issues/11-define-production-trust-recovery-standard.md).
 
 ## Decisions so far
 
@@ -33,10 +34,11 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Prototype participant and Pool Owner game-day flows](./issues/10-prototype-game-day-flows.md) — A mobile-first Week Board, expanded into a Firecrawl-like desktop shell with Only Pools colors, keeps picks, save/lock/result trust, standings, and Owner readiness in one responsive hierarchy that must be rebuilt as production React components.
 - [Research Convex scheduling and provider constraints](./issues/17-research-convex-scheduling-provider-constraints.md) — Convex requires mutation-owned durable orchestration around at-most-once fetch actions; TheSportsDB capacity is ample but has no freshness SLA, and production plan, retry, cadence, observability, and budget choices remain explicit.
 - [Define the Convex synchronization schedule and cost controls](./issues/18-define-convex-sync-schedule-cost-controls.md) — A one-minute Convex dispatcher drives phase-aware schedule, live, confirmation, and correction work with coalesced retries, explicit freshness states, audited operator recovery, and protected Starter/provider budgets.
+- [Define the production trust and recovery standard](./issues/11-define-production-trust-recovery-standard.md) — Best-effort live Sundays with Operator Incidents plus Sentry, relaxed single-operator response times, quiet-when-healthy participant banners, production-only scope, no custom backups, and one allowlisted Production Operator.
 
 ## Not yet specified
 
-- Deployment environments, seed/bootstrap mechanics, and release sequencing. The production trust standard must first reveal the required operational boundary.
+<!-- Fog cleared for deployment/bootstrap/release — graduated into a ticket after the trust boundary settled. -->
 
 ## Out of scope
 

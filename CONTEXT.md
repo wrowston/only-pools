@@ -53,8 +53,12 @@ A participant who belongs to a Pool without ownership or delegated administratio
 _Avoid_: User, player
 
 **Production Operator**:
-The service-level human responsible for investigating NFL-data and scoring failures and, when automatic recovery is insufficient, initiating audited resynchronization or deterministic replay; this authority is separate from every Pool role and cannot edit authoritative NFL facts or competitive inputs.
+The single allowlisted service-level human responsible for investigating NFL-data and scoring failures and, when automatic recovery is insufficient, initiating audited resynchronization or deterministic replay; this authority is separate from every Pool role and cannot edit authoritative NFL facts or competitive inputs.
 _Avoid_: Pool Admin, commissioner, support admin
+
+**Operator Incident**:
+A production-only record that an automatic recovery path needs human attention — such as a Provider Exception, Stale live or confirmation work in an active game window, delayed scoring after a Verified Result, a quarantine blocking verification, or a Convex capacity incident — including its acknowledgment, recovery actions, and resolution.
+_Avoid_: Alert, outage ticket, status page event
 
 **Participant**:
 Any person age 18 or older who has confirmed that eligibility and competes in a Pool, regardless of whether they are also its Pool Owner or a Pool Admin.
