@@ -191,6 +191,56 @@ async function invalidateLaterProvisionals(
   }
 }
 
+/**
+ * Corrected Result restoring eligibility also reinstates later Provisional
+ * Survivor Picks accepted before their own lock (team re-reserved).
+ */
+async function reinstateProvisionalIfNeeded(
+  ctx: MutationCtx,
+  pick: Doc<"survivorPicks">,
+  nowMs: number,
+): Promise<Doc<"survivorPicks">> {
+  if (!pick.invalidated) return pick;
+  await ctx.db.patch(pick._id, {
+    invalidated: undefined,
+    invalidatedAtMs: undefined,
+    updatedAtMs: nowMs,
+  });
+  if (pick.nflTeamId) {
+    const reservations = await ctx.db
+      .query("survivorTeamReservations")
+      .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+        q
+          .eq("poolId", pick.poolId)
+          .eq("participantId", pick.participantId)
+          .eq("nflTeamId", pick.nflTeamId!),
+      )
+      .take(8);
+    let reserved = false;
+    for (const res of reservations) {
+      if (res.week === pick.week) {
+        await ctx.db.patch(res._id, {
+          released: false,
+          updatedAtMs: nowMs,
+        });
+        reserved = true;
+      }
+    }
+    if (!reserved) {
+      await ctx.db.insert("survivorTeamReservations", {
+        poolId: pick.poolId,
+        participantId: pick.participantId,
+        nflTeamId: pick.nflTeamId,
+        week: pick.week,
+        released: false,
+        updatedAtMs: nowMs,
+      });
+    }
+  }
+  const refreshed = await ctx.db.get(pick._id);
+  return refreshed ?? pick;
+}
+
 type PublishResult =
   | { status: "noop"; reason: "identical_fingerprint"; revisionNumber: number }
   | { status: "stale"; reason: "newer_revision_exists"; revisionNumber: number }
@@ -310,7 +360,7 @@ export const applySurvivorScoringRevision = internalMutation({
       for (const m of memberships) {
         const s = state.get(m.participantId)!;
         const entered = s.eligibility === "alive";
-        const pick = pickByParticipant.get(m.participantId) ?? null;
+        let pick = pickByParticipant.get(m.participantId) ?? null;
 
         if (!entered) {
           weekOutcomes.push({
@@ -320,6 +370,12 @@ export const applySurvivorScoringRevision = internalMutation({
             enteredAlive: false,
           });
           continue;
+        }
+
+        // Correction restoring eligibility reinstates later provisionals.
+        if (pick?.invalidated) {
+          pick = await reinstateProvisionalIfNeeded(ctx, pick, nowMs);
+          pickByParticipant.set(m.participantId, pick);
         }
 
         const game =
@@ -338,6 +394,7 @@ export const applySurvivorScoringRevision = internalMutation({
                 provenance: pick.provenance,
                 provisional: pick.provisional,
                 invalidated: pick.invalidated,
+                locked: pick.locked,
               }
             : null,
           game: game
@@ -504,13 +561,10 @@ export const applySurvivorScoringRevision = internalMutation({
     }
 
     // Apply eligibility from full replay (state map holds final after target week).
+    // Corrections may restore Alive / clear winners — always rewrite from replay.
     for (const m of memberships) {
       const s = state.get(m.participantId)!;
       const standing = standingsByParticipant.get(m.participantId)!;
-      // Don't downgrade winners here; terminal designation below may promote.
-      if (standing.eligibility === "winner" && pool.status === "completed") {
-        continue;
-      }
       await ctx.db.patch(standing._id, {
         eligibility: s.eligibility === "eliminated" ? "eliminated" : "alive",
         eliminatedWeek: s.eliminatedWeek,
@@ -588,7 +642,23 @@ export const applySurvivorScoringRevision = internalMutation({
           completedWeek: args.week,
         });
         poolStatus = "completed";
+      } else if (pool.status === "completed") {
+        // Terminal condition no longer holds after correction — reopen Active.
+        await ctx.db.patch(pool._id, {
+          status: "active",
+          completedAtMs: undefined,
+          completedWeek: undefined,
+        });
+        poolStatus = "active";
       }
+    } else if (pool.status === "completed") {
+      // Week unsettled after correction (e.g. Pending) — reopen Active.
+      await ctx.db.patch(pool._id, {
+        status: "active",
+        completedAtMs: undefined,
+        completedWeek: undefined,
+      });
+      poolStatus = "active";
     }
 
     return {
@@ -602,7 +672,76 @@ export const applySurvivorScoringRevision = internalMutation({
 });
 
 /**
- * After a Verified Result, score every Survivor Pool that includes that week.
+ * Pre-lock verified cancellation: invalidate Survivor picks and release teams
+ * so participants can replace before the remaining lock window closes.
+ * Post-lock picks are left intact for No-Contest Advance scoring.
+ */
+export const handleVerifiedCancellation = internalMutation({
+  args: {
+    gameId: v.id("nflGames"),
+    nowMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    if (!game) return { invalidated: 0 };
+    if (game.resultAuthority !== "verified") return { invalidated: 0 };
+    if (game.verifiedResult?.status !== "CANC") return { invalidated: 0 };
+
+    const nowMs = args.nowMs ?? Date.now();
+    const pools = await ctx.db
+      .query("pools")
+      .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
+      .take(200);
+
+    let invalidated = 0;
+    for (const pool of pools) {
+      if (pool.type !== "survivor") continue;
+      const picks = await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", game.week),
+        )
+        .take(120);
+
+      for (const pick of picks) {
+        if (pick.gameId !== game._id) continue;
+        if (pick.invalidated) continue;
+        if (pick.locked) continue; // No-Contest Advance path
+
+        await ctx.db.patch(pick._id, {
+          invalidated: true,
+          invalidatedAtMs: nowMs,
+          updatedAtMs: nowMs,
+        });
+        if (pick.nflTeamId) {
+          const reservations = await ctx.db
+            .query("survivorTeamReservations")
+            .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+              q
+                .eq("poolId", pool._id)
+                .eq("participantId", pick.participantId)
+                .eq("nflTeamId", pick.nflTeamId!),
+            )
+            .take(8);
+          for (const res of reservations) {
+            if (res.week === pick.week && !res.released) {
+              await ctx.db.patch(res._id, {
+                released: true,
+                updatedAtMs: nowMs,
+              });
+            }
+          }
+        }
+        invalidated += 1;
+      }
+    }
+    return { invalidated };
+  },
+});
+
+/**
+ * After a Verified / Corrected Result, score every Survivor Pool that includes
+ * that week — including Completed Pools so corrections can reopen Active.
  */
 export const scoreSurvivorPoolsForVerifiedGame = internalMutation({
   args: {
@@ -622,12 +761,11 @@ export const scoreSurvivorPoolsForVerifiedGame = internalMutation({
     let scoredPools = 0;
     for (const pool of pools) {
       if (pool.type !== "survivor") continue;
-      if (pool.status === "completed") continue;
       if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
         continue;
       }
       // Replay from the verified week through later weeks so provisional
-      // invalidation and terminal outcomes cascade.
+      // invalidation, corrections, and terminal outcomes cascade.
       for (let w = game.week; w <= SURVIVOR_FINAL_WEEK; w++) {
         const weekGames = await loadWeekGames(ctx, pool.seasonId, w);
         if (weekGames.length === 0 && w > game.week) break;

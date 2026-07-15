@@ -215,6 +215,14 @@ export const autosaveSurvivorPick = mutation({
         "That NFL Team is not on the week slate for this Pool Week",
       );
     }
+    if (
+      game.resultAuthority === "verified" &&
+      game.verifiedResult?.status === "CANC"
+    ) {
+      throw new SurvivorPickError(
+        "That game was canceled — choose a different team for this Pool Week",
+      );
+    }
 
     const earliestKickoff = Math.min(
       ...games.map((g) => g.scheduledKickoffMs),
@@ -300,6 +308,8 @@ export const autosaveSurvivorPick = mutation({
         gameId: game._id,
         provisional,
         provenance: "authored",
+        invalidated: undefined,
+        invalidatedAtMs: undefined,
         updatedAtMs: nowMs,
       });
     } else {
@@ -395,6 +405,22 @@ export const materializeSurvivorLocks = mutation({
         nowMs,
       }),
     );
+
+    for (const g of games) {
+      if (
+        g.kickoffLockReachedAtMs == null &&
+        isSurvivorPickLocked({
+          pickLockMode: pool.pickLockMode,
+          game: g,
+          weeklyCutoffMs,
+          nowMs,
+        })
+      ) {
+        await ctx.db.patch(g._id, {
+          kickoffLockReachedAtMs: Math.min(nowMs, g.scheduledKickoffMs),
+        });
+      }
+    }
 
     const picks = await ctx.db
       .query("survivorPicks")

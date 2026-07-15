@@ -147,4 +147,59 @@ describe("confirmation policy (scenarios 24, 29)", () => {
     expect(isOfficialResult("correction_candidate")).toBe(false);
     expect(isOfficialResult("verified")).toBe(true);
   });
+
+  it("contradictory evidence after Verified becomes correction_candidate (scenario 27)", () => {
+    const first = applyConfirmationObservation({
+      prior: emptyConfirmationState(),
+      observation: terminal(T0, 24, 17),
+    });
+    const verified = applyConfirmationObservation({
+      prior: first,
+      observation: terminal(T0 + CONFIRMATION_MIN_ELAPSED_MS, 24, 17),
+    });
+    const candidate = applyConfirmationObservation({
+      prior: verified,
+      observation: terminal(T0 + CONFIRMATION_MIN_ELAPSED_MS + 1, 27, 17),
+    });
+
+    expect(candidate.resultAuthority).toBe("correction_candidate");
+    expect(candidate.restarted).toBe(true);
+    expect(candidate.justCorrected).toBe(false);
+    expect(candidate.verifiedResult).toEqual(verified.verifiedResult);
+    expect(candidate.priorVerifiedResult).toEqual(verified.verifiedResult);
+    expect(candidate.provisionalTerminalAtMs).toBe(
+      T0 + CONFIRMATION_MIN_ELAPSED_MS + 1,
+    );
+  });
+
+  it("matching confirmation after correction_candidate produces Corrected Result (scenario 27)", () => {
+    const first = applyConfirmationObservation({
+      prior: emptyConfirmationState(),
+      observation: terminal(T0, 24, 17),
+    });
+    const verified = applyConfirmationObservation({
+      prior: first,
+      observation: terminal(T0 + CONFIRMATION_MIN_ELAPSED_MS, 24, 17),
+    });
+    const tCorr = T0 + CONFIRMATION_MIN_ELAPSED_MS + 86_400_000;
+    const candidate = applyConfirmationObservation({
+      prior: verified,
+      observation: terminal(tCorr, 27, 17),
+    });
+    const corrected = applyConfirmationObservation({
+      prior: candidate,
+      observation: terminal(tCorr + CONFIRMATION_MIN_ELAPSED_MS, 27, 17),
+    });
+
+    expect(corrected.resultAuthority).toBe("verified");
+    expect(corrected.justVerified).toBe(true);
+    expect(corrected.justCorrected).toBe(true);
+    expect(corrected.verifiedResult).toEqual({
+      homeScore: 27,
+      awayScore: 17,
+      verifiedAtMs: tCorr + CONFIRMATION_MIN_ELAPSED_MS,
+      status: "FT",
+    });
+    expect(corrected.priorVerifiedResult).toEqual(verified.verifiedResult);
+  });
 });

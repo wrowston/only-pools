@@ -11,7 +11,8 @@ export type SurvivorPickOutcomeKind =
   | "tie"
   | "missing_pick"
   | "pending"
-  | "invalidated";
+  | "invalidated"
+  | "no_contest_advance";
 
 export type EliminationReason = "loss" | "tie" | "missing_pick";
 
@@ -36,6 +37,8 @@ export type SurvivorPickInput = {
   provenance: "authored" | "omission";
   provisional: boolean;
   invalidated?: boolean;
+  /** True when Pick Lock has been reached for this pick. */
+  locked?: boolean;
 };
 
 /**
@@ -67,8 +70,11 @@ export function resolveSurvivorPickOutcome(args: {
   }
 
   if (game.verifiedStatus === "CANC") {
-    // No-Contest Advance is ticketed separately; treat as pending here so we
-    // never invent an official win/loss from cancellation in this module.
+    // Post-lock: No-Contest Advance (Alive, team consumed).
+    // Pre-lock: caller invalidates + releases; stay pending until replaced.
+    if (pick.locked) {
+      return "no_contest_advance";
+    }
     return "pending";
   }
 

@@ -25,6 +25,7 @@ import {
   type ResultAuthority,
   type TerminalStatus,
 } from "./lib/confirmationPolicy";
+import { applyKickoffScheduleChange } from "./lib/pickLock";
 import { deriveFreshness } from "./lib/freshness";
 import {
   admitProviderFetch,
@@ -67,12 +68,28 @@ function gameConfirmationState(game: {
     verifiedAtMs: number;
     status: TerminalStatus;
   };
+  priorVerifiedResult?: {
+    homeScore: number;
+    awayScore: number;
+    verifiedAtMs: number;
+    status: TerminalStatus;
+    supersededAtMs?: number;
+  };
 }): ConfirmationState {
+  const prior = game.priorVerifiedResult;
   return {
     resultAuthority: game.resultAuthority ?? "none",
     provisionalTerminalAtMs: game.provisionalTerminalAtMs ?? null,
     observations: game.confirmationObservations ?? [],
     verifiedResult: game.verifiedResult ?? null,
+    priorVerifiedResult: prior
+      ? {
+          homeScore: prior.homeScore,
+          awayScore: prior.awayScore,
+          verifiedAtMs: prior.verifiedAtMs,
+          status: prior.status,
+        }
+      : null,
     pendingRetry: false,
   };
 }
@@ -140,10 +157,26 @@ export const applyLiveObservation = internalMutation({
       if (outcome.verifiedResult) {
         patch.verifiedResult = outcome.verifiedResult;
       }
+      if (outcome.priorVerifiedResult) {
+        patch.priorVerifiedResult = {
+          ...outcome.priorVerifiedResult,
+          supersededAtMs: outcome.justCorrected
+            ? observation.observedAtMs
+            : (game.priorVerifiedResult?.supersededAtMs ??
+              observation.observedAtMs),
+        };
+      }
 
       await ctx.db.patch(game._id, patch);
 
       if (outcome.justVerified) {
+        if (terminalStatus === "CANC") {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.survivorScoring.handleVerifiedCancellation,
+            { gameId: game._id, nowMs: observation.observedAtMs },
+          );
+        }
         await ctx.scheduler.runAfter(
           0,
           internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
@@ -157,9 +190,11 @@ export const applyLiveObservation = internalMutation({
       }
 
       const scheduled: string[] = [];
-      // Schedule 15- and 60-minute confirmation lookups on first provisional.
+      // Schedule 15- and 60-minute confirmation lookups on first provisional
+      // or when a correction candidate restarts the clock.
       if (
-        outcome.resultAuthority === "confirmation_pending" &&
+        (outcome.resultAuthority === "confirmation_pending" ||
+          outcome.resultAuthority === "correction_candidate") &&
         outcome.provisionalTerminalAtMs !== null &&
         (prior.provisionalTerminalAtMs === null || outcome.restarted)
       ) {
@@ -268,11 +303,30 @@ export const applyConfirmationObservationMutation = internalMutation({
     if (outcome.verifiedResult) {
       patch.verifiedResult = outcome.verifiedResult;
     }
+    if (outcome.priorVerifiedResult) {
+      patch.priorVerifiedResult = {
+        ...outcome.priorVerifiedResult,
+        supersededAtMs: outcome.justCorrected
+          ? observation.observedAtMs
+          : (game.priorVerifiedResult?.supersededAtMs ??
+            observation.observedAtMs),
+      };
+    }
 
     await ctx.db.patch(game._id, patch);
 
-    // Verified Result → schedule Scoring Revisions for affected pools.
+    // Verified / Corrected Result → schedule Scoring Revisions for affected pools.
     if (outcome.justVerified) {
+      if (
+        !observation.lookupFailed &&
+        observation.status === "CANC"
+      ) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.survivorScoring.handleVerifiedCancellation,
+          { gameId: game._id, nowMs: observation.observedAtMs },
+        );
+      }
       await ctx.scheduler.runAfter(
         0,
         internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
@@ -285,7 +339,7 @@ export const applyConfirmationObservationMutation = internalMutation({
       );
     }
 
-    // On restart, reschedule confirmation lookups.
+    // On restart (including correction candidates), reschedule confirmation lookups.
     if (
       outcome.restarted &&
       outcome.provisionalTerminalAtMs !== null &&
@@ -346,6 +400,7 @@ export const applyConfirmationObservationMutation = internalMutation({
       gameId: game._id,
       resultAuthority: outcome.resultAuthority,
       justVerified: outcome.justVerified,
+      justCorrected: outcome.justCorrected,
       restarted: outcome.restarted,
       pendingRetry: outcome.pendingRetry,
       verifiedResult: outcome.verifiedResult,
@@ -355,6 +410,7 @@ export const applyConfirmationObservationMutation = internalMutation({
 
 /**
  * Apply a schedule observation (kickoff / lifecycle from schedule surface).
+ * Unreached Pick Locks move with authoritative kickoff; reached locks latch.
  */
 export const applyScheduleObservation = internalMutation({
   args: {
@@ -366,14 +422,26 @@ export const applyScheduleObservation = internalMutation({
     if (!game) {
       throw new Error(`NFL Game not found: ${observation.gameId}`);
     }
+    const schedule = applyKickoffScheduleChange({
+      priorScheduledKickoffMs: game.scheduledKickoffMs,
+      newScheduledKickoffMs: observation.scheduledKickoffMs,
+      nowMs: observation.observedAtMs,
+      priorLifecycle: game.lifecycle,
+      kickoffLockReachedAtMs: game.kickoffLockReachedAtMs ?? null,
+    });
     const revision = (game.revision ?? 0) + 1;
     await ctx.db.patch(game._id, {
-      scheduledKickoffMs: observation.scheduledKickoffMs,
+      scheduledKickoffMs: schedule.scheduledKickoffMs,
       lifecycle: observation.lifecycle,
+      kickoffLockReachedAtMs: schedule.kickoffLockReachedAtMs ?? undefined,
       lastObservedAtMs: observation.observedAtMs,
       revision,
     });
-    return { gameId: game._id, revision };
+    return {
+      gameId: game._id,
+      revision,
+      kickoffLockReachedAtMs: schedule.kickoffLockReachedAtMs,
+    };
   },
 });
 

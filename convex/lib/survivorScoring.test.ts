@@ -125,6 +125,52 @@ describe("resolveSurvivorPickOutcome (scenario 32)", () => {
       }),
     ).toBe("pending");
   });
+
+  it("awards No-Contest Advance on post-lock verified cancellation (scenario 26)", () => {
+    expect(
+      resolveSurvivorPickOutcome({
+        pick: {
+          participantId: "p1",
+          week: 1,
+          nflTeamId: "kc",
+          gameId: "g1",
+          provenance: "authored",
+          provisional: false,
+          locked: true,
+        },
+        game: {
+          ...verifiedWin,
+          homeScore: 0,
+          awayScore: 0,
+          verifiedStatus: "CANC",
+        },
+        weekFullyLocked: true,
+      }),
+    ).toBe("no_contest_advance");
+  });
+
+  it("stays pending on pre-lock verified cancellation so pick can be replaced (scenario 26)", () => {
+    expect(
+      resolveSurvivorPickOutcome({
+        pick: {
+          participantId: "p1",
+          week: 1,
+          nflTeamId: "kc",
+          gameId: "g1",
+          provenance: "authored",
+          provisional: false,
+          locked: false,
+        },
+        game: {
+          ...verifiedWin,
+          homeScore: 0,
+          awayScore: 0,
+          verifiedStatus: "CANC",
+        },
+        weekFullyLocked: false,
+      }),
+    ).toBe("pending");
+  });
 });
 
 describe("decideSurvivorTerminalOutcome (scenario 34)", () => {

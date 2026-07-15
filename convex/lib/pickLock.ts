@@ -9,20 +9,65 @@ const PLAY_STARTED_LIFECYCLES = new Set([
   "terminal",
 ]);
 
+export type KickoffLockGame = {
+  scheduledKickoffMs: number;
+  lifecycle: string;
+  /** Latched when Game Kickoff Lock first reached — never cleared by reschedule. */
+  kickoffLockReachedAtMs?: number | null;
+};
+
 /**
  * A game reaches Game Kickoff Lock at the earlier of:
  * - server now >= authoritative scheduled kickoff
  * - normalized provider state reporting play has started
+ * - a prior kickoffLockReachedAtMs latch (irreversible under disruption)
  * There is no grace period.
  */
 export function isGameKickoffLocked(
-  game: { scheduledKickoffMs: number; lifecycle: string },
+  game: KickoffLockGame,
   nowMs: number,
 ): boolean {
+  if (game.kickoffLockReachedAtMs != null) {
+    return true;
+  }
   if (nowMs >= game.scheduledKickoffMs) {
     return true;
   }
   return PLAY_STARTED_LIFECYCLES.has(game.lifecycle);
+}
+
+/**
+ * Apply an authoritative kickoff / lifecycle schedule change.
+ * Unreached locks move with the new kickoff; reached locks latch forever.
+ */
+export function applyKickoffScheduleChange(args: {
+  priorScheduledKickoffMs: number;
+  newScheduledKickoffMs: number;
+  nowMs: number;
+  priorLifecycle: string;
+  kickoffLockReachedAtMs: number | null;
+}): {
+  scheduledKickoffMs: number;
+  kickoffLockReachedAtMs: number | null;
+} {
+  const alreadyReached =
+    args.kickoffLockReachedAtMs !== null ||
+    isGameKickoffLocked(
+      {
+        scheduledKickoffMs: args.priorScheduledKickoffMs,
+        lifecycle: args.priorLifecycle,
+        kickoffLockReachedAtMs: args.kickoffLockReachedAtMs,
+      },
+      args.nowMs,
+    );
+
+  return {
+    scheduledKickoffMs: args.newScheduledKickoffMs,
+    kickoffLockReachedAtMs: alreadyReached
+      ? (args.kickoffLockReachedAtMs ??
+        Math.min(args.nowMs, args.priorScheduledKickoffMs))
+      : null,
+  };
 }
 
 /**
@@ -107,7 +152,7 @@ function alignToEasternHour(approxUtcMs: number, hourEt: number): number {
  */
 export function isSurvivorPickLocked(args: {
   pickLockMode: "gameKickoff" | "weeklyCutoff";
-  game: { scheduledKickoffMs: number; lifecycle: string };
+  game: KickoffLockGame;
   weeklyCutoffMs: number | null;
   nowMs: number;
 }): boolean {
@@ -134,7 +179,7 @@ export const isConfidenceGameLocked = isSurvivorPickLocked;
  */
 export function isTiebreakerLocked(args: {
   pickLockMode: "gameKickoff" | "weeklyCutoff";
-  tiebreakerGame: { scheduledKickoffMs: number; lifecycle: string };
+  tiebreakerGame: KickoffLockGame;
   weeklyCutoffMs: number | null;
   nowMs: number;
 }): boolean {

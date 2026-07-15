@@ -104,6 +104,53 @@ describe("resolveConfidencePickOutcome (scenario 15)", () => {
     ).toEqual({ outcome: "canceled_zero", pointsEarned: 0 });
   });
 
+  it("does not renumber other confidence values when one game cancels (scenario 26)", () => {
+    const canceled = {
+      pick: {
+        gameId: "g1",
+        pickedTeamId: "kc",
+        confidenceValue: 16,
+        provenance: "authored" as const,
+        locked: true,
+      },
+      game: {
+        ...verifiedHomeWin,
+        gameId: "g1",
+        homeScore: 0,
+        awayScore: 0,
+        verifiedStatus: "CANC",
+      },
+    };
+    const other = {
+      pick: {
+        gameId: "g2",
+        pickedTeamId: "phi",
+        confidenceValue: 15,
+        provenance: "authored" as const,
+        locked: true,
+      },
+      game: {
+        gameId: "g2",
+        homeTeamId: "phi",
+        awayTeamId: "dal",
+        resultAuthority: "verified",
+        homeScore: 21,
+        awayScore: 17,
+        verifiedStatus: "FT",
+      },
+    };
+    expect(resolveConfidencePickOutcome(canceled)).toEqual({
+      outcome: "canceled_zero",
+      pointsEarned: 0,
+    });
+    expect(resolveConfidencePickOutcome(other)).toEqual({
+      outcome: "correct",
+      pointsEarned: 15,
+    });
+    expect(canceled.pick.confidenceValue).toBe(16);
+    expect(other.pick.confidenceValue).toBe(15);
+  });
+
   it("stays pending until the game is Verified", () => {
     expect(
       resolveConfidencePickOutcome({

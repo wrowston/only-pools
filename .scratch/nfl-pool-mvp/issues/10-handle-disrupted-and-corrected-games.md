@@ -4,10 +4,10 @@
 
 **Blocked by:** 07 — Sync live games through Verified Results; 08 — Score Survivor weeks and declare winners; 09 — Score Confidence weeks and standings
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Reached Pick Lock never reopens; unreached lock may move with authoritative kickoff change
-- [ ] Survivor and Confidence cancellation outcomes match the settled policy
-- [ ] Corrected Result replay is deterministic, expands to safe dependency scope, and may reopen Completed→Active
-- [ ] Pool roles cannot invent, suppress, or force results
-- [ ] Acceptance scenarios 25–27 covered with automated replay tests where server-authoritative
+- [x] Reached Pick Lock never reopens; unreached lock may move with authoritative kickoff change
+- [x] Survivor and Confidence cancellation outcomes match the settled policy
+- [x] Corrected Result replay is deterministic, expands to safe dependency scope, and may reopen Completed→Active
+- [x] Pool roles cannot invent, suppress, or force results
+- [x] Acceptance scenarios 25–27 covered with automated replay tests where server-authoritative

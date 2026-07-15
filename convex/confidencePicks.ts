@@ -119,7 +119,19 @@ export async function ensurePickSheetDoc(
     throw new ConfidencePickError("Week slate has no published games");
   }
 
-  const ordered = orderPickSheetGames(games);
+  // Pre-freeze authoritative cancellations are excluded from the Pick Sheet.
+  const competitive = games.filter(
+    (g) =>
+      !(
+        g.lifecycle === "canceled" ||
+        (g.resultAuthority === "verified" && g.verifiedResult?.status === "CANC")
+      ),
+  );
+  if (competitive.length === 0) {
+    throw new ConfidencePickError("Week slate has no competitive games");
+  }
+
+  const ordered = orderPickSheetGames(competitive);
   const last = ordered[ordered.length - 1]!;
 
   const sheetId = await ctx.db.insert("confidencePickSheets", {

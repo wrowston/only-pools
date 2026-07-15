@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyKickoffScheduleChange,
   computeWeeklyCutoffMs,
   isGameKickoffLocked,
   isSurvivorPickLocked,
@@ -64,6 +65,78 @@ describe("isGameKickoffLocked (acceptance scenario 20)", () => {
         kickoff - 1,
       ),
     ).toBe(false);
+  });
+
+  it("stays locked when kickoffLockReachedAtMs is latched even if kickoff moves later (scenario 25)", () => {
+    expect(
+      isGameKickoffLocked(
+        {
+          scheduledKickoffMs: kickoff + 8 * 60 * 60 * 1000,
+          lifecycle: "postponed",
+          kickoffLockReachedAtMs: kickoff,
+        },
+        kickoff + 60_000,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("applyKickoffScheduleChange (scenario 25)", () => {
+  const priorKickoff = 1_000_000;
+
+  it("moves an unreached lock with authoritative kickoff change", () => {
+    const next = applyKickoffScheduleChange({
+      priorScheduledKickoffMs: priorKickoff,
+      newScheduledKickoffMs: priorKickoff + 3 * 60 * 60 * 1000,
+      nowMs: priorKickoff - 60_000,
+      priorLifecycle: "scheduled",
+      kickoffLockReachedAtMs: null,
+    });
+    expect(next.scheduledKickoffMs).toBe(priorKickoff + 3 * 60 * 60 * 1000);
+    expect(next.kickoffLockReachedAtMs).toBeNull();
+    expect(
+      isGameKickoffLocked(
+        {
+          scheduledKickoffMs: next.scheduledKickoffMs,
+          lifecycle: "scheduled",
+          kickoffLockReachedAtMs: next.kickoffLockReachedAtMs,
+        },
+        priorKickoff + 60_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("latches a reached lock so postponement/reschedule never reopens it", () => {
+    const next = applyKickoffScheduleChange({
+      priorScheduledKickoffMs: priorKickoff,
+      newScheduledKickoffMs: priorKickoff + 8 * 60 * 60 * 1000,
+      nowMs: priorKickoff + 30_000,
+      priorLifecycle: "scheduled",
+      kickoffLockReachedAtMs: null,
+    });
+    expect(next.scheduledKickoffMs).toBe(priorKickoff + 8 * 60 * 60 * 1000);
+    expect(next.kickoffLockReachedAtMs).not.toBeNull();
+    expect(
+      isGameKickoffLocked(
+        {
+          scheduledKickoffMs: next.scheduledKickoffMs,
+          lifecycle: "postponed",
+          kickoffLockReachedAtMs: next.kickoffLockReachedAtMs,
+        },
+        priorKickoff + 60_000,
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves an existing kickoffLockReachedAtMs latch", () => {
+    const next = applyKickoffScheduleChange({
+      priorScheduledKickoffMs: priorKickoff + 8 * 60 * 60 * 1000,
+      newScheduledKickoffMs: priorKickoff + 12 * 60 * 60 * 1000,
+      nowMs: priorKickoff + 60_000,
+      priorLifecycle: "postponed",
+      kickoffLockReachedAtMs: priorKickoff,
+    });
+    expect(next.kickoffLockReachedAtMs).toBe(priorKickoff);
   });
 });
 

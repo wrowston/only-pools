@@ -8,8 +8,11 @@
  * (i.e. the confirming observation must fall at/after the 60-minute mark,
  *  which also satisfies the 15-minute spacing rule).
  *
- * Contradiction restarts the confirmation clock. Convex server receipt time
- * is the trusted clock — provider timestamps are never used here.
+ * Contradiction restarts the confirmation clock. After a Verified Result,
+ * contradictory evidence becomes a correction_candidate; matching confirmation
+ * produces a Corrected Result that supersedes the prior Verified Result.
+ * Convex server receipt time is the trusted clock — provider timestamps are
+ * never used here.
  */
 
 export const CONFIRMATION_MIN_SPACING_MS = 15 * 60 * 1000;
@@ -24,6 +27,13 @@ export type ConfirmationObservation = {
   status: TerminalStatus;
 };
 
+export type VerifiedTerminalResult = {
+  homeScore: number;
+  awayScore: number;
+  verifiedAtMs: number;
+  status: TerminalStatus;
+};
+
 export type ResultAuthority =
   | "none"
   | "projected"
@@ -35,12 +45,12 @@ export type ConfirmationState = {
   resultAuthority: ResultAuthority;
   provisionalTerminalAtMs: number | null;
   observations: ConfirmationObservation[];
-  verifiedResult: {
-    homeScore: number;
-    awayScore: number;
-    verifiedAtMs: number;
-    status: TerminalStatus;
-  } | null;
+  verifiedResult: VerifiedTerminalResult | null;
+  /**
+   * Prior Verified Result retained while a Corrected Result is confirming
+   * or after it supersedes (audit / display).
+   */
+  priorVerifiedResult: VerifiedTerminalResult | null;
   /** True when a confirming lookup failed/missing — Pending + retry path. */
   pendingRetry: boolean;
 };
@@ -55,6 +65,8 @@ export type ConfirmationInput = {
 export type ConfirmationOutcome = ConfirmationState & {
   restarted: boolean;
   justVerified: boolean;
+  /** True when justVerified supersedes a prior Verified Result. */
+  justCorrected: boolean;
 };
 
 const EMPTY: ConfirmationState = {
@@ -62,6 +74,7 @@ const EMPTY: ConfirmationState = {
   provisionalTerminalAtMs: null,
   observations: [],
   verifiedResult: null,
+  priorVerifiedResult: null,
   pendingRetry: false,
 };
 
@@ -97,6 +110,7 @@ export function applyConfirmationObservation(
       pendingRetry: true,
       restarted: false,
       justVerified: false,
+      justCorrected: false,
     };
   }
 
@@ -112,11 +126,11 @@ export function applyConfirmationObservation(
       pendingRetry: false,
       restarted: false,
       justVerified: false,
+      justCorrected: false,
     };
   }
 
-  // Verified with contradictory evidence → correction candidate (ticket 07 leaves
-  // full correction confirmation to later work; mark the candidate).
+  // Verified with contradictory evidence → correction candidate.
   if (
     prior.resultAuthority === "verified" &&
     prior.verifiedResult !== null &&
@@ -128,37 +142,48 @@ export function applyConfirmationObservation(
       provisionalTerminalAtMs: observation.observedAtMs,
       observations: [observation],
       verifiedResult: prior.verifiedResult,
+      priorVerifiedResult: prior.verifiedResult,
       pendingRetry: false,
       restarted: true,
       justVerified: false,
+      justCorrected: false,
     };
   }
+
+  const correcting = prior.resultAuthority === "correction_candidate";
+  const retainedPrior =
+    prior.priorVerifiedResult ??
+    (correcting ? prior.verifiedResult : prior.priorVerifiedResult);
 
   const first = prior.observations[0] ?? null;
 
   // No prior provisional — first FT/AOT/CANC becomes provisional.
   if (first === null || prior.provisionalTerminalAtMs === null) {
     return {
-      resultAuthority: "confirmation_pending",
+      resultAuthority: correcting ? "correction_candidate" : "confirmation_pending",
       provisionalTerminalAtMs: observation.observedAtMs,
       observations: [observation],
-      verifiedResult: null,
+      verifiedResult: correcting ? prior.verifiedResult : null,
+      priorVerifiedResult: retainedPrior,
       pendingRetry: false,
       restarted: false,
       justVerified: false,
+      justCorrected: false,
     };
   }
 
-  // Contradiction vs provisional candidate → restart clock.
+  // Contradiction vs provisional / correction candidate → restart clock.
   if (!observationsMatch(first, observation)) {
     return {
-      resultAuthority: "confirmation_pending",
+      resultAuthority: correcting ? "correction_candidate" : "confirmation_pending",
       provisionalTerminalAtMs: observation.observedAtMs,
       observations: [observation],
-      verifiedResult: null,
+      verifiedResult: correcting ? prior.verifiedResult : null,
+      priorVerifiedResult: retainedPrior,
       pendingRetry: false,
       restarted: true,
       justVerified: false,
+      justCorrected: false,
     };
   }
 
@@ -168,31 +193,36 @@ export function applyConfirmationObservation(
   const windowOk = elapsedFromFirst >= CONFIRMATION_MIN_ELAPSED_MS;
 
   if (spacingOk && windowOk) {
+    const newVerified: VerifiedTerminalResult = {
+      homeScore: observation.homeScore,
+      awayScore: observation.awayScore,
+      verifiedAtMs: observation.observedAtMs,
+      status: observation.status,
+    };
     return {
       resultAuthority: "verified",
       provisionalTerminalAtMs: prior.provisionalTerminalAtMs,
       observations: [...prior.observations, observation],
-      verifiedResult: {
-        homeScore: observation.homeScore,
-        awayScore: observation.awayScore,
-        verifiedAtMs: observation.observedAtMs,
-        status: observation.status,
-      },
+      verifiedResult: newVerified,
+      priorVerifiedResult: correcting ? retainedPrior : prior.priorVerifiedResult,
       pendingRetry: false,
       restarted: false,
       justVerified: true,
+      justCorrected: correcting,
     };
   }
 
-  // Matching but too early (e.g. 15-minute lookup) — stay pending.
+  // Matching but too early (e.g. 15-minute lookup) — stay pending / candidate.
   return {
-    resultAuthority: "confirmation_pending",
+    resultAuthority: correcting ? "correction_candidate" : "confirmation_pending",
     provisionalTerminalAtMs: prior.provisionalTerminalAtMs,
     observations: [...prior.observations, observation],
-    verifiedResult: null,
+    verifiedResult: correcting ? prior.verifiedResult : null,
+    priorVerifiedResult: retainedPrior,
     pendingRetry: false,
     restarted: false,
     justVerified: false,
+    justCorrected: false,
   };
 }
 

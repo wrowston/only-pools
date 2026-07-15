@@ -91,6 +91,11 @@ export default defineSchema({
     awayTeamId: v.id("nflTeams"),
     scheduledKickoffMs: v.number(),
     lifecycle: nflGameLifecycle,
+    /**
+     * Latched when Game Kickoff Lock first reaches — postponement/reschedule
+     * never clears this (scenario 25).
+     */
+    kickoffLockReachedAtMs: v.optional(v.number()),
     /** Last observed / projected scores — never official until verified. */
     homeScore: v.union(v.number(), v.null()),
     awayScore: v.union(v.number(), v.null()),
@@ -133,6 +138,22 @@ export default defineSchema({
           v.literal("AOT"),
           v.literal("CANC"),
         ),
+      }),
+    ),
+    /**
+     * Prior Verified Result superseded by a Corrected Result (audit history).
+     */
+    priorVerifiedResult: v.optional(
+      v.object({
+        homeScore: v.number(),
+        awayScore: v.number(),
+        verifiedAtMs: v.number(),
+        status: v.union(
+          v.literal("FT"),
+          v.literal("AOT"),
+          v.literal("CANC"),
+        ),
+        supersededAtMs: v.number(),
       }),
     ),
     lastObservedAtMs: v.optional(v.number()),
@@ -508,6 +529,7 @@ export default defineSchema({
       v.literal("missing_pick"),
       v.literal("pending"),
       v.literal("invalidated"),
+      v.literal("no_contest_advance"),
     ),
     revisionId: v.id("scoringRevisions"),
     updatedAtMs: v.number(),
