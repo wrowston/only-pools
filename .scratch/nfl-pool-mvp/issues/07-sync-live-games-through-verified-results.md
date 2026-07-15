@@ -4,11 +4,11 @@
 
 **Blocked by:** 02 — Bootstrap an Available Season; 03 — Create an Active Pool and open the Week Board
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] No frontend provider calls; fetches go through dispatcher-claimed actions into normalized mutations
-- [ ] Confirmation clock verifies matching terminal evidence; contradiction restarts; failure leaves Pending + retry
-- [ ] Provisional finals drive projections only — never official elimination, points, or completion
-- [ ] Late alone raises no participant banner; Stale-in-window / Provider Exception are distinguishable for later incident wiring
-- [ ] Budget non-starvation: confirmation/operator reserves protected
-- [ ] Acceptance scenarios 24, 28–31 covered with fixture-driven sync tests
+- [x] No frontend provider calls; fetches go through dispatcher-claimed actions into normalized mutations
+- [x] Confirmation clock verifies matching terminal evidence; contradiction restarts; failure leaves Pending + retry
+- [x] Provisional finals drive projections only — never official elimination, points, or completion
+- [x] Late alone raises no participant banner; Stale-in-window / Provider Exception are distinguishable for later incident wiring
+- [x] Budget non-starvation: confirmation/operator reserves protected
+- [x] Acceptance scenarios 24, 28–31 covered with fixture-driven sync tests

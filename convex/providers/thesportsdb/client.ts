@@ -48,3 +48,29 @@ export async function fetchSeasonEvents(
   const body = await getJson<{ events: SportsDbEvent[] | null }>(url);
   return body.events ?? [];
 }
+
+/**
+ * League-wide livescore (V1 free-tier path). Prefer fixtures in tests —
+ * never call from clients. Free tier may return limited/empty live rows.
+ */
+export async function fetchLeagueLivescore(
+  apiKey: string = sportsDbApiKey(),
+): Promise<SportsDbEvent[]> {
+  const url = `${FREE_BASE}/${apiKey}/livescore.php?l=${NFL_LEAGUE_ID}`;
+  const body = await getJson<{ events?: SportsDbEvent[] | null; livescore?: SportsDbEvent[] | null }>(
+    url,
+  );
+  return body.events ?? body.livescore ?? [];
+}
+
+/**
+ * Targeted event lookup for confirmation / correction. Fixture-only in CI.
+ */
+export async function fetchEventLookup(
+  eventId: string,
+  apiKey: string = sportsDbApiKey(),
+): Promise<SportsDbEvent | null> {
+  const url = `${FREE_BASE}/${apiKey}/lookupevent.php?id=${encodeURIComponent(eventId)}`;
+  const body = await getJson<{ events: SportsDbEvent[] | null }>(url);
+  return body.events?.[0] ?? null;
+}

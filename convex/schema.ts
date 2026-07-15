@@ -91,9 +91,52 @@ export default defineSchema({
     awayTeamId: v.id("nflTeams"),
     scheduledKickoffMs: v.number(),
     lifecycle: nflGameLifecycle,
+    /** Last observed / projected scores — never official until verified. */
     homeScore: v.union(v.number(), v.null()),
     awayScore: v.union(v.number(), v.null()),
     sportsDbEventId: v.string(),
+    /**
+     * Result authority. Absent / "none" until live or terminal evidence arrives.
+     * Provisional finals are confirmation_pending — never official.
+     */
+    resultAuthority: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("projected"),
+        v.literal("confirmation_pending"),
+        v.literal("verified"),
+        v.literal("correction_candidate"),
+      ),
+    ),
+    provisionalTerminalAtMs: v.optional(v.number()),
+    confirmationObservations: v.optional(
+      v.array(
+        v.object({
+          observedAtMs: v.number(),
+          homeScore: v.number(),
+          awayScore: v.number(),
+          status: v.union(
+            v.literal("FT"),
+            v.literal("AOT"),
+            v.literal("CANC"),
+          ),
+        }),
+      ),
+    ),
+    verifiedResult: v.optional(
+      v.object({
+        homeScore: v.number(),
+        awayScore: v.number(),
+        verifiedAtMs: v.number(),
+        status: v.union(
+          v.literal("FT"),
+          v.literal("AOT"),
+          v.literal("CANC"),
+        ),
+      }),
+    ),
+    lastObservedAtMs: v.optional(v.number()),
+    revision: v.optional(v.number()),
   })
     .index("by_stableKey", ["stableKey"])
     .index("by_seasonId_and_week", ["seasonId", "week"])
@@ -205,15 +248,88 @@ export default defineSchema({
     .index("by_atMs", ["atMs"]),
 
   /**
-   * Stub queue of provider fetch claim attempts — demonstrates Sync Gate
-   * blocking new claims while ordinary queries continue.
+   * Provider fetch claim attempts — Sync Gate deny/allow + budget admission.
+   * Used by the dispatcher and tests; clients never call the provider.
    */
   providerFetchClaims: defineTable({
     surface: v.string(),
     status: v.union(v.literal("claimed"), v.literal("denied")),
     reason: v.optional(v.string()),
     claimedAtMs: v.number(),
+    priority: v.optional(
+      v.union(
+        v.literal("routine"),
+        v.literal("confirmation"),
+        v.literal("operator"),
+      ),
+    ),
+    workItemId: v.optional(v.id("syncWorkItems")),
   }).index("by_claimedAtMs", ["claimedAtMs"]),
+
+  /**
+   * Durable sync work queue — schedule, live, confirmation, correction, operator.
+   * Coalesced by surface + scopeKey; dispatcher claims due items under budget.
+   */
+  syncWorkItems: defineTable({
+    surface: v.union(
+      v.literal("schedule"),
+      v.literal("live"),
+      v.literal("confirmation"),
+      v.literal("correction"),
+      v.literal("operator"),
+    ),
+    scopeKey: v.string(),
+    priority: v.union(
+      v.literal("routine"),
+      v.literal("confirmation"),
+      v.literal("operator"),
+    ),
+    status: v.union(
+      v.literal("due"),
+      v.literal("claimed"),
+      v.literal("done"),
+      v.literal("failed"),
+    ),
+    dueAtMs: v.number(),
+    claimedAtMs: v.optional(v.number()),
+    leaseExpiresAtMs: v.optional(v.number()),
+    attemptCount: v.number(),
+    gameId: v.optional(v.id("nflGames")),
+    seasonId: v.optional(v.id("poolSeasons")),
+    purpose: v.optional(v.string()),
+  })
+    .index("by_status_and_dueAtMs", ["status", "dueAtMs"])
+    .index("by_scopeKey", ["scopeKey"])
+    .index("by_gameId", ["gameId"]),
+
+  /**
+   * Per-surface sync health for freshness derivation (Late / Stale / Exception).
+   */
+  syncSurfaceHealth: defineTable({
+    surface: v.string(),
+    scopeKey: v.string(),
+    lastAttemptAtMs: v.optional(v.number()),
+    lastSuccessAtMs: v.optional(v.number()),
+    expectedNextRefreshAtMs: v.optional(v.number()),
+    consecutiveFailures: v.number(),
+    providerException: v.boolean(),
+    updatedAtMs: v.number(),
+  }).index("by_surface_and_scopeKey", ["surface", "scopeKey"]),
+
+  /**
+   * Provider Exception records for later Operator Incident wiring (ticket 13).
+   * Distinguishable from Late / Stale freshness states.
+   */
+  providerExceptions: defineTable({
+    kind: v.string(),
+    gameId: v.optional(v.id("nflGames")),
+    scopeKey: v.string(),
+    message: v.string(),
+    createdAtMs: v.number(),
+    resolvedAtMs: v.optional(v.number()),
+  })
+    .index("by_createdAtMs", ["createdAtMs"])
+    .index("by_gameId", ["gameId"]),
 
   /**
    * Survivor Pick — one team per participant per included week.

@@ -449,6 +449,28 @@ export function WeekBoardView({
                     </div>
                     <div className="text-xs text-zinc-500">
                       {formatKickoff(game.scheduledKickoffMs)}
+                      {game.projectedHomeScore !== null &&
+                      game.projectedAwayScore !== null &&
+                      (game.resultAuthority === "projected" ||
+                        game.resultAuthority === "confirmation_pending" ||
+                        game.resultAuthority === "verified" ||
+                        game.lifecycle === "in_progress" ||
+                        game.lifecycle === "terminal") ? (
+                        <span className="mt-0.5 block">
+                          {game.awayTeam?.abbreviation ?? "AWY"}{" "}
+                          {game.projectedAwayScore} – {game.projectedHomeScore}{" "}
+                          {game.homeTeam?.abbreviation ?? "HOM"}
+                          {game.isOfficial ? (
+                            <span className="ml-1 text-zinc-600 dark:text-zinc-400">
+                              · Verified Result
+                            </span>
+                          ) : (
+                            <span className="ml-1 text-amber-700 dark:text-amber-400">
+                              · Projected (non-official)
+                            </span>
+                          )}
+                        </span>
+                      ) : null}
                       {game.locked || confPick?.locked ? (
                         <span className="mt-0.5 block text-zinc-400">
                           Pick Lock reached

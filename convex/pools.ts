@@ -12,6 +12,7 @@ import {
   isSurvivorPickLocked,
 } from "./lib/pickLock";
 import { defaultConfidenceRanking } from "./lib/confidenceScale";
+import { deriveFreshness } from "./lib/freshness";
 
 const poolTypeValidator = v.union(
   v.literal("survivor"),
@@ -337,6 +338,13 @@ export const getWeekBoard = query({
               abbreviation: away.abbreviation,
             }
           : null,
+        /** Projected scores — never official until Verified Result. */
+        projectedHomeScore: game.homeScore,
+        projectedAwayScore: game.awayScore,
+        resultAuthority: game.resultAuthority ?? "none",
+        isOfficial: (game.resultAuthority ?? "none") === "verified",
+        verifiedResult: game.verifiedResult ?? null,
+        lastObservedAtMs: game.lastObservedAtMs ?? null,
       });
     }
 
@@ -577,6 +585,40 @@ export const getWeekBoard = query({
       }
     }
 
+    const lastObservedAtMs = games
+      .map((g) => g.lastObservedAtMs)
+      .filter((ms): ms is number => ms !== undefined)
+      .reduce<number | null>(
+        (max, ms) => (max === null || ms > max ? ms : max),
+        null,
+      );
+
+    // Prefer league-live health for the season; fall back to game observation age.
+    const liveHealth = await ctx.db
+      .query("syncSurfaceHealth")
+      .withIndex("by_surface_and_scopeKey", (q) =>
+        q.eq("surface", "league_live").eq("scopeKey", `live:${pool.seasonId}`),
+      )
+      .unique();
+
+    const syncFreshness = liveHealth
+      ? deriveFreshness({
+          surface: "league_live",
+          lastSuccessAtMs: liveHealth.lastSuccessAtMs ?? null,
+          nowMs,
+          providerException: liveHealth.providerException,
+        })
+      : lastObservedAtMs !== null
+        ? deriveFreshness({
+            surface: "league_live",
+            lastSuccessAtMs: lastObservedAtMs,
+            nowMs,
+          })
+        : {
+            state: "fresh" as const,
+            raisesParticipantBanner: false,
+          };
+
     return {
       pool: {
         poolId: pool._id,
@@ -593,6 +635,15 @@ export const getWeekBoard = query({
       mySurvivorPick,
       myConfidencePickSet,
       participantPickStates,
+      /**
+       * Sync freshness for later Operator Incident wiring (ticket 13).
+       * Late alone must not raise a participant banner.
+       */
+      syncFreshness: {
+        state: syncFreshness.state,
+        raisesParticipantBanner: syncFreshness.raisesParticipantBanner,
+        lastObservedAtMs,
+      },
     };
   },
 });
