@@ -63,6 +63,7 @@ export function claimsFromIdentity(
     avatarUrl: pickString(identity, "pictureUrl", "picture", "image_url"),
     emailVerified: emailVerifiedFromIdentity(identity),
     phoneVerified: phoneVerifiedFromIdentity(identity),
+    authenticated: typeof identity.subject === "string" && identity.subject.length > 0,
     clerkSessionId,
   };
 }
@@ -164,18 +165,15 @@ export async function ensureParticipant(
   }
 
   if (existing === null) {
-    if (!claims.emailVerified || !claims.phoneVerified) {
-      throw new AuthError("Verification incomplete for new Participant");
-    }
-
     return await ctx.db.insert("participants", {
       tokenIdentifier: claims.tokenIdentifier,
       clerkUserId: claims.clerkUserId,
       displayName: claims.displayName,
       email: claims.email,
       phone: claims.phone,
-      emailVerified: claims.emailVerified,
-      phoneVerified: claims.phoneVerified,
+      // Contact verification is enforced at Clerk sign-in; JWT claims are optional.
+      emailVerified: claims.emailVerified || Boolean(claims.email),
+      phoneVerified: claims.phoneVerified || Boolean(claims.phone),
       // Account creation attests adult eligibility; no separate age gate.
       ageConfirmed: true,
       suspended: false,

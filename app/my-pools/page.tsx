@@ -4,42 +4,20 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { CreatePoolForm } from "@/components/CreatePoolForm";
 import { EmptyState } from "@/components/EmptyState";
 import { api } from "@/convex/_generated/api";
-import {
-  evaluateVerificationGate,
-  type VerificationClaims,
-} from "@/convex/lib/verificationGate";
-
-function claimsFromClerkUser(
-  user: {
-    primaryEmailAddress?: { verification?: { status?: string | null } } | null;
-    primaryPhoneNumber?: { verification?: { status?: string | null } } | null;
-  } | null | undefined,
-): VerificationClaims {
-  return {
-    emailVerified:
-      user?.primaryEmailAddress?.verification?.status === "verified",
-    phoneVerified:
-      user?.primaryPhoneNumber?.verification?.status === "verified",
-  };
-}
 
 function VerificationIncomplete({ missing }: { missing: string[] }) {
   return (
     <EmptyState
-      title="Finish verification"
-      description="Sign-in requires a verified email and a verified phone number before you can open Pool surfaces."
+      title="Could not open My Pools"
+      description="Sign out and back in, then retry. If this keeps happening, the Clerk session is not establishing a Participant."
     >
-      <ul className="list-disc space-y-1 pl-5 text-sm text-op-text">
-        {missing.includes("email") ? <li>Verify your email address</li> : null}
-        {missing.includes("phone") ? <li>Verify your phone number</li> : null}
-      </ul>
-      <p className="text-sm text-op-secondary">
-        Use your account menu to manage email and phone, then refresh this page.
-      </p>
+      {missing.length > 0 ? (
+        <p className="text-sm text-op-secondary">{missing.join(", ")}</p>
+      ) : null}
     </EmptyState>
   );
 }
@@ -312,17 +290,7 @@ export default function MyPoolsPage() {
 
 function MyPoolsGate() {
   const { isLoaded, isSignedIn } = useAuth();
-  const { user, isLoaded: userLoaded } = useUser();
-
-  const claims = useMemo(() => claimsFromClerkUser(user), [user]);
-
-  const decision = useMemo(
-    () =>
-      evaluateVerificationGate(claims, {
-        previouslyEstablished: false,
-      }),
-    [claims],
-  );
+  const { isLoaded: userLoaded } = useUser();
 
   if (!isLoaded || !userLoaded) {
     return (
@@ -345,10 +313,6 @@ function MyPoolsGate() {
         }
       />
     );
-  }
-
-  if (decision.action === "refuse") {
-    return <VerificationIncomplete missing={decision.missing} />;
   }
 
   return <MyPoolsHome />;

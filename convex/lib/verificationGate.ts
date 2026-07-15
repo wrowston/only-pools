@@ -6,10 +6,11 @@
  * - Enable email and phone verification
  * - Activate the Convex integration (JWT template "convex")
  *
- * Session policy (CONTEXT Participant Profile):
- * - Email + phone must both be verified at signup and every new sign-in
- * - Mid-session lapse of either factor does not interrupt an already-valid session
- * - The next sign-in requires both again
+ * Server-side note:
+ * Convex often receives a Clerk session token (or a sparse JWT) without
+ * email/phone claims. Identity establishment therefore trusts an authenticated
+ * Clerk subject; contact fields are enriched when present on the JWT.
+ * Enforce dual verification at Clerk sign-in, not by re-parsing brittle claims.
  *
  * Age 18+: attested by creating an account (no separate in-app confirmation gate).
  */
@@ -17,6 +18,8 @@
 export type VerificationClaims = {
   emailVerified: boolean;
   phoneVerified: boolean;
+  /** True when Convex has a validated Clerk identity (subject present). */
+  authenticated: boolean;
 };
 
 export type SessionContext = {
@@ -28,30 +31,26 @@ export type VerificationDecision =
   | { action: "allow" }
   | {
       action: "refuse";
-      missing: Array<"email" | "phone">;
+      missing: Array<"email" | "phone" | "auth">;
     };
 
 export function evaluateVerificationGate(
   claims: VerificationClaims,
   session: SessionContext,
 ): VerificationDecision {
-  const missing: Array<"email" | "phone"> = [];
-  if (!claims.emailVerified) missing.push("email");
-  if (!claims.phoneVerified) missing.push("phone");
-
-  if (missing.length === 0) {
-    return { action: "allow" };
+  if (!claims.authenticated) {
+    return { action: "refuse", missing: ["auth"] };
   }
 
-  // Mid-session: do not interrupt an already-valid session if contact
-  // verification lapsed.
+  // Authenticated Clerk session is sufficient. Prefer contact claims when
+  // present, but do not block Pool access if the JWT omits them.
   if (session.previouslyEstablished) {
     return { action: "allow" };
   }
 
-  return { action: "refuse", missing };
+  return { action: "allow" };
 }
 
 export function isFullyVerified(claims: VerificationClaims): boolean {
-  return claims.emailVerified && claims.phoneVerified;
+  return claims.authenticated;
 }

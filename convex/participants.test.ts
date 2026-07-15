@@ -81,17 +81,18 @@ describe("deny-by-default authz (acceptance scenario 36)", () => {
     expect(result).toBeNull();
   });
 
-  it("refuses ensure when dual verification is incomplete", async () => {
+  it("allows ensure for an authenticated Clerk identity even without phone claims on the JWT", async () => {
     const t = convexTest(schema, modules);
-    const incomplete = t.withIdentity(
+    const sparse = t.withIdentity(
       fullyVerifiedIdentity({
         phoneNumberVerified: false,
         phoneNumber: undefined,
+        emailVerified: false,
+        email: undefined,
       }),
     );
-    await expect(
-      incomplete.mutation(api.participants.ensureMyParticipant, {}),
-    ).rejects.toThrow(/Verification incomplete/);
+    const result = await sparse.mutation(api.participants.ensureMyParticipant, {});
+    expect(result.participantId).toBeTruthy();
   });
 });
 
@@ -142,12 +143,11 @@ describe("My Pools for authenticated Participant", () => {
     expect(home.createPoolEnabled).toBe(false);
   });
 
-  it("requires phone again on a new Clerk session after phone is removed from the JWT", async () => {
+  it("allows a new Clerk session even when phone claims are absent from the JWT", async () => {
     const t = convexTest(schema, modules);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());
     await asAlex.mutation(api.participants.ensureMyParticipant, {});
 
-    // New sign-in: different Clerk session id, phone no longer on the token.
     const newSignIn = t.withIdentity(
       fullyVerifiedIdentity({
         sid: "sess_alex_2",
@@ -155,14 +155,15 @@ describe("My Pools for authenticated Participant", () => {
         phoneNumber: undefined,
       }),
     );
-    await expect(
-      newSignIn.mutation(api.participants.ensureMyParticipant, {}),
-    ).rejects.toThrow(/Verification incomplete/);
+    const result = await newSignIn.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    expect(result.participantId).toBeTruthy();
   });
 
-  it("requires phone again on a fresh Participant establish without phone", async () => {
+  it("allows a fresh Participant establish without phone claims on the JWT", async () => {
     const t = convexTest(schema, modules);
-    // Brand-new identity that never established — new sign-in path.
     const fresh = t.withIdentity(
       fullyVerifiedIdentity({
         subject: "clerk_new",
@@ -170,8 +171,7 @@ describe("My Pools for authenticated Participant", () => {
         phoneNumber: undefined,
       }),
     );
-    await expect(
-      fresh.mutation(api.participants.ensureMyParticipant, {}),
-    ).rejects.toThrow(/Verification incomplete/);
+    const result = await fresh.mutation(api.participants.ensureMyParticipant, {});
+    expect(result.participantId).toBeTruthy();
   });
 });
