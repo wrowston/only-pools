@@ -31,4 +31,21 @@ describe("identity claim normalization", () => {
       "+15555550100",
     );
   });
+
+  it("treats primary email/phone presence as verified when flag shortcodes are empty", () => {
+    expect(
+      emailVerifiedFromIdentity({
+        email: "will@example.com",
+        email_verified: "",
+      }),
+    ).toBe(true);
+    expect(
+      phoneVerifiedFromIdentity({
+        phone_number: "+15555550100",
+        phone_number_verified: "",
+      }),
+    ).toBe(true);
+    expect(emailVerifiedFromIdentity({})).toBe(false);
+    expect(phoneVerifiedFromIdentity({})).toBe(false);
+  });
 });

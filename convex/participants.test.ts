@@ -84,7 +84,10 @@ describe("deny-by-default authz (acceptance scenario 36)", () => {
   it("refuses ensure when dual verification is incomplete", async () => {
     const t = convexTest(schema, modules);
     const incomplete = t.withIdentity(
-      fullyVerifiedIdentity({ phoneNumberVerified: false }),
+      fullyVerifiedIdentity({
+        phoneNumberVerified: false,
+        phoneNumber: undefined,
+      }),
     );
     await expect(
       incomplete.mutation(api.participants.ensureMyParticipant, {}),
@@ -125,7 +128,7 @@ describe("My Pools for authenticated Participant", () => {
     expect(home.memberships).toEqual([]);
   });
 
-  it("does not interrupt an already-valid session when phone verification lapses mid-session", async () => {
+  it("does not interrupt an already-valid session when phone verification flag is missing but phone remains on the JWT", async () => {
     const t = convexTest(schema, modules);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());
     await asAlex.mutation(api.participants.ensureMyParticipant, {});
@@ -134,20 +137,22 @@ describe("My Pools for authenticated Participant", () => {
       fullyVerifiedIdentity({ phoneNumberVerified: false }),
     );
     const home = await midSession.query(api.participants.myPools, {});
+    expect(home.authError).toBeNull();
     expect(home.memberships).toEqual([]);
     expect(home.createPoolEnabled).toBe(false);
   });
 
-  it("requires phone again on a new Clerk session after a lapse", async () => {
+  it("requires phone again on a new Clerk session after phone is removed from the JWT", async () => {
     const t = convexTest(schema, modules);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());
     await asAlex.mutation(api.participants.ensureMyParticipant, {});
 
-    // New sign-in: different Clerk session id, phone no longer verified.
+    // New sign-in: different Clerk session id, phone no longer on the token.
     const newSignIn = t.withIdentity(
       fullyVerifiedIdentity({
         sid: "sess_alex_2",
         phoneNumberVerified: false,
+        phoneNumber: undefined,
       }),
     );
     await expect(
@@ -155,13 +160,14 @@ describe("My Pools for authenticated Participant", () => {
     ).rejects.toThrow(/Verification incomplete/);
   });
 
-  it("requires phone again on a fresh Participant establish after lapse", async () => {
+  it("requires phone again on a fresh Participant establish without phone", async () => {
     const t = convexTest(schema, modules);
     // Brand-new identity that never established — new sign-in path.
     const fresh = t.withIdentity(
       fullyVerifiedIdentity({
         subject: "clerk_new",
         phoneNumberVerified: false,
+        phoneNumber: undefined,
       }),
     );
     await expect(

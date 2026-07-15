@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
+  emailFromIdentity,
   emailVerifiedFromIdentity,
   phoneFromIdentity,
   phoneVerifiedFromIdentity,
@@ -49,7 +50,7 @@ export function claimsFromIdentity(
     (typeof identity.sessionId === "string" && identity.sessionId) ||
     null;
 
-  const email = pickString(identity, "email", "emailAddress", "email_address");
+  const email = emailFromIdentity(identity);
   const phone = phoneFromIdentity(identity);
   const name = pickString(identity, "name", "nickname");
 

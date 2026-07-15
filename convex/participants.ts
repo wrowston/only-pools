@@ -19,6 +19,33 @@ export const ensureMyParticipant = mutation({
 });
 
 /**
+ * Dev diagnostic: which verification claims Convex sees on the Clerk JWT.
+ * Does not return secrets — only keys + booleans + whether email/phone present.
+ */
+export const debugAuthClaims = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return { authenticated: false as const };
+    }
+    const record = identity as Record<string, unknown>;
+    return {
+      authenticated: true as const,
+      subject: identity.subject,
+      emailPresent: typeof identity.email === "string",
+      phonePresent:
+        typeof identity.phoneNumber === "string" ||
+        typeof record.phone_number === "string",
+      emailVerified: identity.emailVerified ?? record.email_verified ?? null,
+      phoneNumberVerified:
+        identity.phoneNumberVerified ?? record.phone_number_verified ?? null,
+      claimKeys: Object.keys(record).sort(),
+    };
+  },
+});
+
+/**
  * My Pools home: membership list with next-action status + Create Pool gate.
  * Archived Pools are excluded from the normal list unless includeArchived.
  */
