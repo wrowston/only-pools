@@ -103,6 +103,7 @@ describe("My Pools for authenticated Participant", () => {
       memberships: [],
       archivedCount: 0,
       createPoolEnabled: false,
+      authError: null,
     });
   });
 

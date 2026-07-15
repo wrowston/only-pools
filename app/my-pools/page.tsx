@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { CreatePoolForm } from "@/components/CreatePoolForm";
+import { EmptyState } from "@/components/EmptyState";
 import { api } from "@/convex/_generated/api";
 import {
   evaluateVerificationGate,
@@ -28,22 +29,18 @@ function claimsFromClerkUser(
 
 function VerificationIncomplete({ missing }: { missing: string[] }) {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-        Finish verification
-      </h1>
-      <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-        Sign-in requires a verified email and a verified phone number before you
-        can open Pool surfaces.
-      </p>
-      <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700 dark:text-zinc-300">
+    <EmptyState
+      title="Finish verification"
+      description="Sign-in requires a verified email and a verified phone number before you can open Pool surfaces."
+    >
+      <ul className="list-disc space-y-1 pl-5 text-sm text-op-text">
         {missing.includes("email") ? <li>Verify your email address</li> : null}
         {missing.includes("phone") ? <li>Verify your phone number</li> : null}
       </ul>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-op-secondary">
         Use your account menu to manage email and phone, then refresh this page.
       </p>
-    </div>
+    </EmptyState>
   );
 }
 
@@ -85,33 +82,144 @@ function MyPoolsHome() {
 
   if (isLoading || (isAuthenticated && myPools === undefined && !ensureError)) {
     return (
-      <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
-        Loading My Pools…
-      </div>
+      <EmptyState
+        title="Loading My Pools"
+        description="Connecting your account…"
+      />
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <EmptyState
+        title="Still connecting"
+        description="You are signed in with Clerk, but Convex has not accepted the session yet. Sign out completely, sign back in, then open My Pools again (an old session token will keep failing)."
+        action={
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+          >
+            Refresh
+          </button>
+        }
+      />
     );
   }
 
   if (ensureError) {
     return (
-      <div className="mx-auto max-w-md px-6 py-16">
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-          {ensureError}
-        </p>
-      </div>
+      <EmptyState title="Could not open My Pools" description={ensureError} />
     );
   }
 
   if (!myPools) {
-    return null;
+    return (
+      <EmptyState
+        title="My Pools unavailable"
+        description="Your memberships could not be loaded. Refresh and try again."
+        action={
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+          >
+            Refresh
+          </button>
+        }
+      />
+    );
+  }
+
+  if (myPools.authError) {
+    const missing: string[] = [];
+    if (myPools.authError.includes("email")) missing.push("email");
+    if (myPools.authError.includes("phone")) missing.push("phone");
+    return (
+      <VerificationIncomplete
+        missing={missing.length > 0 ? missing : ["email", "phone"]}
+      />
+    );
+  }
+
+  const createJoinActions = (
+    <>
+      <button
+        type="button"
+        disabled={!myPools.createPoolEnabled}
+        onClick={() => setShowCreate(true)}
+        title={
+          myPools.createPoolEnabled
+            ? "Create a Pool"
+            : "Create Pool is disabled until an Available Season exists"
+        }
+        className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Create Pool
+      </button>
+      <Link
+        href="/join"
+        className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+      >
+        Join a Pool
+      </Link>
+    </>
+  );
+
+  if (myPools.memberships.length === 0) {
+    if (showCreate && myPools.createPoolEnabled) {
+      return (
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
+          <header className="flex flex-col gap-2">
+            <h1 className="text-3xl font-semibold tracking-tight text-op-text">
+              My Pools
+            </h1>
+          </header>
+          <CreatePoolForm onCancel={() => setShowCreate(false)} />
+        </div>
+      );
+    }
+
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-op-text">
+            My Pools
+          </h1>
+        </header>
+        <EmptyState
+          title="No Pools yet"
+          description={
+            myPools.createPoolEnabled
+              ? "Create a Pool for the Available Season, or join one with an invite link."
+              : "You are not in any Pools yet. Create Pool stays disabled until Season Bootstrap finishes and an Available Season exists. You can still join with an invite link."
+          }
+          action={createJoinActions}
+        >
+          {myPools.archivedCount > 0 ? (
+            <p className="text-xs text-op-muted">
+              {myPools.archivedCount} archived{" "}
+              {myPools.archivedCount === 1 ? "Pool is" : "Pools are"} hidden.{" "}
+              <Link
+                href="/my-pools?archived=1"
+                className="underline hover:text-op-text"
+              >
+                Show archived
+              </Link>
+            </p>
+          ) : null}
+        </EmptyState>
+      </div>
+    );
   }
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
       <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-3xl font-semibold tracking-tight text-op-text">
           My Pools
         </h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           {includeArchived
             ? "Including archived Pools in this list."
             : "Your Pool memberships and entry points to create or join."}
@@ -119,7 +227,7 @@ function MyPoolsHome() {
         {includeArchived ? (
           <Link
             href="/my-pools"
-            className="text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+            className="text-xs text-op-muted underline hover:text-op-text"
           >
             Hide archived
           </Link>
@@ -129,43 +237,35 @@ function MyPoolsHome() {
       <section aria-labelledby="memberships-heading" className="flex flex-col gap-3">
         <h2
           id="memberships-heading"
-          className="text-sm font-medium uppercase tracking-wide text-zinc-500"
+          className="text-sm font-medium uppercase tracking-wide text-op-muted"
         >
           Memberships
         </h2>
-        {myPools.memberships.length === 0 ? (
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
-            You are not in any Pools yet.
-          </p>
-        ) : (
-          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {myPools.memberships.map((m) => (
-              <li key={m.poolId} className="py-3">
-                <Link
-                  href={`/pools/${m.poolId}`}
-                  className="flex flex-col gap-0.5 text-sm hover:opacity-80"
-                >
-                  <span className="font-medium text-zinc-900 dark:text-zinc-50">
-                    {m.name}
-                  </span>
-                  <span className="text-xs text-zinc-500">
-                    {m.role === "owner" ? "Owner" : m.role}
-                    {m.archived ? " · Archived" : ""} · Week {m.startWeek} · Open
-                    Week Board
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
+          {myPools.memberships.map((m) => (
+            <li key={m.poolId} className="py-3">
+              <Link
+                href={`/pools/${m.poolId}`}
+                className="flex flex-col gap-0.5 text-sm hover:opacity-80"
+              >
+                <span className="font-medium text-op-text">{m.name}</span>
+                <span className="text-xs text-op-muted">
+                  {m.role === "owner" ? "Owner" : m.role}
+                  {m.archived ? " · Archived" : ""} · Week {m.startWeek} · Open
+                  Week Board
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
         {myPools.archivedCount > 0 ? (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-op-muted">
             {myPools.archivedCount} archived{" "}
             {myPools.archivedCount === 1 ? "Pool is" : "Pools are"} hidden from
             this list.{" "}
             <Link
               href="/my-pools?archived=1"
-              className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+              className="underline hover:text-op-text"
             >
               Show archived
             </Link>
@@ -183,27 +283,9 @@ function MyPoolsHome() {
           <h2 id="actions-heading" className="sr-only">
             Create or join
           </h2>
-          <button
-            type="button"
-            disabled={!myPools.createPoolEnabled}
-            onClick={() => setShowCreate(true)}
-            title={
-              myPools.createPoolEnabled
-                ? "Create a Pool"
-                : "Create Pool is disabled until an Available Season exists"
-            }
-            className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-          >
-            Create Pool
-          </button>
-          <Link
-            href="/join"
-            className="rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-          >
-            Join a Pool
-          </Link>
+          {createJoinActions}
           {!myPools.createPoolEnabled ? (
-            <p className="basis-full text-xs text-zinc-500">
+            <p className="basis-full text-xs text-op-muted">
               Create Pool stays disabled until Season Bootstrap finishes and an
               Available Season exists.
             </p>
@@ -244,20 +326,24 @@ function MyPoolsGate() {
 
   if (!isLoaded || !userLoaded) {
     return (
-      <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
-        Loading…
-      </div>
+      <EmptyState title="Loading…" description="Checking your session…" />
     );
   }
 
   if (!isSignedIn) {
     return (
-      <div className="mx-auto max-w-md px-6 py-16 text-sm text-zinc-700 dark:text-zinc-300">
-        Sign in to open My Pools.{" "}
-        <Link href="/sign-in" className="underline">
-          Sign in
-        </Link>
-      </div>
+      <EmptyState
+        title="Sign in to open My Pools"
+        description="Your Pool memberships live here after you sign in."
+        action={
+          <Link
+            href="/sign-in"
+            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+          >
+            Sign in
+          </Link>
+        }
+      />
     );
   }
 

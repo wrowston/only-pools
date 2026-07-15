@@ -27,7 +27,21 @@ export const myPools = query({
     includeArchived: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const participant = await requireParticipant(ctx);
+    let participant;
+    try {
+      participant = await requireParticipant(ctx);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        // Avoid crashing the client query subscription; UI shows the message.
+        return {
+          memberships: [],
+          archivedCount: 0,
+          createPoolEnabled: false,
+          authError: error.message,
+        };
+      }
+      throw error;
+    }
     const createPoolEnabled = await hasAvailableSeason(ctx);
     const includeArchived = args.includeArchived === true;
 
@@ -70,6 +84,7 @@ export const myPools = query({
       memberships,
       archivedCount: archivedMemberships.length,
       createPoolEnabled,
+      authError: null as string | null,
     };
   },
 });

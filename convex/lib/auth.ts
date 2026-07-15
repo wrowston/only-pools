@@ -1,6 +1,12 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
+  emailVerifiedFromIdentity,
+  phoneFromIdentity,
+  phoneVerifiedFromIdentity,
+  pickString,
+} from "./identityClaims";
+import {
   evaluateVerificationGate,
   type VerificationClaims,
 } from "./verificationGate";
@@ -35,12 +41,6 @@ export function claimsFromIdentity(
   identity: Record<string, unknown> & {
     tokenIdentifier: string;
     subject: string;
-    name?: string;
-    email?: string;
-    emailVerified?: boolean;
-    phoneNumber?: string;
-    phoneNumberVerified?: boolean;
-    pictureUrl?: string;
   },
 ): IdentityClaims {
   const clerkSessionId =
@@ -49,19 +49,19 @@ export function claimsFromIdentity(
     (typeof identity.sessionId === "string" && identity.sessionId) ||
     null;
 
+  const email = pickString(identity, "email", "emailAddress", "email_address");
+  const phone = phoneFromIdentity(identity);
+  const name = pickString(identity, "name", "nickname");
+
   return {
     tokenIdentifier: identity.tokenIdentifier,
     clerkUserId: identity.subject,
-    displayName:
-      (typeof identity.name === "string" && identity.name) ||
-      (typeof identity.email === "string" && identity.email) ||
-      "Participant",
-    email: identity.email,
-    phone: identity.phoneNumber,
-    avatarUrl:
-      typeof identity.pictureUrl === "string" ? identity.pictureUrl : undefined,
-    emailVerified: identity.emailVerified === true,
-    phoneVerified: identity.phoneNumberVerified === true,
+    displayName: name || email || "Participant",
+    email,
+    phone,
+    avatarUrl: pickString(identity, "pictureUrl", "picture", "image_url"),
+    emailVerified: emailVerifiedFromIdentity(identity),
+    phoneVerified: phoneVerifiedFromIdentity(identity),
     clerkSessionId,
   };
 }
