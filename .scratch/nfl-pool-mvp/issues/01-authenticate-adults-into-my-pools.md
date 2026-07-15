@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Sign-in without verified email, verified phone, and age confirmation is refused
-- [ ] Both email and phone are required again on the next sign-in if either lapses mid-session; an already-valid session is not interrupted
-- [ ] Signed-in adults land on My Pools with empty state, create/join entry points visible, and Create Pool disabled until a later Available Season exists
-- [ ] Convex Participant identity is deny-by-default; client-supplied roles or ids are never trusted
-- [ ] Automated coverage exists for the dual-verification and deny-by-default auth edge (acceptance scenarios 1, 36 as applicable)
+- [x] Sign-in without verified email, verified phone, and age confirmation is refused
+- [x] Both email and phone are required again on the next sign-in if either lapses mid-session; an already-valid session is not interrupted
+- [x] Signed-in adults land on My Pools with empty state, create/join entry points visible, and Create Pool disabled until a later Available Season exists
+- [x] Convex Participant identity is deny-by-default; client-supplied roles or ids are never trusted
+- [x] Automated coverage exists for the dual-verification and deny-by-default auth edge (acceptance scenarios 1, 36 as applicable)

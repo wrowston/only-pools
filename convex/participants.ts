@@ -1,0 +1,101 @@
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+import {
+  AuthError,
+  confirmAge,
+  ensureParticipant,
+  hasAvailableSeason,
+  requireParticipant,
+} from "./lib/auth";
+
+/**
+ * Create or refresh the Clerk-linked Participant after dual verification.
+ */
+export const ensureMyParticipant = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const participantId = await ensureParticipant(ctx);
+    return { participantId };
+  },
+});
+
+/**
+ * Record age 18+ confirmation after the in-app gate (or Clerk custom field).
+ * Requires verified email + phone from the JWT.
+ */
+export const confirmMyAge = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const participantId = await confirmAge(ctx);
+    return { participantId };
+  },
+});
+
+/**
+ * My Pools home: membership list (empty until later tickets) + Create Pool gate.
+ */
+export const myPools = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireParticipant(ctx);
+    const createPoolEnabled = await hasAvailableSeason(ctx);
+    return {
+      memberships: [] as Array<{
+        poolId: string;
+        name: string;
+        role: "owner" | "admin" | "member";
+      }>,
+      createPoolEnabled,
+    };
+  },
+});
+
+/**
+ * Example deny-by-default surface for acceptance scenario 36.
+ * Client-supplied participantId / role are accepted as args only to prove they
+ * are ignored — authorization always derives from ctx.auth.
+ */
+export const privilegedParticipantSnapshot = query({
+  args: {
+    participantId: v.optional(v.id("participants")),
+    role: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Intentionally ignore args.participantId and args.role.
+    void args.participantId;
+    void args.role;
+
+    try {
+      const participant = await requireParticipant(ctx);
+      return {
+        participantId: participant._id,
+        displayName: participant.displayName,
+        emailVerified: participant.emailVerified,
+        phoneVerified: participant.phoneVerified,
+        ageConfirmed: participant.ageConfirmed,
+      };
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return null;
+      }
+      throw error;
+    }
+  },
+});
+
+/**
+ * Mutation variant of deny-by-default: unauthorized callers get an error;
+ * supplied role never elevates privileges.
+ */
+export const privilegedNoop = mutation({
+  args: {
+    role: v.optional(v.string()),
+    participantId: v.optional(v.id("participants")),
+  },
+  handler: async (ctx, args) => {
+    void args.role;
+    void args.participantId;
+    const participant = await requireParticipant(ctx);
+    return { ok: true as const, participantId: participant._id };
+  },
+});

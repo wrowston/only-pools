@@ -6,7 +6,9 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,21 +38,32 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ClerkProvider>
-          <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-            <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              Only Pools
-            </span>
-            <div className="flex items-center gap-3">
-              <Show when="signed-out">
-                <SignInButton />
-                <SignUpButton />
-              </Show>
-              <Show when="signed-in">
-                <UserButton />
-              </Show>
-            </div>
-          </header>
-          {children}
+          <ConvexClientProvider>
+            <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
+              <Link
+                href="/"
+                className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+              >
+                Only Pools
+              </Link>
+              <div className="flex items-center gap-3">
+                <Show when="signed-out">
+                  <SignInButton />
+                  <SignUpButton />
+                </Show>
+                <Show when="signed-in">
+                  <Link
+                    href="/my-pools"
+                    className="text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-300"
+                  >
+                    My Pools
+                  </Link>
+                  <UserButton />
+                </Show>
+              </div>
+            </header>
+            {children}
+          </ConvexClientProvider>
         </ClerkProvider>
       </body>
     </html>
