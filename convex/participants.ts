@@ -32,19 +32,38 @@ export const confirmMyAge = mutation({
 });
 
 /**
- * My Pools home: membership list (empty until later tickets) + Create Pool gate.
+ * My Pools home: membership list with next-action status + Create Pool gate.
  */
 export const myPools = query({
   args: {},
   handler: async (ctx) => {
-    await requireParticipant(ctx);
+    const participant = await requireParticipant(ctx);
     const createPoolEnabled = await hasAvailableSeason(ctx);
+
+    const membershipRows = await ctx.db
+      .query("poolMemberships")
+      .withIndex("by_participantId", (q) =>
+        q.eq("participantId", participant._id),
+      )
+      .take(50);
+
+    const memberships = [];
+    for (const row of membershipRows) {
+      if (row.status !== "active") continue;
+      const pool = await ctx.db.get(row.poolId);
+      if (!pool || pool.status !== "active") continue;
+      memberships.push({
+        poolId: pool._id,
+        name: pool.name,
+        role: row.role,
+        type: pool.type,
+        startWeek: pool.startWeek,
+        nextAction: "open_week_board" as const,
+      });
+    }
+
     return {
-      memberships: [] as Array<{
-        poolId: string;
-        name: string;
-        role: "owner" | "admin" | "member";
-      }>,
+      memberships,
       createPoolEnabled,
     };
   },

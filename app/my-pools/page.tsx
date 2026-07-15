@@ -4,6 +4,7 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { CreatePoolForm } from "@/components/CreatePoolForm";
 import { api } from "@/convex/_generated/api";
 import {
   evaluateVerificationGate,
@@ -131,6 +132,7 @@ function MyPoolsHome() {
   );
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [ensured, setEnsured] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || ensured) return;
@@ -202,46 +204,62 @@ function MyPoolsHome() {
         ) : (
           <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {myPools.memberships.map((m) => (
-              <li key={m.poolId} className="py-3 text-sm">
-                {m.name}
+              <li key={m.poolId} className="py-3">
+                <Link
+                  href={`/pools/${m.poolId}`}
+                  className="flex flex-col gap-0.5 text-sm hover:opacity-80"
+                >
+                  <span className="font-medium text-zinc-900 dark:text-zinc-50">
+                    {m.name}
+                  </span>
+                  <span className="text-xs text-zinc-500">
+                    {m.role === "owner" ? "Owner" : m.role} · Week {m.startWeek}{" "}
+                    · Open Week Board
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section
-        aria-labelledby="actions-heading"
-        className="flex flex-wrap items-center gap-3"
-      >
-        <h2 id="actions-heading" className="sr-only">
-          Create or join
-        </h2>
-        <button
-          type="button"
-          disabled={!myPools.createPoolEnabled}
-          title={
-            myPools.createPoolEnabled
-              ? "Create a Pool"
-              : "Create Pool is disabled until an Available Season exists"
-          }
-          className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+      {showCreate && myPools.createPoolEnabled ? (
+        <CreatePoolForm onCancel={() => setShowCreate(false)} />
+      ) : (
+        <section
+          aria-labelledby="actions-heading"
+          className="flex flex-wrap items-center gap-3"
         >
-          Create Pool
-        </button>
-        <Link
-          href="/join"
-          className="rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-        >
-          Join a Pool
-        </Link>
-        {!myPools.createPoolEnabled ? (
-          <p className="basis-full text-xs text-zinc-500">
-            Create Pool stays disabled until Season Bootstrap finishes and an
-            Available Season exists.
-          </p>
-        ) : null}
-      </section>
+          <h2 id="actions-heading" className="sr-only">
+            Create or join
+          </h2>
+          <button
+            type="button"
+            disabled={!myPools.createPoolEnabled}
+            onClick={() => setShowCreate(true)}
+            title={
+              myPools.createPoolEnabled
+                ? "Create a Pool"
+                : "Create Pool is disabled until an Available Season exists"
+            }
+            className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            Create Pool
+          </button>
+          <Link
+            href="/join"
+            className="rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+          >
+            Join a Pool
+          </Link>
+          {!myPools.createPoolEnabled ? (
+            <p className="basis-full text-xs text-zinc-500">
+              Create Pool stays disabled until Season Bootstrap finishes and an
+              Available Season exists.
+            </p>
+          ) : null}
+        </section>
+      )}
     </div>
   );
 }

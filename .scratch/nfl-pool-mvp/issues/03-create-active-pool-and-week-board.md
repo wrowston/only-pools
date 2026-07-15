@@ -4,11 +4,11 @@
 
 **Blocked by:** 02 — Bootstrap an Available Season
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Create yields an immediately Active Pool only when a season is Available
-- [ ] Pool Type and Pool Season cannot change after create
-- [ ] Start Week / ruleset / lock mode editable until first accepted competitive edit or first Pick Lock, then immutable
-- [ ] My Pools lists the membership with next-action status; opening it enters the Week Board as the primary in-pool surface
-- [ ] Week Board shows the published slate for the selected week (picks may still be read-only until later tickets)
-- [ ] Acceptance scenarios 8–9 covered; navigation toward scenario 45 begun
+- [x] Create yields an immediately Active Pool only when a season is Available
+- [x] Pool Type and Pool Season cannot change after create
+- [x] Start Week / ruleset / lock mode editable until first accepted competitive edit or first Pick Lock, then immutable
+- [x] My Pools lists the membership with next-action status; opening it enters the Week Board as the primary in-pool surface
+- [x] Week Board shows the published slate for the selected week (picks may still be read-only until later tickets)
+- [x] Acceptance scenarios 8–9 covered; navigation toward scenario 45 begun

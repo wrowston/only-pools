@@ -11,9 +11,20 @@ const nflGameLifecycle = v.union(
   v.literal("unknown"),
 );
 
+const poolType = v.union(v.literal("survivor"), v.literal("confidence"));
+const pickLockMode = v.union(
+  v.literal("gameKickoff"),
+  v.literal("weeklyCutoff"),
+);
+const membershipRole = v.union(
+  v.literal("owner"),
+  v.literal("admin"),
+  v.literal("member"),
+);
+
 /**
- * MVP schema through ticket 02 — Participant identity, Season Bootstrap,
- * NFL Teams / Games, Sync Gate, and operator audit.
+ * MVP schema through ticket 03 — Participant identity, Season Bootstrap,
+ * NFL Teams / Games, Sync Gate, Active Pools, and Pool Memberships.
  */
 export default defineSchema({
   participants: defineTable({
@@ -82,6 +93,36 @@ export default defineSchema({
     .index("by_seasonId_and_week", ["seasonId", "week"])
     .index("by_sportsDbEventId", ["sportsDbEventId"])
     .index("by_seasonId", ["seasonId"]),
+
+  /**
+   * Active Pool competitive container. Pool Type and Pool Season are immutable
+   * after create; Start Week / Pick Lock mode freeze via rulesFrozen.
+   */
+  pools: defineTable({
+    name: v.string(),
+    type: poolType,
+    seasonId: v.id("poolSeasons"),
+    startWeek: v.number(),
+    pickLockMode: pickLockMode,
+    status: v.literal("active"),
+    /** True after first accepted competitive edit or first Pick Lock. */
+    rulesFrozen: v.boolean(),
+    ownerParticipantId: v.id("participants"),
+    createdAtMs: v.number(),
+  })
+    .index("by_ownerParticipantId", ["ownerParticipantId"])
+    .index("by_seasonId", ["seasonId"]),
+
+  /** One membership document per (pool, participant). */
+  poolMemberships: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    role: membershipRole,
+    status: v.literal("active"),
+  })
+    .index("by_participantId", ["participantId"])
+    .index("by_poolId", ["poolId"])
+    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
 
   /**
    * Deployment Sync Gate singleton (key = "deployment").
