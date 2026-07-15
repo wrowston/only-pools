@@ -296,6 +296,37 @@ export default defineSchema({
     .index("by_credentialHash", ["credentialHash"]),
 
   /**
+   * Returning Participant Invite — person-specific, single-use, created from a
+   * Pool Template. Never auto-enrolls; accept required. Only the Pool Owner
+   * may propose Pool Admin via these invites. Raw credential never audited.
+   */
+  returningParticipantInvites: defineTable({
+    poolId: v.id("pools"),
+    sourcePoolId: v.id("pools"),
+    targetParticipantId: v.id("participants"),
+    proposedRole: v.union(v.literal("member"), v.literal("admin")),
+    credentialHash: v.string(),
+    /** Opaque at-rest secret returned only at create time. */
+    credentialSecret: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("revoked"),
+      v.literal("expired"),
+    ),
+    expiresAtMs: v.number(),
+    createdByParticipantId: v.id("participants"),
+    createdAtMs: v.number(),
+    acceptedAtMs: v.optional(v.number()),
+  })
+    .index("by_poolId", ["poolId"])
+    .index("by_credentialHash", ["credentialHash"])
+    .index("by_poolId_and_targetParticipantId", [
+      "poolId",
+      "targetParticipantId",
+    ]),
+
+  /**
    * Progressive throttle for invalid / expired / probing invite attempts.
    * Keyed by Clerk tokenIdentifier (account) — never auto-rotates a valid invite.
    */

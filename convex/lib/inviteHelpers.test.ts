@@ -13,6 +13,7 @@ import {
   hashInviteCredential,
   inviteUrlFromToken,
   parseInviteToken,
+  returningInviteUrlFromToken,
 } from "./inviteCrypto";
 
 describe("membershipCutoff", () => {
@@ -107,7 +108,9 @@ describe("inviteCrypto", () => {
     expect(a).toBe(b);
     expect(a).toHaveLength(64);
     expect(inviteUrlFromToken("abc")).toBe("/join/abc");
+    expect(returningInviteUrlFromToken("xyz")).toBe("/return/xyz");
     expect(parseInviteToken("/join/abc")).toBe("abc");
+    expect(parseInviteToken("/return/xyz")).toBe("xyz");
     expect(parseInviteToken("abc")).toBe("abc");
   });
 });

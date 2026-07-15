@@ -4,9 +4,9 @@
 
 **Blocked by:** 03 — Create an Active Pool and open the Week Board; 11 — Administer roles, removal, archive, and audit
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Template prefills setup only; never copies competitive identity or history
-- [ ] Returning Participant Invites are person-specific, single-use, accept-before-enroll
-- [ ] Proposed Admin via returning invite is Owner-only and requires explicit accept
-- [ ] Acceptance scenario 11 covered
+- [x] Template prefills setup only; never copies competitive identity or history
+- [x] Returning Participant Invites are person-specific, single-use, accept-before-enroll
+- [x] Proposed Admin via returning invite is Owner-only and requires explicit accept
+- [x] Acceptance scenario 11 covered

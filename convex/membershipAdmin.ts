@@ -15,6 +15,8 @@ const PARTICIPANT_VISIBLE_AUDIT_ACTIONS = new Set([
   "invite_retrieved",
   "invite_rotated",
   "invite_accepted",
+  "returning_invite_created",
+  "returning_invite_accepted",
   "ownership_transfer_offered",
   "ownership_transfer_cancelled",
   "ownership_transfer_accepted",

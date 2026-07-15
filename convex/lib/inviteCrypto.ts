@@ -15,9 +15,14 @@ export function generateInviteToken(): string {
 }
 
 export const INVITE_PATH_PREFIX = "/join/";
+export const RETURNING_INVITE_PATH_PREFIX = "/return/";
 
 export function inviteUrlFromToken(rawToken: string): string {
   return `${INVITE_PATH_PREFIX}${rawToken}`;
+}
+
+export function returningInviteUrlFromToken(rawToken: string): string {
+  return `${RETURNING_INVITE_PATH_PREFIX}${rawToken}`;
 }
 
 /** Extract raw token from a path or bare token string. */
@@ -25,6 +30,9 @@ export function parseInviteToken(tokenOrPath: string): string {
   const trimmed = tokenOrPath.trim();
   if (trimmed.startsWith(INVITE_PATH_PREFIX)) {
     return trimmed.slice(INVITE_PATH_PREFIX.length);
+  }
+  if (trimmed.startsWith(RETURNING_INVITE_PATH_PREFIX)) {
+    return trimmed.slice(RETURNING_INVITE_PATH_PREFIX.length);
   }
   return trimmed;
 }
