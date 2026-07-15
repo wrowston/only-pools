@@ -36,6 +36,7 @@ A decision-complete specification for a production-ready, free, private-pool MVP
 - [Define the Convex synchronization schedule and cost controls](./issues/18-define-convex-sync-schedule-cost-controls.md) — A one-minute Convex dispatcher drives phase-aware schedule, live, confirmation, and correction work with coalesced retries, explicit freshness states, audited operator recovery, and protected Starter/provider budgets.
 - [Define the production trust and recovery standard](./issues/11-define-production-trust-recovery-standard.md) — Best-effort live Sundays with Operator Incidents plus Sentry, relaxed single-operator response times, quiet-when-healthy participant banners, production-only scope, no custom backups, and one allowlisted Production Operator.
 - [Design the Convex persistence and query model](./issues/19-design-convex-persistence-query-model.md) — Separate authoritative and projection tables, participant-week pick docs, Scoring Revision–published standing rows, NFL identity plus evidence, hashed invites, index-guarded uniqueness, and a closed role-filtered query catalog.
+- [Define the responsive component and visual interaction contract](./issues/20-define-responsive-component-visual-contract.md) — My Pools → Week Board with secondary Standings/Pool pages, 900px shadcn shell, closed component inventory, inherited Only Pools tokens/states, and quiet degradation via a single incident banner.
 
 ## Not yet specified
 
