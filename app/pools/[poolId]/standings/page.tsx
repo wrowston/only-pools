@@ -1,4 +1,4 @@
-import { SurvivorStandingsView } from "@/components/SurvivorStandingsView";
+import { PoolStandingsView } from "@/components/PoolStandingsView";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export default async function PoolStandingsPage({
@@ -7,5 +7,5 @@ export default async function PoolStandingsPage({
   params: Promise<{ poolId: string }>;
 }) {
   const { poolId } = await params;
-  return <SurvivorStandingsView poolId={poolId as Id<"pools">} />;
+  return <PoolStandingsView poolId={poolId as Id<"pools">} />;
 }

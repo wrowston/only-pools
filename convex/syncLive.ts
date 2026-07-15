@@ -149,6 +149,11 @@ export const applyLiveObservation = internalMutation({
           internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
           { gameId: game._id, nowMs: observation.observedAtMs },
         );
+        await ctx.scheduler.runAfter(
+          0,
+          internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+          { gameId: game._id, nowMs: observation.observedAtMs },
+        );
       }
 
       const scheduled: string[] = [];
@@ -266,11 +271,16 @@ export const applyConfirmationObservationMutation = internalMutation({
 
     await ctx.db.patch(game._id, patch);
 
-    // Verified Result → schedule Survivor Scoring Revisions for affected pools.
+    // Verified Result → schedule Scoring Revisions for affected pools.
     if (outcome.justVerified) {
       await ctx.scheduler.runAfter(
         0,
         internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId: game._id, nowMs: observation.observedAtMs },
+      );
+      await ctx.scheduler.runAfter(
+        0,
+        internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
         { gameId: game._id, nowMs: observation.observedAtMs },
       );
     }

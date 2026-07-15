@@ -479,7 +479,7 @@ export default defineSchema({
   scoringRevisions: defineTable({
     poolId: v.id("pools"),
     week: v.number(),
-    kind: v.literal("survivor"),
+    kind: v.union(v.literal("survivor"), v.literal("confidence")),
     revisionNumber: v.number(),
     fingerprint: v.string(),
     publishedAtMs: v.number(),
@@ -520,8 +520,70 @@ export default defineSchema({
     ]),
 
   /**
+   * Confidence pick outcome projection — one row per Required Confidence Game
+   * per participant, published atomically with a Scoring Revision.
+   */
+  confidencePickOutcomes: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    week: v.number(),
+    gameId: v.id("nflGames"),
+    pickId: v.optional(v.id("confidencePicks")),
+    outcome: v.union(
+      v.literal("correct"),
+      v.literal("incorrect"),
+      v.literal("omission_zero"),
+      v.literal("tied_zero"),
+      v.literal("canceled_zero"),
+      v.literal("pending"),
+    ),
+    pointsEarned: v.number(),
+    confidenceValue: v.number(),
+    revisionId: v.id("scoringRevisions"),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_participantId_and_week", [
+      "poolId",
+      "participantId",
+      "week",
+    ])
+    .index("by_poolId_and_participantId_and_week_and_gameId", [
+      "poolId",
+      "participantId",
+      "week",
+      "gameId",
+    ]),
+
+  /**
+   * Official Weekly Standing projection for Confidence Pools — progressive
+   * per Verified Result. Possible Remaining Points are official-only.
+   */
+  weeklyStandings: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    week: v.number(),
+    points: v.number(),
+    possibleRemainingPoints: v.number(),
+    rank: v.number(),
+    correctPickCount: v.number(),
+    tiebreakerPrediction: v.optional(v.number()),
+    tiebreakerAbsError: v.optional(v.number()),
+    tiebreakerUsable: v.boolean(),
+    revisionId: v.id("scoringRevisions"),
+    updatedAtMs: v.number(),
+  })
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_participantId_and_week", [
+      "poolId",
+      "participantId",
+      "week",
+    ]),
+
+  /**
    * Season Standing / Survivor eligibility projection — one row per member.
    * Rebuildable from Verified Results + picks; never an authoritative input.
+   * Confidence: seasonPoints/seasonRank advance only from fully resolved weeks.
    */
   seasonStandings: defineTable({
     poolId: v.id("pools"),
@@ -541,6 +603,9 @@ export default defineSchema({
     ),
     /** Week that established winner designation (sole or joint). */
     wonAtWeek: v.optional(v.number()),
+    /** Confidence Season Standing points (sum of fully resolved weeks). */
+    seasonPoints: v.optional(v.number()),
+    seasonRank: v.optional(v.number()),
     revisionId: v.optional(v.id("scoringRevisions")),
     updatedAtMs: v.number(),
   })

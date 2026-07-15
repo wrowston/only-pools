@@ -4,11 +4,11 @@
 
 **Blocked by:** 06 — Submit and lock Confidence picks; 07 — Sync live games through Verified Results
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Unique values score correctly; values never redistribute
-- [ ] Official Weekly Standing updates per Verified Result; Season Standing only after fully resolved weeks; projections labeled non-official
-- [ ] Weekly tiebreaker ranks as settled; canceled/unusable share → shared rank
-- [ ] Atomic publish, idempotent Scoring Revision fingerprint, and stale-guard hold
-- [ ] Standings page + desktop rail peek (top 5 + current user + full link) without Hidden Picks or operator chrome
-- [ ] Automated scoring/replay idempotency tests (acceptance scenarios 15–18, 32–33)
+- [x] Unique values score correctly; values never redistribute
+- [x] Official Weekly Standing updates per Verified Result; Season Standing only after fully resolved weeks; projections labeled non-official
+- [x] Weekly tiebreaker ranks as settled; canceled/unusable share → shared rank
+- [x] Atomic publish, idempotent Scoring Revision fingerprint, and stale-guard hold
+- [x] Standings page + desktop rail peek (top 5 + current user + full link) without Hidden Picks or operator chrome
+- [x] Automated scoring/replay idempotency tests (acceptance scenarios 15–18, 32–33)

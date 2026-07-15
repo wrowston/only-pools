@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { ConfidenceStandingsPeek } from "./ConfidenceStandingsPeek";
 import { SaveTrust } from "./SaveTrust";
 
 function formatKickoff(ms: number): string {
@@ -327,7 +328,8 @@ export function WeekBoardView({
     .sort((a, b) => b - a);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-10">
+    <div className="mx-auto flex w-full max-w-2xl gap-6 px-6 py-10 min-[900px]:max-w-4xl">
+      <div className="flex min-w-0 flex-1 flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Link
           href="/my-pools"
@@ -648,6 +650,10 @@ export function WeekBoardView({
             ))}
           </ul>
         </section>
+      ) : null}
+      </div>
+      {isConfidence ? (
+        <ConfidenceStandingsPeek poolId={poolId} week={board.week} />
       ) : null}
     </div>
   );

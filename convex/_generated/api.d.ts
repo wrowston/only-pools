@@ -10,11 +10,13 @@
 
 import type * as bootstrap from "../bootstrap.js";
 import type * as confidencePicks from "../confidencePicks.js";
+import type * as confidenceScoring from "../confidenceScoring.js";
 import type * as crons from "../crons.js";
 import type * as invites from "../invites.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_bootstrapAvailability from "../lib/bootstrapAvailability.js";
 import type * as lib_confidenceScale from "../lib/confidenceScale.js";
+import type * as lib_confidenceScoring from "../lib/confidenceScoring.js";
 import type * as lib_confirmationPolicy from "../lib/confirmationPolicy.js";
 import type * as lib_freshness from "../lib/freshness.js";
 import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
@@ -46,11 +48,13 @@ import type {
 declare const fullApi: ApiFromModules<{
   bootstrap: typeof bootstrap;
   confidencePicks: typeof confidencePicks;
+  confidenceScoring: typeof confidenceScoring;
   crons: typeof crons;
   invites: typeof invites;
   "lib/auth": typeof lib_auth;
   "lib/bootstrapAvailability": typeof lib_bootstrapAvailability;
   "lib/confidenceScale": typeof lib_confidenceScale;
+  "lib/confidenceScoring": typeof lib_confidenceScoring;
   "lib/confirmationPolicy": typeof lib_confirmationPolicy;
   "lib/freshness": typeof lib_freshness;
   "lib/inviteCrypto": typeof lib_inviteCrypto;
