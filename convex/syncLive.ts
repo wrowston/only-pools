@@ -27,6 +27,7 @@ import {
 } from "./lib/confirmationPolicy";
 import { applyKickoffScheduleChange } from "./lib/pickLock";
 import { deriveFreshness } from "./lib/freshness";
+import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
 import {
   admitProviderFetch,
   emptyBudgetUsage,
@@ -34,6 +35,7 @@ import {
   type BudgetPriority,
   type BudgetUsage,
 } from "./lib/providerBudget";
+import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
 import {
   CONFIRMATION_15_MS,
@@ -187,6 +189,16 @@ export const applyLiveObservation = internalMutation({
           internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
           { gameId: game._id, nowMs: observation.observedAtMs },
         );
+        await ctx.scheduler.runAfter(
+          SCORING_DELAY_THRESHOLD_MS + 1_000,
+          internal.incidents.checkScoringDelayForGame,
+          {
+            gameId: game._id,
+            verifiedAtMs:
+              outcome.verifiedResult?.verifiedAtMs ??
+              observation.observedAtMs,
+          },
+        );
       }
 
       const scheduled: string[] = [];
@@ -337,6 +349,15 @@ export const applyConfirmationObservationMutation = internalMutation({
         internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
         { gameId: game._id, nowMs: observation.observedAtMs },
       );
+      await ctx.scheduler.runAfter(
+        SCORING_DELAY_THRESHOLD_MS + 1_000,
+        internal.incidents.checkScoringDelayForGame,
+        {
+          gameId: game._id,
+          verifiedAtMs:
+            outcome.verifiedResult?.verifiedAtMs ?? observation.observedAtMs,
+        },
+      );
     }
 
     // On restart (including correction candidates), reschedule confirmation lookups.
@@ -393,6 +414,28 @@ export const applyConfirmationObservationMutation = internalMutation({
             leaseExpiresAtMs: undefined,
           });
         }
+      }
+    }
+
+    // Quarantine / contradiction past confirmation window → Operator Incident.
+    if (
+      !outcome.justVerified &&
+      (outcome.resultAuthority === "confirmation_pending" ||
+        outcome.resultAuthority === "correction_candidate") &&
+      outcome.provisionalTerminalAtMs !== null
+    ) {
+      const windowEnds =
+        outcome.provisionalTerminalAtMs + CONFIRMATION_60_MS;
+      if (observation.observedAtMs > windowEnds) {
+        await ctx.runMutation(
+          internal.incidents.checkQuarantinePastConfirmation,
+          {
+            gameId: game._id,
+            confirmationWindowEndsAtMs: windowEnds,
+            verificationBlocked: true,
+            nowMs: observation.observedAtMs,
+          },
+        );
       }
     }
 
@@ -497,6 +540,10 @@ export const recordSyncSurfaceHealth = internalMutation({
         message: args.exceptionMessage ?? "Provider Exception",
         createdAtMs: args.nowMs,
       });
+      captureException(args.exceptionMessage ?? "Provider Exception", {
+        tags: { channel: "sync", surface: args.surface },
+        extra: { scopeKey: args.scopeKey },
+      });
     }
 
     const freshness = deriveFreshness({
@@ -511,6 +558,37 @@ export const recordSyncSurfaceHealth = internalMutation({
       dueAtMs: args.expectedNextRefreshAtMs ?? null,
       providerException,
     });
+
+    // Operator Incidents: Provider Exception / Stale-in-window open; Late alone
+    // does not. Active game window = live or confirmation surfaces.
+    const activeGameWindow =
+      args.surface === "live" || args.surface === "confirmation";
+    await ctx.runMutation(internal.incidents.evaluateAndOpenIncident, {
+      trigger: {
+        kind: "freshness",
+        freshnessState: freshness.state,
+        activeGameWindow,
+      },
+      surface: args.surface,
+      scopeKey: args.scopeKey,
+      nowMs: args.nowMs,
+    });
+
+    // Heal: successful fresh refresh auto-resolves matching open incidents.
+    if (args.success && !providerException && freshness.state === "fresh") {
+      await ctx.runMutation(internal.incidents.autoResolveIncident, {
+        type: "stale_in_window",
+        surface: args.surface,
+        scopeKey: args.scopeKey,
+        nowMs: args.nowMs,
+      });
+      await ctx.runMutation(internal.incidents.autoResolveIncident, {
+        type: "provider_exception",
+        surface: args.surface,
+        scopeKey: args.scopeKey,
+        nowMs: args.nowMs,
+      });
+    }
 
     return freshness;
   },

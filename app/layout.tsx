@@ -9,6 +9,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { OperatorIncidentsPanel } from "@/components/OperatorIncidentsPanel";
+import { StatusBanner } from "@/components/StatusBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -62,7 +64,9 @@ export default function RootLayout({
                 </Show>
               </div>
             </header>
+            <StatusBanner />
             {children}
+            <OperatorIncidentsPanel />
           </ConvexClientProvider>
         </ClerkProvider>
       </body>

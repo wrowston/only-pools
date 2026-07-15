@@ -420,8 +420,8 @@ export default defineSchema({
   }).index("by_surface_and_scopeKey", ["surface", "scopeKey"]),
 
   /**
-   * Provider Exception records for later Operator Incident wiring (ticket 13).
-   * Distinguishable from Late / Stale freshness states.
+   * Provider Exception records — distinguishable from Late / Stale freshness.
+   * Opening an Operator Incident is handled by the incidents module (ticket 13).
    */
   providerExceptions: defineTable({
     kind: v.string(),
@@ -433,6 +433,44 @@ export default defineSchema({
   })
     .index("by_createdAtMs", ["createdAtMs"])
     .index("by_gameId", ["gameId"]),
+
+  /**
+   * Operator Incidents — production trust / recovery source of truth.
+   * Dedupe by type + surface + scopeKey so one failing window is one incident.
+   */
+  operatorIncidents: defineTable({
+    type: v.union(
+      v.literal("provider_exception"),
+      v.literal("stale_in_window"),
+      v.literal("scoring_delayed"),
+      v.literal("quarantine_past_confirmation"),
+      v.literal("convex_capacity"),
+    ),
+    status: v.union(
+      v.literal("open"),
+      v.literal("acknowledged"),
+      v.literal("in_progress"),
+      v.literal("resolved"),
+    ),
+    surface: v.string(),
+    scopeKey: v.string(),
+    dedupeKey: v.string(),
+    participantVisible: v.boolean(),
+    summary: v.string(),
+    openedAtMs: v.number(),
+    acknowledgedAtMs: v.optional(v.number()),
+    resolvedAtMs: v.optional(v.number()),
+    resolutionNote: v.optional(v.string()),
+    resolvedAutomatically: v.optional(v.boolean()),
+    /** Never true while an incident is open — picking continues. */
+    maintenanceLock: v.literal(false),
+  })
+    .index("by_dedupeKey_and_status", ["dedupeKey", "status"])
+    .index("by_status_and_openedAtMs", ["status", "openedAtMs"])
+    .index("by_participantVisible_and_status", [
+      "participantVisible",
+      "status",
+    ]),
 
   /**
    * Survivor Pick — one team per participant per included week.
