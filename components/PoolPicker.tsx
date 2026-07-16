@@ -7,7 +7,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import {
   COMPACT_CONTROL_CLASS,
-  poolInitials,
   poolSectionHref,
   type PoolSection,
 } from "@/lib/gameDayShell";
@@ -103,17 +102,6 @@ export function PoolPicker({
         ].join(" ")}
         data-pool-picker="trigger"
       >
-        <span
-          className={[
-            "grid shrink-0 place-items-center rounded-[8px] bg-op-heat font-bold tracking-tight text-white",
-            variant === "sidebar"
-              ? "h-8 w-8 text-[11px]"
-              : "h-6 w-6 rounded-[6px] text-[9px]",
-          ].join(" ")}
-          aria-hidden
-        >
-          {poolInitials(label)}
-        </span>
         <span className="min-w-0 flex-1">
           <span
             className={[
@@ -161,17 +149,6 @@ export function PoolPicker({
                         : "text-op-text hover:bg-op-control",
                     ].join(" ")}
                   >
-                    <span
-                      className={[
-                        "grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-[9px] font-bold tracking-tight",
-                        selected
-                          ? "bg-op-heat text-white"
-                          : "bg-op-control text-op-secondary",
-                      ].join(" ")}
-                      aria-hidden
-                    >
-                      {poolInitials(m.name)}
-                    </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium">
                         {m.name}

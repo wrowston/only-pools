@@ -6,7 +6,6 @@ import {
   TOUCH_TARGET_MIN_CLASS,
   backHref,
   backLabel,
-  poolInitials,
   poolNavItems,
   poolSectionFromPath,
   poolSectionHref,
@@ -56,12 +55,6 @@ describe("game-day shell navigation contract", () => {
     expect(poolSectionHref("p2", "board")).toBe("/pools/p2");
     expect(poolSectionHref("p2", "standings")).toBe("/pools/p2/standings");
     expect(poolSectionHref("p2", "pool")).toBe("/pools/p2/pool");
-  });
-
-  it("builds two-letter pool initials for the picker badge", () => {
-    expect(poolInitials("Sunday Best Friends")).toBe("SB");
-    expect(poolInitials("Office")).toBe("OF");
-    expect(poolInitials("")).toBe("OP");
   });
 
   it("documents 44px touch targets via min-h-11/min-w-11 for pick actions", () => {
