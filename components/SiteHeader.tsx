@@ -20,6 +20,10 @@ export function SiteHeader() {
   const pathname = usePathname() ?? "";
   const inPool = pathname.startsWith("/pools/");
 
+  if (pathname === "/") {
+    return null;
+  }
+
   return (
     <header
       className={[
