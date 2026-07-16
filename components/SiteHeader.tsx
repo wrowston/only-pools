@@ -10,6 +10,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { OperatorNavLink } from "@/components/OperatorNavLink";
+import { POST_AUTH_HOME } from "@/lib/authRoutes";
 
 /**
  * Global top bar. Hidden on in-pool desktop (≥900px) — brand lives in the
@@ -36,7 +37,7 @@ export function SiteHeader() {
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2">
           <Show when="signed-out">
-            <SignInButton>
+            <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
               <button
                 type="button"
                 className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
@@ -44,7 +45,7 @@ export function SiteHeader() {
                 Log in
               </button>
             </SignInButton>
-            <SignUpButton>
+            <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
               <button
                 type="button"
                 className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
@@ -55,7 +56,7 @@ export function SiteHeader() {
           </Show>
           <Show when="signed-in">
             <Link
-              href="/my-pools"
+              href={POST_AUTH_HOME}
               className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
             >
               My Pools

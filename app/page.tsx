@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Show, SignInButton, SignUpButton } from "@clerk/nextjs";
 import { BrandMark } from "@/components/BrandMark";
+import { POST_AUTH_HOME } from "@/lib/authRoutes";
 
 export default function Home() {
   return (
@@ -78,7 +79,7 @@ export default function Home() {
 
         <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
           <Show when="signed-out">
-            <SignUpButton>
+            <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
               <button
                 type="button"
                 className="op-btn op-btn-primary h-9 min-w-[9rem] px-4"
@@ -86,7 +87,7 @@ export default function Home() {
                 Start for free
               </button>
             </SignUpButton>
-            <SignInButton>
+            <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
               <button
                 type="button"
                 className="op-btn op-btn-secondary h-9 min-w-[9rem] px-4"
@@ -97,7 +98,7 @@ export default function Home() {
           </Show>
           <Show when="signed-in">
             <Link
-              href="/my-pools"
+              href={POST_AUTH_HOME}
               className="op-btn op-btn-primary h-9 min-w-[9rem] px-4"
             >
               Go to My Pools
