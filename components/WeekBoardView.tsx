@@ -569,9 +569,16 @@ export function WeekBoardView({
                       {[game.awayTeam, game.homeTeam].map((team) => {
                         if (!team) return null;
                         const selected = selectedTeamId === team.id;
+                        const usedOtherWeek = reservedOtherWeek.get(team.id);
                         const disabled = myPickLocked || game.locked;
                         const teamOutcome =
                           selected && survivorOutcome ? survivorOutcome : null;
+                        const baseLabel = teamPickAccessibleName({
+                          teamAbbreviation: team.abbreviation,
+                          selected,
+                          locked: disabled,
+                          outcome: teamOutcome,
+                        });
                         return (
                           <button
                             key={team.id}
@@ -579,24 +586,30 @@ export function WeekBoardView({
                             disabled={disabled}
                             onClick={() => onSelectTeam(team.id, game.locked)}
                             aria-pressed={selected}
-                            aria-label={teamPickAccessibleName({
-                              teamAbbreviation: team.abbreviation,
-                              selected,
-                              locked: disabled,
-                              outcome: teamOutcome,
-                            })}
+                            aria-label={
+                              usedOtherWeek
+                                ? `${team.abbreviation}, already used in week ${usedOtherWeek.week}`
+                                : baseLabel
+                            }
                             className={[
                               TOUCH_TARGET_MIN_CLASS,
                               "rounded-md border px-4 py-2.5 text-sm font-medium transition-colors",
                               selected
                                 ? "border-op-selected-fg bg-op-selected text-op-selected-fg"
-                                : "border-op-border-strong bg-op-surface text-op-text",
+                                : usedOtherWeek
+                                  ? "border-op-border-strong bg-op-control text-op-muted"
+                                  : "border-op-border-strong bg-op-surface text-op-text",
                               disabled
                                 ? "cursor-not-allowed opacity-50"
                                 : "hover:border-op-ink",
                             ].join(" ")}
                           >
                             {team.abbreviation}
+                            {usedOtherWeek ? (
+                              <span className="ml-1.5 text-[10px] font-normal uppercase tracking-wide">
+                                Used
+                              </span>
+                            ) : null}
                           </button>
                         );
                       })}
