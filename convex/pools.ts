@@ -330,6 +330,20 @@ export const getWeekBoard = query({
     const season = await ctx.db.get(pool.seasonId);
     const nowMs = Date.now();
 
+    const seasonGames = await ctx.db
+      .query("nflGames")
+      .withIndex("by_seasonId", (q) => q.eq("seasonId", pool.seasonId))
+      .take(512);
+    const availableWeekSet = new Set<number>();
+    for (const g of seasonGames) {
+      if (g.week >= pool.startWeek && g.week <= 18) {
+        availableWeekSet.add(g.week);
+      }
+    }
+    availableWeekSet.add(week);
+    availableWeekSet.add(pool.startWeek);
+    const availableWeeks = [...availableWeekSet].sort((a, b) => a - b);
+
     const earliestKickoff =
       games.length > 0
         ? Math.min(...games.map((g) => g.scheduledKickoffMs))
@@ -685,6 +699,7 @@ export const getWeekBoard = query({
         seasonLabel: season?.label ?? null,
       },
       week,
+      availableWeeks,
       slate,
       mySurvivorPick,
       myReservedTeams,
