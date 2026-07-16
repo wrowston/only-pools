@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { FieldInfo, FieldInfoTerm } from "@/components/FieldInfo";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 
 type PoolType = "survivor" | "confidence";
@@ -209,7 +210,20 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
 
       <fieldset className="flex flex-col gap-2 text-sm">
         <legend className="font-medium text-op-text">
-          Setup
+          <span className="inline-flex items-center gap-1.5">
+            Setup
+            <FieldInfo label="Setup" title="Setup">
+              <FieldInfoTerm term="New setup">
+                Start a fresh Pool. You choose the name, Pool Type, Start
+                Week, and Pick Lock mode yourself.
+              </FieldInfoTerm>
+              <FieldInfoTerm term="From template">
+                Prefill from a prior Pool you owned — name, Pool Type, lock
+                mode, Start Week preference, and optional returning-invite
+                roles. Competitive history and standings do not carry over.
+              </FieldInfoTerm>
+            </FieldInfo>
+          </span>
         </legend>
         <label className="flex items-center gap-2">
           <input
@@ -278,7 +292,25 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
 
       <fieldset className="flex flex-col gap-2 text-sm">
         <legend className="font-medium text-op-text">
-          Pool Type
+          <span className="inline-flex items-center gap-1.5">
+            Pool Type
+            <FieldInfo label="Pool Type" title="Pool Type">
+              <FieldInfoTerm term="Survivor">
+                Each week, pick one NFL team. You stay alive only if that
+                team wins. A loss, tie, or missing pick eliminates you. You
+                cannot reuse a team you already picked.
+              </FieldInfoTerm>
+              <FieldInfoTerm term="Confidence">
+                Each week, pick a winner for every required game and assign
+                each pick a unique confidence value. Correct picks earn those
+                points; the highest season total wins.
+              </FieldInfoTerm>
+              <p className="text-xs text-op-muted">
+                Pool Type cannot change after create (or when using a
+                template).
+              </p>
+            </FieldInfo>
+          </span>
         </legend>
         <label className="flex items-center gap-2">
           <input
@@ -308,8 +340,18 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
       </fieldset>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-op-text">
+        <span className="inline-flex items-center gap-1.5 font-medium text-op-text">
           Start Week
+          <FieldInfo label="Start Week" title="Start Week">
+            <p>
+              The first NFL regular-season week your Pool includes. Only
+              weeks whose first game has not kicked off yet are available.
+            </p>
+            <p>
+              New members can join until that Start Week&apos;s earliest
+              kickoff; after that, admission closes for good.
+            </p>
+          </FieldInfo>
         </span>
         <select
           value={effectiveStartWeek ?? ""}
@@ -331,7 +373,25 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
 
       <fieldset className="flex flex-col gap-2 text-sm">
         <legend className="font-medium text-op-text">
-          Pick Lock mode
+          <span className="inline-flex items-center gap-1.5">
+            Pick Lock mode
+            <FieldInfo label="Pick Lock mode" title="Pick Lock mode">
+              <p>
+                Pick Lock is when a pick can no longer be submitted or
+                changed. Locks are irreversible once reached.
+              </p>
+              <FieldInfoTerm term="Game Kickoff Lock">
+                Each pick locks when its game&apos;s kickoff arrives (or
+                play has started). Later unstarted games stay editable.
+              </FieldInfoTerm>
+              <FieldInfoTerm term="Weekly Cutoff Lock">
+                Early games still lock at their own kickoff. Everything
+                still open then locks together Sunday at 1:00&nbsp;p.m.
+                Eastern — remaining Survivor/Confidence choices, confidence
+                values, and the weekly tiebreaker.
+              </FieldInfoTerm>
+            </FieldInfo>
+          </span>
         </legend>
         <label className="flex items-center gap-2">
           <input
