@@ -723,27 +723,45 @@ export function WeekBoardView({
                         <span className="text-[11px] font-medium uppercase tracking-wide text-op-muted">
                           Conf
                         </span>
-                        <select
-                          className="h-12 rounded-[8px] border border-op-border bg-op-surface px-3 text-sm font-medium"
-                          disabled={confLocked || confValue === null}
-                          value={confValue ?? ""}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            if (!Number.isFinite(v)) return;
-                            void onConfidenceChange(game.gameId, v);
-                          }}
-                          aria-label={`Confidence value for ${game.awayTeam?.abbreviation ?? "away"} at ${game.homeTeam?.abbreviation ?? "home"}`}
-                        >
-                          {confLocked && confValue !== null ? (
-                            <option value={confValue}>{confValue}</option>
-                          ) : (
-                            unlockedConfidenceValues.map((v) => (
-                              <option key={v} value={v}>
-                                {v}
-                              </option>
-                            ))
-                          )}
-                        </select>
+                        <span className="relative inline-flex">
+                          <select
+                            className="h-12 appearance-none rounded-[8px] border border-op-border bg-op-surface py-0 pl-3 pr-9 text-sm font-medium"
+                            disabled={confLocked || confValue === null}
+                            value={confValue ?? ""}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isFinite(v)) return;
+                              void onConfidenceChange(game.gameId, v);
+                            }}
+                            aria-label={`Confidence value for ${game.awayTeam?.abbreviation ?? "away"} at ${game.homeTeam?.abbreviation ?? "home"}`}
+                          >
+                            {confLocked && confValue !== null ? (
+                              <option value={confValue}>{confValue}</option>
+                            ) : (
+                              unlockedConfidenceValues.map((v) => (
+                                <option key={v} value={v}>
+                                  {v}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 12 12"
+                            fill="none"
+                            aria-hidden
+                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-op-muted"
+                          >
+                            <path
+                              d="M3 4.5L6 7.5L9 4.5"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
                       </label>
                     </div>
                   ) : null}
