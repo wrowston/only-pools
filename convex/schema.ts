@@ -76,6 +76,7 @@ export default defineSchema({
     stableKey: v.string(),
     name: v.string(),
     abbreviation: v.string(),
+    logoUrl: v.optional(v.string()),
     sportsDbTeamId: v.string(),
   })
     .index("by_stableKey", ["stableKey"])

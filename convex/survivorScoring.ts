@@ -870,6 +870,7 @@ export type SurvivorStandingsGridCell = {
   locked: boolean;
   teamAbbreviation: string | null;
   teamName: string | null;
+  teamLogoUrl: string | null;
   provenance: "authored" | "omission" | null;
   outcome:
     | "win"
@@ -968,17 +969,25 @@ export const getSurvivorStandingsGrid = query({
 
     const teamCache = new Map<
       Id<"nflTeams">,
-      { abbreviation: string; name: string }
+      { abbreviation: string; name: string; logoUrl: string | null }
     >();
     async function teamIdentity(
       teamId: Id<"nflTeams"> | undefined,
-    ): Promise<{ abbreviation: string; name: string } | null> {
+    ): Promise<{
+      abbreviation: string;
+      name: string;
+      logoUrl: string | null;
+    } | null> {
       if (!teamId) return null;
       const cached = teamCache.get(teamId);
       if (cached !== undefined) return cached;
       const team = await ctx.db.get(teamId);
       const identity = team
-        ? { abbreviation: team.abbreviation, name: team.name }
+        ? {
+            abbreviation: team.abbreviation,
+            name: team.name,
+            logoUrl: team.logoUrl ?? null,
+          }
         : null;
       if (identity) teamCache.set(teamId, identity);
       return identity;
@@ -1009,6 +1018,7 @@ export const getSurvivorStandingsGrid = query({
 
         let teamAbbreviation: string | null = null;
         let teamName: string | null = null;
+        let teamLogoUrl: string | null = null;
         let provenance: "authored" | "omission" | null = null;
         if (pick && revealed) {
           provenance = pick.provenance;
@@ -1016,6 +1026,7 @@ export const getSurvivorStandingsGrid = query({
             const team = await teamIdentity(pick.nflTeamId);
             teamAbbreviation = team?.abbreviation ?? null;
             teamName = team?.name ?? null;
+            teamLogoUrl = team?.logoUrl ?? null;
           }
         }
 
@@ -1026,6 +1037,7 @@ export const getSurvivorStandingsGrid = query({
           locked,
           teamAbbreviation: revealed ? teamAbbreviation : null,
           teamName: revealed ? teamName : null,
+          teamLogoUrl: revealed ? teamLogoUrl : null,
           provenance: revealed ? provenance : null,
           outcome: revealed ? (outcomeDoc?.outcome ?? null) : null,
         });

@@ -106,6 +106,18 @@ describe("Season Bootstrap (acceptance scenarios 7, 28, 50)", () => {
     expect(result.syncGateEnabled).toBe(false); // Dev default OFF
     expect(result.gameCount).toBeGreaterThan(0);
 
+    const lions = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("nflTeams")
+        .withIndex("by_stableKey", (q) =>
+          q.eq("stableKey", "nfl-team:134939"),
+        )
+        .unique();
+    });
+    expect(lions?.logoUrl).toBe(
+      "https://r2.thesportsdb.com/images/media/team/badge/lgsgkr1546168257.png",
+    );
+
     const home = await asOps.query(api.participants.myPools, {});
     expect(home.createPoolEnabled).toBe(true);
 

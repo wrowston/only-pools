@@ -70,12 +70,16 @@ async function seedSurvivorWorld(
       stableKey: "nfl:kc",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
+      logoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
       sportsDbTeamId: "134934",
     });
     const buf = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
+      logoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
       sportsDbTeamId: "134918",
     });
     const phi = await ctx.db.insert("nflTeams", {
@@ -565,12 +569,15 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       hasPick: true,
       teamAbbreviation: "KC",
       teamName: "Kansas City Chiefs",
+      teamLogoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
     });
     expect(blakeHidden?.cells[0]).toMatchObject({
       revealed: false,
       hasPick: true,
       teamAbbreviation: null,
       teamName: null,
+      teamLogoUrl: null,
     });
     expect(JSON.stringify(blakeHidden?.cells[0])).not.toContain("BUF");
     expect(JSON.stringify(blakeHidden?.cells[0])).not.toContain("Buffalo Bills");
@@ -596,12 +603,16 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       revealed: true,
       teamAbbreviation: "KC",
       teamName: "Kansas City Chiefs",
+      teamLogoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
       outcome: "win",
     });
     expect(blake?.cells[0]).toMatchObject({
       revealed: true,
       teamAbbreviation: "BUF",
       teamName: "Buffalo Bills",
+      teamLogoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
       outcome: "loss",
     });
   });

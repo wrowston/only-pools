@@ -55,12 +55,16 @@ async function seedAvailableSeasonWithSlate(
       stableKey: "nfl:kc",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
+      logoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
       sportsDbTeamId: "134934",
     });
     const awayId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
+      logoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
       sportsDbTeamId: "134918",
     });
 
@@ -393,8 +397,16 @@ describe("getWeekBoard", () => {
     expect(board.slate).toHaveLength(1);
     expect(board.slate[0]).toMatchObject({
       scheduledKickoffMs: week1Kickoff,
-      homeTeam: { abbreviation: "KC" },
-      awayTeam: { abbreviation: "BUF" },
+      homeTeam: {
+        abbreviation: "KC",
+        logoUrl:
+          "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+      },
+      awayTeam: {
+        abbreviation: "BUF",
+        logoUrl:
+          "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
+      },
       locked: false,
     });
     expect(board.mySurvivorPick).toBeNull();
@@ -426,6 +438,7 @@ describe("getWeekBoard", () => {
       [
         "availableWeeks",
         "myConfidencePickSet",
+        "myReservedTeams",
         "mySurvivorPick",
         "participantPickStates",
         "pool",

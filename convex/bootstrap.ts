@@ -32,6 +32,7 @@ const normalizedTeamValidator = v.object({
   stableKey: v.string(),
   name: v.string(),
   abbreviation: v.string(),
+  logoUrl: v.optional(v.string()),
   aliases: v.object({ sportsDbTeamId: v.string() }),
 });
 
@@ -143,6 +144,7 @@ export const applyNormalizedBootstrap = internalMutation({
         await ctx.db.patch(existing._id, {
           name: team.name,
           abbreviation: team.abbreviation,
+          logoUrl: team.logoUrl,
           sportsDbTeamId: team.aliases.sportsDbTeamId,
         });
         teamDocIds.set(team.stableKey, existing._id);
@@ -151,6 +153,7 @@ export const applyNormalizedBootstrap = internalMutation({
           stableKey: team.stableKey,
           name: team.name,
           abbreviation: team.abbreviation,
+          logoUrl: team.logoUrl,
           sportsDbTeamId: team.aliases.sportsDbTeamId,
         });
         teamDocIds.set(team.stableKey, id);

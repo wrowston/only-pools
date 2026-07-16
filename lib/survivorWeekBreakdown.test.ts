@@ -12,6 +12,7 @@ function cell(
     locked: true,
     teamAbbreviation: "KC",
     teamName: "Kansas City Chiefs",
+    teamLogoUrl: null,
     provenance: "authored",
     outcome: "win",
     ...overrides,
@@ -61,6 +62,7 @@ describe("Survivor weekly breakdown", () => {
       {
         abbreviation: "BUF",
         name: "Buffalo Bills",
+        logoUrl: null,
         picks: 1,
         percentage: 33.3,
         outcome: "eliminated",
@@ -68,6 +70,7 @@ describe("Survivor weekly breakdown", () => {
       {
         abbreviation: "KC",
         name: "Kansas City Chiefs",
+        logoUrl: null,
         picks: 1,
         percentage: 33.3,
         outcome: "survived",

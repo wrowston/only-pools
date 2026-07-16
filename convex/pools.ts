@@ -374,6 +374,7 @@ export const getWeekBoard = query({
               id: home._id,
               name: home.name,
               abbreviation: home.abbreviation,
+              logoUrl: home.logoUrl ?? null,
             }
           : null,
         awayTeam: away
@@ -381,6 +382,7 @@ export const getWeekBoard = query({
               id: away._id,
               name: away.name,
               abbreviation: away.abbreviation,
+              logoUrl: away.logoUrl ?? null,
             }
           : null,
         /** Projected scores — never official until Verified Result. */
@@ -404,7 +406,7 @@ export const getWeekBoard = query({
     } | null = null;
 
     /** Active one-use reservations for the viewer (own history only). */
-    let myReservedTeams: Array<{
+    const myReservedTeams: Array<{
       nflTeamId: Id<"nflTeams">;
       week: number;
       abbreviation: string | null;
@@ -425,12 +427,14 @@ export const getWeekBoard = query({
           nflTeamId?: Id<"nflTeams"> | null;
           provenance: "authored" | "automatic" | "omission";
           teamAbbreviation?: string | null;
+          teamLogoUrl?: string | null;
           picks?: Array<{
             gameId: Id<"nflGames">;
             pickedTeamId: Id<"nflTeams"> | null;
             confidenceValue: number;
             provenance: "authored" | "automatic" | "omission";
             teamAbbreviation: string | null;
+            teamLogoUrl: string | null;
           }>;
           tiebreakerPrediction?: number | null;
         };
@@ -506,9 +510,11 @@ export const getWeekBoard = query({
 
         if (locked && pick) {
           let teamAbbreviation: string | null = null;
+          let teamLogoUrl: string | null = null;
           if (pick.provenance === "authored" && pick.nflTeamId) {
             const team = await ctx.db.get(pick.nflTeamId);
             teamAbbreviation = team?.abbreviation ?? null;
+            teamLogoUrl = team?.logoUrl ?? null;
           }
           participantPickStates.push({
             participantId: m.participantId,
@@ -519,6 +525,7 @@ export const getWeekBoard = query({
               pick.provenance === "authored" ? (pick.nflTeamId ?? null) : null,
             provenance: pick.provenance,
             teamAbbreviation,
+            teamLogoUrl,
           });
         } else {
           // Hidden: completion only — never nflTeamId / abbreviation.
@@ -619,9 +626,11 @@ export const getWeekBoard = query({
           const revealedPicks = [];
           for (const pick of picks.filter((p) => p.locked)) {
             let teamAbbreviation: string | null = null;
+            let teamLogoUrl: string | null = null;
             if (pick.pickedTeamId) {
               const team = await ctx.db.get(pick.pickedTeamId);
               teamAbbreviation = team?.abbreviation ?? null;
+              teamLogoUrl = team?.logoUrl ?? null;
             }
             revealedPicks.push({
               gameId: pick.gameId,
@@ -629,6 +638,7 @@ export const getWeekBoard = query({
               confidenceValue: pick.confidenceValue,
               provenance: pick.provenance,
               teamAbbreviation,
+              teamLogoUrl,
             });
           }
           participantPickStates.push({

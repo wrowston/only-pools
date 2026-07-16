@@ -105,6 +105,7 @@ export const listNflTeamSummaries = query({
       id: t._id,
       name: t.name,
       abbreviation: t.abbreviation,
+      logoUrl: t.logoUrl ?? null,
     }));
   },
 });

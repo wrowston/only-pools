@@ -3,6 +3,7 @@ import {
   type SurvivorTeamBreakdown,
 } from "@/lib/survivorWeekBreakdown";
 import { uiType } from "@/lib/uiType";
+import { TeamLogo } from "../TeamLogo";
 import type { SurvivorPickGridRow } from "./SurvivorPickGrid";
 
 const STAT_TONES = {
@@ -87,12 +88,12 @@ function TeamRow({ team }: { team: SurvivorTeamBreakdown }) {
   return (
     <li className="relative grid grid-cols-[minmax(0,1fr)_4.25rem_2.75rem] items-center gap-3 px-4 py-3.5 min-[900px]:grid-cols-[minmax(0,1fr)_6rem_3.5rem] min-[900px]:px-5">
       <div className="flex min-w-0 items-center gap-3">
-        <span
-          className={`inline-flex h-9 min-w-10 shrink-0 items-center justify-center rounded-lg border px-1.5 text-[11px] font-semibold tracking-[0.04em] ${tone.tile}`}
-          aria-hidden
-        >
-          {team.abbreviation}
-        </span>
+        <TeamLogo
+          logoUrl={team.logoUrl}
+          abbreviation={team.abbreviation}
+          size="md"
+          className={tone.tile}
+        />
         <div className="min-w-0">
           <p className={`truncate text-[13px] font-medium min-[900px]:text-sm ${tone.text}`}>
             {team.name}

@@ -1,3 +1,5 @@
+import { TeamLogo } from "../TeamLogo";
+
 export type StandingsPickCell = {
   week: number;
   revealed: boolean;
@@ -5,6 +7,7 @@ export type StandingsPickCell = {
   locked: boolean;
   teamAbbreviation: string | null;
   teamName: string | null;
+  teamLogoUrl: string | null;
   provenance: "authored" | "omission" | null;
   outcome:
     | "win"
@@ -79,17 +82,31 @@ function cellVisual(cell: StandingsPickCell): CellVisual {
  */
 export function PickCell({ cell }: { cell: StandingsPickCell }) {
   const visual = cellVisual(cell);
+  const showTeamLogo = Boolean(
+    cell.revealed && cell.teamAbbreviation && cell.teamLogoUrl,
+  );
   return (
     <span
       className={[
-        "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold tabular-nums",
-        "min-[900px]:h-12 min-[900px]:min-w-14 min-[900px]:w-auto min-[900px]:px-2 min-[900px]:text-xs min-[900px]:rounded-lg",
+        "inline-flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border text-[9px] font-semibold leading-none tabular-nums",
+        "min-[900px]:h-12 min-[900px]:min-w-14 min-[900px]:w-auto min-[900px]:flex-row min-[900px]:gap-1.5 min-[900px]:px-2 min-[900px]:text-xs min-[900px]:rounded-lg",
         TONE_CLASS[visual.tone],
       ].join(" ")}
       title={visual.aria}
       aria-label={`Week ${cell.week}: ${visual.aria}`}
     >
-      {visual.label}
+      {showTeamLogo && cell.teamAbbreviation ? (
+        <>
+          <TeamLogo
+            logoUrl={cell.teamLogoUrl}
+            abbreviation={cell.teamAbbreviation}
+            size="xs"
+          />
+          <span>{visual.label}</span>
+        </>
+      ) : (
+        visual.label
+      )}
     </span>
   );
 }

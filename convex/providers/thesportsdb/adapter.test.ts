@@ -19,6 +19,8 @@ describe("TheSportsDB adapter (acceptance scenarios 7/28)", () => {
       stableKey: "nfl-team:134939",
       name: "Detroit Lions",
       abbreviation: "DET",
+      logoUrl:
+        "https://r2.thesportsdb.com/images/media/team/badge/lgsgkr1546168257.png",
       aliases: { sportsDbTeamId: "134939" },
     });
     // No raw SportsDB field names leak into the normalized shape.

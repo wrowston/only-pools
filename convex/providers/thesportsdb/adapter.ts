@@ -8,6 +8,7 @@ export type SportsDbTeam = {
   strTeam: string;
   strTeamShort?: string | null;
   strTeamAlternate?: string | null;
+  strBadge?: string | null;
   idLeague?: string | null;
   strLeague?: string | null;
   strSport?: string | null;
@@ -46,6 +47,8 @@ export type NormalizedNflTeam = {
   stableKey: string;
   name: string;
   abbreviation: string;
+  /** Provider-independent team mark URL. TheSportsDB supplies this as strBadge. */
+  logoUrl?: string;
   aliases: { sportsDbTeamId: string };
 };
 
@@ -139,12 +142,18 @@ export function isRegularSeasonRound(round: number): boolean {
 }
 
 export function normalizeTeams(rawTeams: SportsDbTeam[]): NormalizedNflTeam[] {
-  return rawTeams.map((team) => ({
-    stableKey: teamStableKey(team.idTeam),
-    name: team.strTeam,
-    abbreviation: (team.strTeamShort ?? "").trim() || team.strTeam.slice(0, 3).toUpperCase(),
-    aliases: { sportsDbTeamId: team.idTeam },
-  }));
+  return rawTeams.map((team) => {
+    const logoUrl = (team.strBadge ?? "").trim();
+    return {
+      stableKey: teamStableKey(team.idTeam),
+      name: team.strTeam,
+      abbreviation:
+        (team.strTeamShort ?? "").trim() ||
+        team.strTeam.slice(0, 3).toUpperCase(),
+      ...(logoUrl ? { logoUrl } : {}),
+      aliases: { sportsDbTeamId: team.idTeam },
+    };
+  });
 }
 
 export function normalizeSeasonEvents(

@@ -1,17 +1,49 @@
 import { BrandMark } from "../BrandMark";
+import { TeamLogo } from "../TeamLogo";
 
 type MarketingTeam = {
   abbreviation: string;
   name: string;
+  logoUrl: string;
 };
 
 const teams = {
-  den: { abbreviation: "DEN", name: "Denver Broncos" },
-  no: { abbreviation: "NO", name: "New Orleans Saints" },
-  buf: { abbreviation: "BUF", name: "Buffalo Bills" },
-  kc: { abbreviation: "KC", name: "Kansas City Chiefs" },
-  det: { abbreviation: "DET", name: "Detroit Lions" },
-  min: { abbreviation: "MIN", name: "Minnesota Vikings" },
+  den: {
+    abbreviation: "DEN",
+    name: "Denver Broncos",
+    logoUrl:
+      "https://r2.thesportsdb.com/images/media/team/badge/upsspx1421635647.png",
+  },
+  no: {
+    abbreviation: "NO",
+    name: "New Orleans Saints",
+    logoUrl:
+      "https://r2.thesportsdb.com/images/media/team/badge/nd46c71537821337.png",
+  },
+  buf: {
+    abbreviation: "BUF",
+    name: "Buffalo Bills",
+    logoUrl:
+      "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
+  },
+  kc: {
+    abbreviation: "KC",
+    name: "Kansas City Chiefs",
+    logoUrl:
+      "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+  },
+  det: {
+    abbreviation: "DET",
+    name: "Detroit Lions",
+    logoUrl:
+      "https://r2.thesportsdb.com/images/media/team/badge/lgsgkr1546168257.png",
+  },
+  min: {
+    abbreviation: "MIN",
+    name: "Minnesota Vikings",
+    logoUrl:
+      "https://r2.thesportsdb.com/images/media/team/badge/qstqqr1421609163.png",
+  },
 } satisfies Record<string, MarketingTeam>;
 
 function StaticAvatar({
@@ -72,14 +104,19 @@ function TeamPick({
   return (
     <div
       className={[
-        "flex h-12 items-center justify-center rounded-[8px] border text-sm font-medium tracking-wide",
+        "flex h-12 items-center justify-center gap-2 rounded-[8px] border px-3 text-sm font-medium tracking-wide",
         selected
           ? "border-op-selected-fg bg-op-selected text-op-selected-fg"
           : "border-op-border bg-op-surface text-op-text",
         locked ? "opacity-50" : "",
       ].join(" ")}
     >
-      {team.abbreviation}
+      <TeamLogo
+        logoUrl={team.logoUrl}
+        abbreviation={team.abbreviation}
+        size="sm"
+      />
+      <span>{team.abbreviation}</span>
     </div>
   );
 }

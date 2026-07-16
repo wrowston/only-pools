@@ -20,6 +20,7 @@ import { EmptyState } from "./EmptyState";
 import { usePoolChrome, usePoolChromeName } from "./PoolChrome";
 import { SaveTrust } from "./SaveTrust";
 import { SurvivorStandingsPeek } from "./SurvivorStandingsPeek";
+import { TeamLogo } from "./TeamLogo";
 import { Toast } from "./Toast";
 import { WeekChips } from "./standings";
 
@@ -670,7 +671,7 @@ export function WeekBoardView({
                               outcome: teamOutcome,
                             })}
                             className={[
-                              "flex h-12 items-center justify-center rounded-[8px] border text-sm font-medium tracking-wide transition-colors",
+                              "flex h-12 items-center justify-center gap-2 rounded-[8px] border px-3 text-sm font-medium tracking-wide transition-colors",
                               selected
                                 ? "border-op-selected-fg bg-op-selected text-op-selected-fg"
                                 : "border-op-border bg-op-surface text-op-text",
@@ -679,7 +680,12 @@ export function WeekBoardView({
                                 : "hover:border-op-ink",
                             ].join(" ")}
                           >
-                            {team.abbreviation}
+                            <TeamLogo
+                              logoUrl={team.logoUrl}
+                              abbreviation={team.abbreviation}
+                              size="sm"
+                            />
+                            <span>{team.abbreviation}</span>
                           </button>
                         );
                       })}
@@ -711,7 +717,7 @@ export function WeekBoardView({
                                 outcome: teamOutcome,
                               })}
                               className={[
-                                "flex h-12 items-center justify-center rounded-[8px] border text-sm font-medium tracking-wide transition-colors",
+                                "flex h-12 items-center justify-center gap-2 rounded-[8px] border px-3 text-sm font-medium tracking-wide transition-colors",
                                 selected
                                   ? "border-op-selected-fg bg-op-selected text-op-selected-fg"
                                   : "border-op-border bg-op-surface text-op-text",
@@ -720,7 +726,12 @@ export function WeekBoardView({
                                   : "hover:border-op-ink",
                               ].join(" ")}
                             >
-                              {team.abbreviation}
+                              <TeamLogo
+                                logoUrl={team.logoUrl}
+                                abbreviation={team.abbreviation}
+                                size="sm"
+                              />
+                              <span>{team.abbreviation}</span>
                             </button>
                           );
                         })}
@@ -826,21 +837,33 @@ export function WeekBoardView({
                 className="flex items-center justify-between py-2"
               >
                 <span className="text-op-text">{row.displayName}</span>
-                <span className="text-op-secondary">
-                  {row.locked
-                    ? isSurvivor
-                      ? row.provenance === "omission"
+                {row.locked &&
+                isSurvivor &&
+                row.provenance !== "omission" &&
+                row.teamAbbreviation ? (
+                  <span className="flex items-center gap-2 font-medium text-op-secondary">
+                    <TeamLogo
+                      logoUrl={row.teamLogoUrl}
+                      abbreviation={row.teamAbbreviation}
+                      size="xs"
+                    />
+                    {row.teamAbbreviation}
+                  </span>
+                ) : (
+                  <span className="text-op-secondary">
+                    {row.locked
+                      ? isSurvivor
                         ? "No pick"
-                        : (row.teamAbbreviation ?? "Locked")
-                      : row.provenance === "automatic"
-                        ? "Locked · automatic"
-                        : row.provenance === "omission"
-                          ? "Locked · omission"
-                          : "Locked · authored"
-                    : row.hasPick
-                      ? "Pick saved · Hidden"
-                      : "No pick yet"}
-                </span>
+                        : row.provenance === "automatic"
+                          ? "Locked · automatic"
+                          : row.provenance === "omission"
+                            ? "Locked · omission"
+                            : "Locked · authored"
+                      : row.hasPick
+                        ? "Pick saved · Hidden"
+                        : "No pick yet"}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

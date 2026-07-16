@@ -13,6 +13,7 @@ export type SurvivorBreakdownCell = {
   locked: boolean;
   teamAbbreviation: string | null;
   teamName: string | null;
+  teamLogoUrl: string | null;
   provenance: "authored" | "omission" | null;
   outcome: SurvivorBreakdownOutcome;
 };
@@ -25,6 +26,7 @@ export type SurvivorBreakdownRow = {
 export type SurvivorTeamBreakdown = {
   abbreviation: string;
   name: string;
+  logoUrl: string | null;
   picks: number;
   percentage: number;
   outcome: "survived" | "eliminated" | "pending";
@@ -105,6 +107,7 @@ export function buildSurvivorWeekBreakdown(
     {
       abbreviation: string;
       name: string;
+      logoUrl: string | null;
       outcomes: SurvivorBreakdownOutcome[];
     }
   >();
@@ -119,6 +122,7 @@ export function buildSurvivorWeekBreakdown(
     const current = teamPicks.get(cell.teamAbbreviation) ?? {
       abbreviation: cell.teamAbbreviation,
       name: cell.teamName ?? cell.teamAbbreviation,
+      logoUrl: cell.teamLogoUrl,
       outcomes: [],
     };
     current.outcomes.push(cell.outcome);
@@ -130,6 +134,7 @@ export function buildSurvivorWeekBreakdown(
     .map((team) => ({
       abbreviation: team.abbreviation,
       name: team.name,
+      logoUrl: team.logoUrl,
       picks: team.outcomes.length,
       percentage: percentage(team.outcomes.length, eligibleEntries, 1),
       outcome: teamOutcome(team.outcomes),
