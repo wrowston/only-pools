@@ -169,6 +169,18 @@ describe("ownership transfer (acceptance scenario 4)", () => {
     );
     expect(offer.status).toBe("pending");
 
+    const status = await asAlex.query(
+      api.membershipAdmin.getOwnershipTransferStatus,
+      { poolId },
+    );
+    expect(status.pending).toMatchObject({
+      offerId: offer.offerId,
+      toParticipantId: blakeId,
+      toDisplayName: "Blake Adult",
+      canCancel: true,
+      canAccept: false,
+    });
+
     await expect(
       asAlex.mutation(api.membershipAdmin.leavePool, { poolId }),
     ).rejects.toThrow(/cannot leave while owning/);
