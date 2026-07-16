@@ -140,9 +140,13 @@ export async function requireParticipant(
 /**
  * Ensure a Participant exists for a fully verified Clerk identity.
  * Creates on first valid access; updates verification flags thereafter.
+ *
+ * `avatarUrl` may come from the Clerk client (`user.imageUrl`) because the
+ * Convex JWT template often omits `picture` and cannot always be customized.
  */
 export async function ensureParticipant(
   ctx: MutationCtx,
+  options?: { avatarUrl?: string },
 ): Promise<Id<"participants">> {
   const identity = await ctx.auth.getUserIdentity();
   if (identity === null) {
@@ -151,6 +155,7 @@ export async function ensureParticipant(
 
   const claims = claimsFromIdentity(identity);
   const existing = await loadParticipantByToken(ctx, claims.tokenIdentifier);
+  const avatarUrl = options?.avatarUrl ?? claims.avatarUrl;
 
   const previouslyEstablished = isPreviouslyEstablishedSession(
     existing,
@@ -177,7 +182,7 @@ export async function ensureParticipant(
       // Account creation attests adult eligibility; no separate age gate.
       ageConfirmed: true,
       suspended: false,
-      avatarUrl: claims.avatarUrl,
+      avatarUrl,
       lastClerkSessionId: claims.clerkSessionId ?? undefined,
     });
   }
@@ -190,9 +195,10 @@ export async function ensureParticipant(
     displayName: claims.displayName,
     email: claims.email,
     phone: claims.phone,
-    avatarUrl: claims.avatarUrl,
     ageConfirmed: true,
   };
+  // Never wipe a stored photo when JWT/client omit the URL on this request.
+  if (avatarUrl) patch.avatarUrl = avatarUrl;
 
   // Only strengthen verification flags when the current identity still has them.
   if (claims.emailVerified) patch.emailVerified = true;

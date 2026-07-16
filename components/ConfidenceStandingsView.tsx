@@ -9,7 +9,7 @@ import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
 import { usePoolChromeName } from "./PoolChrome";
 import {
-  InitialAvatar,
+  ParticipantAvatar,
   SegmentedControl,
   YouBadge,
 } from "./standings";
@@ -110,9 +110,10 @@ export function ConfidenceStandingsView({
                       .join(" ")}
                   >
                     <div className="flex min-w-0 items-center gap-3">
-                      <InitialAvatar
+                      <ParticipantAvatar
                         name={row.displayName}
                         imageUrl={row.avatarUrl}
+                        isViewer={row.isViewer}
                       />
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <span
@@ -167,9 +168,10 @@ export function ConfidenceStandingsView({
                       .join(" ")}
                   >
                     <div className="flex min-w-0 items-center gap-3">
-                      <InitialAvatar
+                      <ParticipantAvatar
                         name={row.displayName}
                         imageUrl={row.avatarUrl}
+                        isViewer={row.isViewer}
                       />
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <span

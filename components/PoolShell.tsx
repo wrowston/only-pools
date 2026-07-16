@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -16,6 +16,24 @@ import {
   shellChromeClasses,
   type PoolSection,
 } from "@/lib/gameDayShell";
+import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
+
+function accountLabel(
+  user:
+    | {
+        username: string | null;
+        primaryEmailAddress?: { emailAddress: string } | null;
+      }
+    | null
+    | undefined,
+): string {
+  if (!user) return "Account";
+  return (
+    user.username ??
+    user.primaryEmailAddress?.emailAddress ??
+    "Account"
+  );
+}
 
 function NavLink({
   href,
@@ -83,6 +101,9 @@ export function PoolShell({
   const chrome = shellChromeClasses();
   const backTo = backHref(poolId, section);
   const backText = backLabel(section);
+  const { user } = useUser();
+  const accountText = accountLabel(user);
+  useSyncParticipantAvatar();
 
   return (
     <div
@@ -131,7 +152,9 @@ export function PoolShell({
           <OperatorNavLink variant="sidebar" />
           <div className="flex items-center gap-2 px-2.5 py-1.5">
             <UserButton />
-            <span className="text-xs text-op-muted">Account</span>
+            <span className="truncate text-xs text-op-muted" title={accountText}>
+              {accountText}
+            </span>
           </div>
         </div>
       </aside>

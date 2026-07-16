@@ -6,6 +6,7 @@ export { SummaryStat } from "./SummaryStat";
 export { YouBadge } from "./YouBadge";
 export { TextLink } from "./TextLink";
 export { InitialAvatar } from "./InitialAvatar";
+export { ParticipantAvatar } from "./ParticipantAvatar";
 export { PickCell } from "./PickCell";
 export type { StandingsPickCell } from "./PickCell";
 export { SurvivorPickGrid } from "./SurvivorPickGrid";

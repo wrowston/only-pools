@@ -7,7 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uiType } from "@/lib/uiType";
 import {
-  InitialAvatar,
+  ParticipantAvatar,
   TextLink,
   YouBadge,
 } from "./standings";
@@ -51,9 +51,10 @@ export function ConfidenceStandingsPeek({
             className="flex min-w-0 items-center justify-between gap-3"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <InitialAvatar
+              <ParticipantAvatar
                 name={row.displayName}
                 imageUrl={row.avatarUrl}
+                isViewer={row.isViewer}
               />
               <span className={`min-w-0 truncate ${uiType.name}`}>
                 {row.rank !== null ? `${row.rank}. ` : ""}
@@ -68,9 +69,10 @@ export function ConfidenceStandingsPeek({
       {peek.viewer ? (
         <div className="flex items-center justify-between gap-3 border-t border-op-border pt-3">
           <div className="flex min-w-0 items-center gap-2">
-            <InitialAvatar
+            <ParticipantAvatar
               name={peek.viewer.displayName}
               imageUrl={peek.viewer.avatarUrl}
+              isViewer
             />
             <span className={`min-w-0 truncate ${uiType.name}`}>
               {peek.viewer.rank !== null ? `${peek.viewer.rank}. ` : ""}

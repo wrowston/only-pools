@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef } from "react";
 import { uiType } from "@/lib/uiType";
-import { InitialAvatar } from "./InitialAvatar";
+import { ParticipantAvatar } from "./ParticipantAvatar";
 import { StatusChip, eligibilityTone } from "./StatusChip";
 import { YouBadge } from "./YouBadge";
 import { PickCell, type StandingsPickCell } from "./PickCell";
@@ -187,9 +187,10 @@ export function SurvivorPickGrid({
                     >
                       <div className="flex min-w-0 items-start gap-2 min-[900px]:gap-3">
                         <span className="mt-0.5 shrink-0">
-                          <InitialAvatar
+                          <ParticipantAvatar
                             name={row.displayName}
                             imageUrl={row.avatarUrl}
+                            isViewer={row.isViewer}
                             className="min-[900px]:h-9 min-[900px]:w-9 min-[900px]:text-sm"
                           />
                         </span>

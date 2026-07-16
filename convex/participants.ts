@@ -15,11 +15,16 @@ import {
 
 /**
  * Create or refresh the Clerk-linked Participant after dual verification.
+ * Optional `avatarUrl` from the Clerk client (`user.imageUrl`) — JWT may omit picture.
  */
 export const ensureMyParticipant = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const participantId = await ensureParticipant(ctx);
+  args: {
+    avatarUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const participantId = await ensureParticipant(ctx, {
+      avatarUrl: args.avatarUrl,
+    });
     return { participantId };
   },
 });

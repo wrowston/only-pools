@@ -5,7 +5,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uiType } from "@/lib/uiType";
 import {
-  InitialAvatar,
+  ParticipantAvatar,
   SummaryStat,
   TextLink,
   YouBadge,
@@ -44,9 +44,10 @@ export function SurvivorStandingsPeek({
             key={row.participantId}
             className="flex min-w-0 items-center gap-2"
           >
-            <InitialAvatar
+            <ParticipantAvatar
               name={row.displayName}
               imageUrl={row.avatarUrl}
+              isViewer={row.isViewer}
             />
             <span className={`min-w-0 truncate ${uiType.name}`}>
               {row.displayName}

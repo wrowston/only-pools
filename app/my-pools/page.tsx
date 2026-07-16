@@ -14,6 +14,7 @@ import {
 } from "@/components/standings";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
 import type { FunctionReturnType } from "convex/server";
 
 type Membership = FunctionReturnType<
@@ -113,6 +114,7 @@ function VerificationIncomplete({ missing }: { missing: string[] }) {
 
 function MyPoolsHome() {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const { user, isLoaded: userLoaded } = useUser();
   const searchParams = useSearchParams();
   const includeArchived = searchParams.get("archived") === "1";
   const ensureMyParticipant = useMutation(api.participants.ensureMyParticipant);
@@ -123,13 +125,16 @@ function MyPoolsHome() {
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [ensured, setEnsured] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  useSyncParticipantAvatar();
 
   useEffect(() => {
-    if (!isAuthenticated || ensured) return;
+    if (!isAuthenticated || !userLoaded || ensured) return;
     let cancelled = false;
     void (async () => {
       try {
-        await ensureMyParticipant({});
+        await ensureMyParticipant({
+          avatarUrl: user?.imageUrl,
+        });
         if (!cancelled) {
           setEnsured(true);
           setEnsureError(null);
@@ -145,7 +150,13 @@ function MyPoolsHome() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, ensureMyParticipant, ensured]);
+  }, [
+    isAuthenticated,
+    userLoaded,
+    user?.imageUrl,
+    ensureMyParticipant,
+    ensured,
+  ]);
 
   if (isLoading || (isAuthenticated && myPools === undefined && !ensureError)) {
     return (
