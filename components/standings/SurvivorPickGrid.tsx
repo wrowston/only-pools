@@ -6,6 +6,16 @@ import { YouBadge } from "./YouBadge";
 import { PickCell, type StandingsPickCell } from "./PickCell";
 import { WeekChips } from "./WeekChips";
 
+/** Sticky player column — narrow on mobile so week picks stay visible. */
+const PLAYER_COL =
+  "w-[8.75rem] min-w-[8.75rem] max-w-[8.75rem] min-[900px]:w-[13rem] min-[900px]:min-w-[13rem] min-[900px]:max-w-[13rem]";
+
+/** Week pick columns — match PickCell (2.5rem) + horizontal padding. */
+const WEEK_COL = "w-12 min-w-12 max-w-12";
+
+/** Sticky status column — wide enough for “Eliminated” chip. */
+const STATUS_COL = "w-[5.75rem] min-w-[5.75rem] max-w-[5.75rem]";
+
 function eligibilityLabel(eligibility: string): string {
   if (eligibility === "alive") return "Alive";
   if (eligibility === "winner") return "Winner";
@@ -92,11 +102,11 @@ export function SurvivorPickGrid({
         ref={scrollRef}
         className="overflow-x-auto rounded-[16px] border border-op-border bg-op-surface"
       >
-        <table className="w-full min-w-max border-collapse text-left">
+        <table className="min-w-max border-collapse text-left">
           <thead>
             <tr className="bg-op-control">
               <th
-                className={`sticky left-0 z-20 bg-op-control px-4 py-2.5 ${uiType.eyebrow}`}
+                className={`sticky left-0 z-20 overflow-hidden border-r border-op-border bg-op-control px-2.5 py-2.5 min-[900px]:px-4 ${PLAYER_COL} ${uiType.eyebrow}`}
               >
                 Player
               </th>
@@ -111,22 +121,23 @@ export function SurvivorPickGrid({
                       else headerRefs.current.delete(week);
                     }}
                     className={[
-                      "relative px-1.5 py-2.5 text-center",
+                      "relative px-1 py-2.5 text-center",
+                      WEEK_COL,
                       uiType.eyebrow,
-                      focused ? "text-op-selected-fg" : "",
+                      focused ? "bg-op-heat-8 text-op-selected-fg" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
                   >
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1"
+                      className="inline-flex items-center justify-center gap-1"
                       onClick={() => onFocusWeek(week)}
                     >
                       W{week}
                       {isCurrent ? (
                         <span
-                          className="h-1.5 w-1.5 rounded-full bg-op-selected-fg"
+                          className="h-1.5 w-1.5 shrink-0 rounded-full bg-op-selected-fg"
                           aria-label="Current week"
                         />
                       ) : null}
@@ -135,7 +146,7 @@ export function SurvivorPickGrid({
                 );
               })}
               <th
-                className={`sticky right-0 z-20 bg-op-control px-4 py-2.5 text-right ${uiType.eyebrow}`}
+                className={`sticky right-0 z-20 overflow-hidden border-l border-op-border bg-op-control px-2 py-2.5 text-right min-[900px]:px-4 ${STATUS_COL} ${uiType.eyebrow}`}
               >
                 Status
               </th>
@@ -145,6 +156,9 @@ export function SurvivorPickGrid({
             {rows.map((row, index) => {
               const showEliminatedDivider =
                 index === firstEliminatedIndex && firstEliminatedIndex > 0;
+              const playerBg = row.isViewer
+                ? "bg-op-selected"
+                : "bg-op-surface group-hover:bg-op-canvas";
               return (
                 <Fragment key={row.participantId}>
                   {showEliminatedDivider ? (
@@ -160,22 +174,23 @@ export function SurvivorPickGrid({
                   <tr className="group">
                     <td
                       className={[
-                        "sticky left-0 z-10 border-t border-op-border px-4 py-2.5",
-                        row.isViewer
-                          ? "bg-op-selected"
-                          : "bg-op-surface group-hover:bg-op-canvas",
+                        "sticky left-0 z-10 overflow-hidden border-r border-op-border border-t px-2.5 py-2.5 min-[900px]:px-4",
+                        PLAYER_COL,
+                        playerBg,
                       ].join(" ")}
                     >
-                      <div className="flex min-w-[10rem] max-w-[14rem] items-center gap-2.5">
+                      <div className="flex min-w-0 items-center gap-2">
                         <InitialAvatar name={row.displayName} />
-                        <div className="flex min-w-0 flex-col gap-0.5">
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span
                             className={`flex min-w-0 items-center ${uiType.name}`}
                           >
-                            <span className="truncate">{row.displayName}</span>
+                            <span className="min-w-0 truncate">
+                              {row.displayName}
+                            </span>
                             {row.isViewer ? <YouBadge /> : null}
                           </span>
-                          <span className={uiType.meta}>
+                          <span className={`truncate ${uiType.meta}`}>
                             {weekContext(row)}
                           </span>
                         </div>
@@ -187,9 +202,12 @@ export function SurvivorPickGrid({
                         <td
                           key={cell.week}
                           className={[
-                            "border-t border-op-border px-1.5 py-2.5 text-center",
+                            "border-t border-op-border px-1 py-2.5 text-center",
+                            WEEK_COL,
                             row.isViewer ? "bg-op-selected" : "",
-                            focused ? "ring-1 ring-inset ring-op-selected-fg/30" : "",
+                            focused
+                              ? "ring-1 ring-inset ring-op-selected-fg/30"
+                              : "",
                           ]
                             .filter(Boolean)
                             .join(" ")}
@@ -202,15 +220,16 @@ export function SurvivorPickGrid({
                     })}
                     <td
                       className={[
-                        "sticky right-0 z-10 border-t border-op-border px-4 py-2.5 text-right",
-                        row.isViewer
-                          ? "bg-op-selected"
-                          : "bg-op-surface group-hover:bg-op-canvas",
+                        "sticky right-0 z-10 overflow-hidden border-l border-op-border border-t px-2 py-2.5 min-[900px]:px-3",
+                        STATUS_COL,
+                        playerBg,
                       ].join(" ")}
                     >
-                      <StatusChip tone={eligibilityTone(row.eligibility)}>
-                        {eligibilityLabel(row.eligibility)}
-                      </StatusChip>
+                      <div className="flex justify-end">
+                        <StatusChip tone={eligibilityTone(row.eligibility)}>
+                          {eligibilityLabel(row.eligibility)}
+                        </StatusChip>
+                      </div>
                     </td>
                   </tr>
                 </Fragment>
