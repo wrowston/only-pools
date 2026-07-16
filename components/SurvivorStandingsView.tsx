@@ -74,6 +74,9 @@ export function SurvivorStandingsView({
               : ` · ${standings.aliveCount} Alive`}
             {` · Focusing Week ${activeFocus}`}
           </p>
+          <Link href="/guides/standings-and-results" className="text-xs font-medium text-op-selected-fg underline underline-offset-4">
+            Understand standings
+          </Link>
         </header>
 
         {standings.rows.length === 0 ? (

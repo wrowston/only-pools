@@ -58,6 +58,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
           Open your person-specific Returning Participant Invite link to join.
           Opening alone does not enroll you.
         </p>
+        <Link href="/guides/invites-and-joining" className="text-sm font-medium text-op-selected-fg underline underline-offset-4">How Returning Participant Invites work</Link>
       </div>
     );
   }
@@ -80,6 +81,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
             Sign in to continue
           </button>
         </SignInButton>
+        <Link href="/guides/invites-and-joining" className="text-sm font-medium text-op-selected-fg underline underline-offset-4">Read the joining guide</Link>
       </div>
     );
   }
@@ -164,6 +166,9 @@ export function JoinReturningInviteView({ token }: { token: string }) {
           {error}
         </p>
       ) : null}
+      <Link href="/guides/invites-and-joining" className="text-sm font-medium text-op-selected-fg underline underline-offset-4">
+        Read the joining guide
+      </Link>
     </div>
   );
 }

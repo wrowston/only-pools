@@ -48,12 +48,10 @@ export function JoinInviteView({ token }: { token: string }) {
         title="Join a Pool"
         description="Open a Pool Invite link from a Pool Owner or Pool Admin to join. Opening a link alone does not enroll you."
         action={
-          <Link
-            href="/my-pools"
-            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
-          >
-            Back to My Pools
-          </Link>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link href="/my-pools" className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text">Back to My Pools</Link>
+            <Link href="/guides/invites-and-joining" className="rounded-md px-4 py-2.5 text-sm font-medium text-op-selected-fg underline underline-offset-4">How joining works</Link>
+          </div>
         }
       />
     );
@@ -65,14 +63,10 @@ export function JoinInviteView({ token }: { token: string }) {
         title="Join a Pool"
         description="Sign in with a verified email and phone to preview this Pool Invite. Opening the link alone does not enroll you."
         action={
-          <SignInButton mode="modal">
-            <button
-              type="button"
-              className="op-btn op-btn-primary"
-            >
-              Sign in to continue
-            </button>
-          </SignInButton>
+          <div className="flex flex-wrap justify-center gap-2">
+            <SignInButton mode="modal"><button type="button" className="op-btn op-btn-primary">Sign in to continue</button></SignInButton>
+            <Link href="/guides/invites-and-joining" className="op-btn op-btn-ghost">Joining guide</Link>
+          </div>
         }
       />
     );
@@ -90,12 +84,10 @@ export function JoinInviteView({ token }: { token: string }) {
         title="Invite unavailable"
         description="This invite link is invalid, expired, or no longer active."
         action={
-          <Link
-            href="/my-pools"
-            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
-          >
-            Back to My Pools
-          </Link>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link href="/my-pools" className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text">Back to My Pools</Link>
+            <Link href="/guides/invites-and-joining" className="rounded-md px-4 py-2.5 text-sm font-medium text-op-selected-fg underline underline-offset-4">Troubleshoot invites</Link>
+          </div>
         }
       />
     );
@@ -154,6 +146,9 @@ export function JoinInviteView({ token }: { token: string }) {
           {error}
         </p>
       ) : null}
+      <Link href="/guides/invites-and-joining" className="text-sm font-medium text-op-selected-fg underline underline-offset-4">
+        Read the joining guide
+      </Link>
     </div>
   );
 }

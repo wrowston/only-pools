@@ -101,6 +101,12 @@ export function PoolShell({
   const chrome = shellChromeClasses();
   const backTo = backHref(poolId, section);
   const backText = backLabel(section);
+  const helpHref =
+    section === "standings"
+      ? "/guides/standings-and-results"
+      : section === "pool"
+        ? "/guides/members-roles-and-ownership"
+        : "/guides/week-board-picks-and-locks";
   const { user } = useUser();
   const accountText = accountLabel(user);
   useSyncParticipantAvatar();
@@ -143,6 +149,12 @@ export function PoolShell({
           ))}
         </nav>
         <div className="mt-auto border-t border-op-border p-2">
+          <Link
+            href={helpHref}
+            className={`${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
+          >
+            Help
+          </Link>
           <Link
             href="/my-pools"
             className={`${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
@@ -189,6 +201,12 @@ export function PoolShell({
                 variant="chip"
               />
             ))}
+            <Link
+              href={helpHref}
+              className={`${COMPACT_CONTROL_CLASS} inline-flex items-center justify-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
+            >
+              Help
+            </Link>
           </nav>
         </div>
 

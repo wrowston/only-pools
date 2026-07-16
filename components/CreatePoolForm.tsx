@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
@@ -199,9 +200,12 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
       onSubmit={(e) => void onSubmit(e)}
       className="flex flex-col gap-4 op-panel p-5"
     >
-      <h2 className="text-lg font-semibold text-op-text">
-        Create Pool
-      </h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-op-text">Create Pool</h2>
+        <Link href="/guides/create-a-pool" className="text-xs font-medium text-op-selected-fg underline underline-offset-4">
+          Creation guide
+        </Link>
+      </div>
       {startWeeks?.seasonLabel ? (
         <p className="text-xs text-op-muted">
           Pool Season: {startWeeks.seasonLabel} (immutable after create)

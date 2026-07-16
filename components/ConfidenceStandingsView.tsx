@@ -70,6 +70,9 @@ export function ConfidenceStandingsView({
                 ? ` · Week ${standings.week} settled`
                 : ` · Week ${standings.week}`}
           </p>
+          <Link href="/guides/standings-and-results" className="text-xs font-medium text-op-selected-fg underline underline-offset-4">
+            Understand standings
+          </Link>
         </header>
 
         <SegmentedControl

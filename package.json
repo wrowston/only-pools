@@ -13,6 +13,10 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.18",
+    "@mdx-js/loader": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "@next/mdx": "^16.2.10",
+    "@types/mdx": "^2.0.14",
     "convex": "^1.42.2",
     "next": "16.2.10",
     "react": "19.2.4",

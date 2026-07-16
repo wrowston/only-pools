@@ -1,0 +1,50 @@
+The **Board** is the shared game-day workspace for both Survivor and Confidence Pools. It shows the selected Pool Week, game slate, your editable picks, save state, and other Participants’ completion status.
+
+## Change weeks
+
+Use the week chips near the **Week Board** heading to move between available Pool Weeks. Survivor may make several future weeks pickable at once. Confidence has at most one Pickable Week at a time.
+
+Changing the selected week does not discard an accepted pick. Wait for the save state to confirm before navigating away from a change you just made.
+
+## Autosave
+
+There is no submit button. Only Pools saves each accepted change to the server:
+
+- **Saving** means the current change is in progress.
+- **Saved** confirms that the server accepted it.
+- An error explanation tells you the change did not save. Follow the message and try again while the relevant Pick Lock is still open.
+
+For Survivor, selecting a team saves the weekly pick. For Confidence, winner changes, confidence-value changes, and the Weekly Tiebreaker Prediction save as separate edits.
+
+## Pick Locks
+
+A Pick Lock is irreversible. After it is reached, the affected choice cannot be submitted or changed.
+
+Under **Game Kickoff**, a Survivor Pick locks with its selected game. Confidence predictions and their values lock one game at a time, leaving later games editable.
+
+Under **Weekly Cutoff**, early games still lock when they start. Every remaining choice locks Sunday at 1:00 p.m. Eastern.
+
+The Board disables locked controls and shows **Pick Lock reached**. A schedule update may move a future lock, but postponement or rescheduling never reopens a lock that already happened.
+
+## Hidden Picks
+
+Before its Pick Lock, an accepted pick is visible only to its author. Other Participants see completion information such as **Pick saved · Hidden**, not the selected team. Pool Owners and Pool Admins cannot reveal the choice through normal Pool access.
+
+After the applicable lock, the Board can display the locked selection or its provenance:
+
+- **authored** means the Participant made the choice;
+- **automatic** identifies the fallback Confidence Pick Set created for a completely untouched week; and
+- **omission** means a required choice locked without a valid prediction or Survivor Pick.
+
+## Pick and result labels
+
+**Projected (non-official)** uses live or provisionally final NFL data for awareness. It does not change official standings, eligibility, or winners.
+
+**Verified Result** is official and can be applied to scoring. A later corrected result can revise affected outcomes and standings.
+
+## Choose the right picking guide
+
+The controls below the slate differ by Pool type:
+
+- [Make Survivor Picks](/guides/survivor-picks) explains selecting one team, used-team history, provisional picks, and elimination.
+- [Make Confidence Picks](/guides/confidence-picks) explains winner predictions, confidence values, the weekly tiebreaker, and automatic sets.

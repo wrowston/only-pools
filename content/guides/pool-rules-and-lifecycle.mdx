@@ -1,0 +1,56 @@
+This reference summarizes every user-facing competitive rule and Pool state currently represented in Only Pools.
+
+## Pool types
+
+**Survivor** requires one team per included Pool Week. A win advances; a loss, tie, or missing pick eliminates. The same team cannot be used twice by one Participant.
+
+**Confidence** requires a winner prediction for every Pick Sheet game and one unique confidence value per game. Correct predictions earn their assigned values. Weekly and Season Standings determine the outcome.
+
+A Pool has one immutable type and one Pool Season. The regular-season Start Week defines where its competition begins.
+
+## Pool Ruleset
+
+The Pool Ruleset contains outcome-affecting choices shared by every Participant, including Pool type, Start Week, and Pick Lock mode. It becomes immutable at the earlier of:
+
+- the first server-accepted competitive edit; or
+- the first included game reaching a Pick Lock.
+
+Administrative roles do not create different competitive rules for Owners or Admins.
+
+## Pick Lock modes
+
+**Game Kickoff Lock** applies at the earlier of a game’s current scheduled kickoff or an authoritative started-game signal. A Survivor Pick locks with its selected game. Confidence predictions and values lock game by game, leaving later games editable.
+
+**Weekly Cutoff Lock** first locks early games individually, then locks every remaining pick, confidence assignment, and Weekly Tiebreaker Prediction Sunday at 1:00 p.m. Eastern.
+
+A future schedule change may move a lock that has not been reached. No postponement, suspension, or reschedule reopens an existing lock.
+
+## Survivor scoring
+
+A selected-team win advances the Participant. A loss, tie, or omission eliminates. Teams attached to valid settled picks enter that Participant’s used-team history.
+
+A locked pick in a later Pool Week can remain provisional while an earlier result is Pending. Earlier elimination invalidates it. A canceled game after lock produces a No-Contest Advance and consumes the selected team; a known pre-lock cancellation releases the team for replacement.
+
+The Pool completes with one remaining Alive Participant. If a settled week eliminates its entire entering Alive group, that group shares the winner designation. Multiple Participants still Alive after the last included week also share it.
+
+## Confidence scoring
+
+Every Required Confidence Game uses one value from the season-wide Confidence Scale. A correct Verified Result earns that value. An incorrect, omitted, or canceled game earns zero.
+
+Weekly Standings rank official points first, then usable Weekly Tiebreaker Prediction accuracy. Season Standings sum fully resolved Pool Weeks. They do not drop or normalize weeks, and the weekly tiebreaker never adds points or breaks a season tie.
+
+After Week 18 is fully verified and scored, every Participant tied for the highest final Season Standing total is a Confidence Winner.
+
+## Result states
+
+**Projected Result** is informational and non-official. It cannot change standings, eligibility, winners, or Pool completion.
+
+**Verified Result** is official and may be scored. **Corrected Result** replaces a previously applied official result and triggers ordered recalculation of affected outcomes.
+
+## Pool lifecycle
+
+**Active Pool** has been created and has not reached its final resolved outcome.
+
+**Completed Pool** has reached a terminal outcome after required results were verified and scored. History remains available. A corrected result can return it to Active.
+
+**Archived Pool** has a reversible read-only administrative overlay. Archiving hides it from normal lists and restricts changes, but locks, data updates, and scoring continue. Active or Completed describes the underlying competition, so either can also be Archived.

@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { StatusBanner } from "@/components/StatusBanner";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
 import { clerkAppearance } from "@/lib/clerkAppearance";
+import { siteUrl } from "@/lib/siteUrl";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
@@ -39,6 +40,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl()),
   title: "Only Pools",
   description: "Private NFL prediction competitions for verified adults.",
 };

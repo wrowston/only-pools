@@ -479,6 +479,12 @@ export function WeekBoardView({
               ? ` · Season ${board.pool.seasonLabel}`
               : null}
           </p>
+          <Link
+            href={isSurvivor ? "/guides/survivor-picks" : "/guides/confidence-picks"}
+            className="text-xs font-medium text-op-selected-fg underline underline-offset-4"
+          >
+            {isSurvivor ? "How Survivor picks work" : "How Confidence picks work"}
+          </Link>
         </div>
         <WeekChips
           weeks={board.availableWeeks}

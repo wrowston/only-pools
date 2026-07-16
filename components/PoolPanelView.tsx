@@ -152,9 +152,12 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-medium tracking-tight text-op-text">
-          Pool
-        </h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-medium tracking-tight text-op-text">Pool</h1>
+          <Link href="/guides/members-roles-and-ownership" className="text-xs font-medium text-op-selected-fg underline underline-offset-4">
+            Management guide
+          </Link>
+        </div>
         <p className="text-sm text-op-secondary">
           Members, roles, and Pool Invite
           {members.archived ? " · Archived" : ""}
