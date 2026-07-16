@@ -6,9 +6,9 @@ import { MarketingShowcase } from "@/components/landing/MarketingShowcase";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
 
 export const metadata: Metadata = {
-  title: "Only Pools — Simple NFL Survivor & Confidence Pools",
+  title: "Only Pools — A Simple Splash Sports Alternative",
   description:
-    "Create a private NFL Survivor or Confidence pool, invite your people, make picks, and follow the standings—all in one simple place.",
+    "Replace Splash Sports with a focused home for private NFL Survivor and Confidence pools. Create a pool, invite your people, make picks, and follow the standings.",
 };
 
 export default function Home() {
@@ -37,7 +37,7 @@ export default function Home() {
         <div className="op-marketing-enter relative mx-auto flex max-w-[900px] flex-col items-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-op-border-strong bg-op-surface/85 px-3 py-1.5 text-[11px] font-medium text-op-secondary backdrop-blur-sm sm:text-xs">
             <span className="h-1.5 w-1.5 rounded-full bg-op-heat" />
-            Survivor &amp; Confidence
+            Built to replace Splash Sports
           </div>
 
           <h1 className="mt-7 max-w-[15ch] text-[clamp(2.75rem,5.5vw,4.25rem)] font-medium leading-[1] tracking-[-0.04em] text-op-text">
@@ -46,8 +46,8 @@ export default function Home() {
           </h1>
 
           <p className="mt-7 max-w-xl text-[16px] leading-7 text-op-secondary sm:mt-8 sm:text-lg sm:leading-8">
-            Create a Survivor or Confidence pool, invite your people, make
-            picks, and follow the standings—all in one simple place.
+            A focused home for Survivor and Confidence pools. Invite your
+            people, make picks, and follow the standings—all in one place.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -136,9 +136,9 @@ export default function Home() {
           aria-hidden
         />
         <div className="relative mx-auto max-w-[1040px] overflow-hidden rounded-[20px] border border-op-border-strong bg-op-surface px-6 py-16 text-center shadow-[0_30px_80px_-55px_rgba(38,38,38,0.4)] sm:px-12 sm:py-20">
-          <p className="op-eyebrow text-op-heat">Week one starts here</p>
+          <p className="op-eyebrow text-op-heat">Your next pool starts here</p>
           <h2 className="mx-auto mt-3 max-w-[12ch] text-4xl font-medium leading-[1.04] tracking-[-0.04em] text-op-text sm:text-6xl">
-            Ready for kickoff?
+            Ready to replace Splash Sports?
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-[15px] leading-7 text-op-secondary sm:text-base">
             Start a private NFL pool in minutes, or join your people with an

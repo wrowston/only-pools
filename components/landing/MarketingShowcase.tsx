@@ -557,7 +557,7 @@ export function MarketingShowcase() {
                 SEE WHERE YOU STAND
               </span>
               <h3 className="mt-3 text-2xl font-medium tracking-tight text-op-text sm:text-3xl">
-                No spreadsheet required.
+                Standings without the wait.
               </h3>
               <p className="mt-4 text-[15px] leading-7 text-op-secondary">
                 Standings update as verified results arrive, so everyone sees
