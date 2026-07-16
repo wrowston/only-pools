@@ -43,6 +43,21 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl()),
   title: "Only Pools",
   description: "Private NFL prediction competitions for verified adults.",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: "Only Pools",
+    title: "Only Pools — NFL pools without the busywork",
+    description:
+      "Create a private NFL Survivor or Confidence pool, invite your people, and follow every pick and standing in one place.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Only Pools — NFL pools without the busywork",
+    description:
+      "Create a private NFL Survivor or Confidence pool, invite your people, and follow every pick and standing in one place.",
+  },
 };
 
 export default function RootLayout({

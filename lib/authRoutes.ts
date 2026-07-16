@@ -5,6 +5,7 @@ export const POST_AUTH_HOME = "/my-pools";
 export const PUBLIC_ROUTE_PATTERNS = [
   "/",
   "/guides(.*)",
+  "/opengraph-image(.*)",
   "/sitemap.xml",
   "/sign-in(.*)",
   "/sign-up(.*)",

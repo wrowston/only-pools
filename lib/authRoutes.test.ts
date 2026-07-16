@@ -13,4 +13,8 @@ describe("PUBLIC_ROUTE_PATTERNS", () => {
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/guides(.*)");
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/sitemap.xml");
   });
+
+  it("lets link-preview crawlers fetch the Open Graph image", () => {
+    expect(PUBLIC_ROUTE_PATTERNS).toContain("/opengraph-image(.*)");
+  });
 });
