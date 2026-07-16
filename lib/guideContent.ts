@@ -1,8 +1,12 @@
 import type { ComponentType } from "react";
+import type { GuideSlug } from "./guides";
 
 type GuideModule = { default: ComponentType };
 
-export const guideContentLoaders: Record<string, () => Promise<GuideModule>> = {
+export const guideContentLoaders: Record<
+  GuideSlug,
+  () => Promise<GuideModule>
+> = {
   "getting-started": () => import("@/content/guides/getting-started.mdx"),
   "create-a-pool": () => import("@/content/guides/create-a-pool.mdx"),
   "invites-and-joining": () => import("@/content/guides/invites-and-joining.mdx"),

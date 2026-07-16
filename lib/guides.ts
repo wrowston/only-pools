@@ -141,6 +141,8 @@ export const guides = [
   },
 ] as const satisfies readonly Guide[];
 
+export type GuideSlug = (typeof guides)[number]["slug"];
+
 const SEARCH_STOP_WORDS = new Set(["a", "an", "and", "can", "do", "i", "is", "my", "of", "the", "to", "who"]);
 
 function searchableText(guide: Guide): string {
