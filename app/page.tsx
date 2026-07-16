@@ -42,7 +42,7 @@ export default function Home() {
 
           <h1 className="mt-7 max-w-[15ch] text-[clamp(2.75rem,5.5vw,4.25rem)] font-medium leading-[1] tracking-[-0.04em] text-op-text">
             NFL pools
-            <span className="block text-op-heat">without the busywork.</span>
+            <span className="block text-op-heat">made simple.</span>
           </h1>
 
           <p className="mt-7 max-w-xl text-[16px] leading-7 text-op-secondary sm:mt-8 sm:text-lg sm:leading-8">
