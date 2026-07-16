@@ -278,6 +278,11 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
           <h2 className="text-sm font-semibold text-op-text">
             Ownership transfer pending
           </h2>
+          <p className="text-sm text-op-secondary">
+            {ownership.pending.canAccept
+              ? "Offered to you."
+              : `Offered to ${ownership.pending.toDisplayName}.`}
+          </p>
           {ownership.pending.canAccept ? (
             <button
               type="button"

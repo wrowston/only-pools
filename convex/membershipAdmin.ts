@@ -886,11 +886,14 @@ export const getOwnershipTransferStatus = query({
       return { pending: null };
     }
 
+    const toParticipant = await ctx.db.get(offer.toParticipantId);
+
     return {
       pending: {
         offerId: offer._id,
         fromParticipantId: offer.fromParticipantId,
         toParticipantId: offer.toParticipantId,
+        toDisplayName: toParticipant?.displayName ?? "Participant",
         createdAtMs: offer.createdAtMs,
         canAccept: offer.toParticipantId === participant._id,
         canCancel: offer.fromParticipantId === participant._id,
