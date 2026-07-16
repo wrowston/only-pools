@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
 
 type PoolType = "survivor" | "confidence";
 type PickLockMode = "gameKickoff" | "weeklyCutoff";
@@ -145,7 +146,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
       });
       router.push(`/pools/${result.poolId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create Pool");
+      setError(convexErrorMessage(err, "Could not create Pool"));
       setBusy(false);
     }
   }
@@ -153,11 +154,11 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
   if (createdReturningUrls.length > 0) {
     const poolId = createdReturningUrls[0]!.poolId;
     return (
-      <div className="flex flex-col gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+      <div className="flex flex-col gap-4 op-panel p-5">
+        <h2 className="text-lg font-semibold text-op-text">
           Pool created — share Returning Participant Invites
         </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           Nobody was enrolled automatically. Share each person-specific link;
           they must accept before joining.
         </p>
@@ -165,15 +166,15 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           {createdReturningUrls.map((row) => (
             <li
               key={row.url}
-              className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800"
+              className="rounded-[10px] border border-op-border bg-op-surface p-3"
             >
-              <p className="font-medium text-zinc-800 dark:text-zinc-200">
+              <p className="font-medium text-op-text">
                 {row.displayName}{" "}
-                <span className="font-normal text-zinc-500">
+                <span className="font-normal text-op-muted">
                   ({row.role === "admin" ? "proposed Admin" : "Member"})
                 </span>
               </p>
-              <code className="mt-1 block break-all text-xs text-zinc-600 dark:text-zinc-400">
+              <code className="mt-1 block break-all text-xs text-op-secondary">
                 {row.url}
               </code>
             </li>
@@ -182,7 +183,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
         <button
           type="button"
           onClick={() => router.push(`/pools/${poolId}`)}
-          className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+          className="op-btn op-btn-primary"
         >
           Open Pool
         </button>
@@ -195,19 +196,19 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
   return (
     <form
       onSubmit={(e) => void onSubmit(e)}
-      className="flex flex-col gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800"
+      className="flex flex-col gap-4 op-panel p-5"
     >
-      <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+      <h2 className="text-lg font-semibold text-op-text">
         Create Pool
       </h2>
       {startWeeks?.seasonLabel ? (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-op-muted">
           Pool Season: {startWeeks.seasonLabel} (immutable after create)
         </p>
       ) : null}
 
       <fieldset className="flex flex-col gap-2 text-sm">
-        <legend className="font-medium text-zinc-700 dark:text-zinc-300">
+        <legend className="font-medium text-op-text">
           Setup
         </legend>
         <label className="flex items-center gap-2">
@@ -229,7 +230,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           />
           From template
           {templateOptions.length === 0 ? (
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-op-muted">
               (no prior Pools yet)
             </span>
           ) : null}
@@ -238,7 +239,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
 
       {mode === "template" ? (
         <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+          <span className="font-medium text-op-text">
             Prior Pool
           </span>
           <select
@@ -248,7 +249,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
                 e.target.value as Id<"pools"> | "",
               )
             }
-            className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 dark:border-zinc-700"
+            className="rounded-md border border-op-border bg-op-surface"
             required
           >
             <option value="">Select a Pool Template…</option>
@@ -263,20 +264,20 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
       ) : null}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+        <span className="font-medium text-op-text">
           Name
         </span>
         <input
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 dark:border-zinc-700"
+          className="rounded-md border border-op-border bg-op-surface"
           placeholder="Sunday Best Friends"
         />
       </label>
 
       <fieldset className="flex flex-col gap-2 text-sm">
-        <legend className="font-medium text-zinc-700 dark:text-zinc-300">
+        <legend className="font-medium text-op-text">
           Pool Type
         </legend>
         <label className="flex items-center gap-2">
@@ -300,21 +301,21 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           Confidence
         </label>
         {mode === "template" ? (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-op-muted">
             Pool Type comes from the template and cannot change.
           </p>
         ) : null}
       </fieldset>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+        <span className="font-medium text-op-text">
           Start Week
         </span>
         <select
           value={effectiveStartWeek ?? ""}
           onChange={(e) => setStartWeek(Number(e.target.value))}
           disabled={weeks.length === 0}
-          className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 dark:border-zinc-700"
+          className="rounded-md border border-op-border bg-op-surface"
         >
           {weeks.length === 0 ? (
             <option value="">No weeks available</option>
@@ -329,7 +330,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
       </label>
 
       <fieldset className="flex flex-col gap-2 text-sm">
-        <legend className="font-medium text-zinc-700 dark:text-zinc-300">
+        <legend className="font-medium text-op-text">
           Pick Lock mode
         </legend>
         <label className="flex items-center gap-2">
@@ -354,15 +355,15 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
 
       {mode === "template" && selectedTemplate ? (
         <fieldset className="flex flex-col gap-3 text-sm">
-          <legend className="font-medium text-zinc-700 dark:text-zinc-300">
+          <legend className="font-medium text-op-text">
             Returning Participant Invites (optional)
           </legend>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-op-muted">
             Person-specific, single-use. Nobody is enrolled until they accept.
             Only you (Owner) may propose Admin.
           </p>
           {selectedTemplate.formerParticipants.length === 0 ? (
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-op-muted">
               No former participants to invite.
             </p>
           ) : (
@@ -373,7 +374,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
                   key={person.participantId}
                   className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <span className="text-zinc-800 dark:text-zinc-200">
+                  <span className="text-op-text">
                     {person.displayName}
                   </span>
                   <select
@@ -384,7 +385,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
                         e.target.value as ProposedRole | "skip",
                       )
                     }
-                    className="rounded-md border border-zinc-300 bg-transparent px-2 py-1.5 dark:border-zinc-700"
+                    className="rounded-md border border-op-border bg-op-surface"
                   >
                     <option value="skip">Don&apos;t invite</option>
                     <option value="member">Invite as Member</option>
@@ -398,7 +399,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
       ) : null}
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}
@@ -407,15 +408,11 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
         <button
           type="submit"
           disabled={busy || weeks.length === 0}
-          className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
+          className="op-btn op-btn-primary"
         >
           {busy ? "Creating…" : "Create Active Pool"}
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-        >
+        <button type="button" onClick={onCancel} className="op-btn op-btn-secondary">
           Cancel
         </button>
       </div>

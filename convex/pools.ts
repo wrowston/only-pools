@@ -389,6 +389,13 @@ export const getWeekBoard = query({
       updatedAtMs: number;
     } | null = null;
 
+    /** Active one-use reservations for the viewer (own history only). */
+    let myReservedTeams: Array<{
+      nflTeamId: Id<"nflTeams">;
+      week: number;
+      abbreviation: string | null;
+    }> = [];
+
     type ParticipantPickState =
       | {
           participantId: Id<"participants">;
@@ -451,6 +458,22 @@ export const getWeekBoard = query({
           provisional: myPick.provisional,
           updatedAtMs: myPick.updatedAtMs,
         };
+      }
+
+      const reservations = await ctx.db
+        .query("survivorTeamReservations")
+        .withIndex("by_poolId_and_participantId", (q) =>
+          q.eq("poolId", pool._id).eq("participantId", participant._id),
+        )
+        .take(64);
+      for (const reservation of reservations) {
+        if (reservation.released) continue;
+        const team = await ctx.db.get(reservation.nflTeamId);
+        myReservedTeams.push({
+          nflTeamId: reservation.nflTeamId,
+          week: reservation.week,
+          abbreviation: team?.abbreviation ?? null,
+        });
       }
 
       const memberships = await ctx.db
@@ -664,6 +687,7 @@ export const getWeekBoard = query({
       week,
       slate,
       mySurvivorPick,
+      myReservedTeams,
       myConfidencePickSet,
       participantPickStates,
       /**

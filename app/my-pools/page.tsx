@@ -7,7 +7,96 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { CreatePoolForm } from "@/components/CreatePoolForm";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  StatusChip,
+  eligibilityTone,
+  type StatusChipTone,
+} from "@/components/standings";
 import { api } from "@/convex/_generated/api";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import type { FunctionReturnType } from "convex/server";
+
+type Membership = FunctionReturnType<
+  typeof api.participants.myPools
+>["memberships"][number];
+
+function poolTypeLabel(type: Membership["type"]): string {
+  return type === "survivor" ? "Survivor" : "Confidence";
+}
+
+function standingLabel(standing: Membership["standing"]): string {
+  if (standing.kind === "survivor") {
+    if (standing.eligibility === "eliminated") {
+      return standing.eliminatedWeek != null
+        ? `Eliminated W${standing.eliminatedWeek}`
+        : "Eliminated";
+    }
+    if (standing.eligibility === "winner") return "Winner";
+    return `Alive · ${standing.aliveCount}/${standing.memberCount}`;
+  }
+  if (standing.seasonRank != null) {
+    return `#${standing.seasonRank} · ${standing.seasonPoints} pts`;
+  }
+  if (standing.seasonPoints > 0) {
+    return `${standing.seasonPoints} pts`;
+  }
+  return "Unranked";
+}
+
+function standingChipTone(
+  standing: Membership["standing"],
+): StatusChipTone {
+  if (standing.kind === "survivor") {
+    return eligibilityTone(standing.eligibility);
+  }
+  return "neutral";
+}
+
+function actionChip(m: Membership): { tone: StatusChipTone; label: string } {
+  if (m.archived || m.nextAction === "view_pool") {
+    return { tone: "neutral", label: "Archived" };
+  }
+  if (m.nextAction === "view_standings") {
+    return { tone: "neutral", label: "Standings" };
+  }
+  if (m.pickStatus === "needs_pick") {
+    return { tone: "attention", label: "Needs pick" };
+  }
+  if (m.pickStatus === "pick_locked") {
+    return { tone: "neutral", label: "Pick locked" };
+  }
+  if (m.pickStatus === "pick_saved") {
+    return { tone: "alive", label: "Pick saved" };
+  }
+  return { tone: "neutral", label: "Open board" };
+}
+
+function MembershipRow({ m }: { m: Membership }) {
+  const action = actionChip(m);
+  return (
+    <li className="py-3.5">
+      <Link
+        href={`/pools/${m.poolId}`}
+        className="flex items-start justify-between gap-3 text-sm transition-opacity hover:opacity-80"
+      >
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="font-medium text-op-text">{m.name}</span>
+          <span className="text-xs text-op-muted">
+            {poolTypeLabel(m.type)} · Week {m.boardWeek}
+            {m.role === "owner" ? " · Owner" : ""}
+            {m.archived ? " · Archived" : ""}
+          </span>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StatusChip tone={standingChipTone(m.standing)}>
+              {standingLabel(m.standing)}
+            </StatusChip>
+          </span>
+        </span>
+        <StatusChip tone={action.tone}>{action.label}</StatusChip>
+      </Link>
+    </li>
+  );
+}
 
 function VerificationIncomplete({ missing }: { missing: string[] }) {
   return (
@@ -48,7 +137,7 @@ function MyPoolsHome() {
       } catch (e) {
         if (!cancelled) {
           setEnsureError(
-            e instanceof Error ? e.message : "Could not establish Participant",
+            convexErrorMessage(e, "Could not establish Participant"),
           );
         }
       }
@@ -76,7 +165,7 @@ function MyPoolsHome() {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+            className="op-btn op-btn-primary"
           >
             Refresh
           </button>
@@ -100,7 +189,7 @@ function MyPoolsHome() {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+            className="op-btn op-btn-primary"
           >
             Refresh
           </button>
@@ -131,14 +220,11 @@ function MyPoolsHome() {
             ? "Create a Pool"
             : "Create Pool is disabled until an Available Season exists"
         }
-        className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
+        className="op-btn op-btn-primary disabled:cursor-not-allowed disabled:opacity-40"
       >
         Create Pool
       </button>
-      <Link
-        href="/join"
-        className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
-      >
+      <Link href="/join" className="op-btn op-btn-secondary">
         Join a Pool
       </Link>
     </>
@@ -149,7 +235,7 @@ function MyPoolsHome() {
       return (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-semibold tracking-tight text-op-text">
+            <h1 className="text-3xl font-medium tracking-tight text-op-text">
               My Pools
             </h1>
           </header>
@@ -159,9 +245,9 @@ function MyPoolsHome() {
     }
 
     return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
+      <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
         <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-op-text">
+          <h1 className="text-3xl font-medium tracking-tight text-op-text">
             My Pools
           </h1>
         </header>
@@ -192,15 +278,15 @@ function MyPoolsHome() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
+    <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
       <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-op-text">
+        <h1 className="text-3xl font-medium tracking-tight text-op-text">
           My Pools
         </h1>
-        <p className="text-sm text-op-secondary">
+        <p className="text-[15px] text-op-secondary">
           {includeArchived
             ? "Including archived Pools in this list."
-            : "Your Pool memberships and entry points to create or join."}
+            : "Standing, pick status, and next action for each membership."}
         </p>
         {includeArchived ? (
           <Link
@@ -213,27 +299,12 @@ function MyPoolsHome() {
       </header>
 
       <section aria-labelledby="memberships-heading" className="flex flex-col gap-3">
-        <h2
-          id="memberships-heading"
-          className="text-sm font-medium uppercase tracking-wide text-op-muted"
-        >
+        <h2 id="memberships-heading" className="op-eyebrow">
           Memberships
         </h2>
-        <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
+        <ul className="op-panel divide-y divide-op-border px-4">
           {myPools.memberships.map((m) => (
-            <li key={m.poolId} className="py-3">
-              <Link
-                href={`/pools/${m.poolId}`}
-                className="flex flex-col gap-0.5 text-sm hover:opacity-80"
-              >
-                <span className="font-medium text-op-text">{m.name}</span>
-                <span className="text-xs text-op-muted">
-                  {m.role === "owner" ? "Owner" : m.role}
-                  {m.archived ? " · Archived" : ""} · Week {m.startWeek} · Open
-                  Week Board
-                </span>
-              </Link>
-            </li>
+            <MembershipRow key={m.poolId} m={m} />
           ))}
         </ul>
         {myPools.archivedCount > 0 ? (
@@ -278,7 +349,7 @@ export default function MyPoolsPage() {
   return (
     <Suspense
       fallback={
-        <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="px-6 py-16 text-sm text-op-secondary">
           Loading My Pools…
         </div>
       }
@@ -306,7 +377,7 @@ function MyPoolsGate() {
         action={
           <Link
             href="/sign-in"
-            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+            className="op-btn op-btn-primary"
           >
             Sign in
           </Link>

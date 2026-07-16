@@ -1,9 +1,20 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import Link from "next/link";
+import type { FunctionReturnType } from "convex/server";
+import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { uiType } from "@/lib/uiType";
+import {
+  InitialAvatar,
+  TextLink,
+  YouBadge,
+} from "./standings";
+
+type Peek = NonNullable<
+  FunctionReturnType<typeof api.confidenceScoring.getConfidenceStandingsPeek>
+>;
 
 /**
  * Desktop context-rail peek content (Week Board only).
@@ -16,52 +27,57 @@ export function ConfidenceStandingsPeek({
   poolId: Id<"pools">;
   week: number;
 }) {
-  const peek = useQuery(api.confidenceScoring.getConfidenceStandingsPeek, {
+  const peekResult = useQuery(api.confidenceScoring.getConfidenceStandingsPeek, {
     poolId,
     week,
   });
+  const [cachedPeek, setCachedPeek] = useState<Peek | null>(null);
+  if (peekResult && peekResult !== cachedPeek) {
+    setCachedPeek(peekResult);
+  }
+  // Keep prior peek mounted while the next week’s query is in flight.
+  const peek =
+    peekResult === null ? null : (peekResult ?? cachedPeek);
 
-  if (peek === undefined || peek === null) return null;
+  if (peek === null) return null;
 
   return (
-    <aside className="flex flex-col gap-3" aria-label="Weekly Standing peek">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-op-muted">
-        Week {peek.week} Standing
-      </h2>
-      <ol className="flex flex-col gap-2 text-sm">
+    <aside className="flex flex-col gap-4" aria-label="Weekly Standing peek">
+      <h2 className={uiType.eyebrow}>Week {peek.week} Standing</h2>
+      <ol className="flex flex-col gap-2.5">
         {peek.top5.map((row) => (
           <li
             key={row.participantId}
-            className="flex items-baseline justify-between gap-3"
+            className="flex min-w-0 items-center justify-between gap-3"
           >
-            <span className="min-w-0 truncate text-op-text">
-              {row.rank !== null ? `${row.rank}. ` : ""}
-              {row.displayName}
-              {row.isViewer ? (
-                <span className="ml-1 text-xs text-op-muted">you</span>
-              ) : null}
-            </span>
-            <span className="shrink-0 tabular-nums text-op-secondary">
-              {row.points}
-            </span>
+            <div className="flex min-w-0 items-center gap-2">
+              <InitialAvatar name={row.displayName} />
+              <span className={`min-w-0 truncate ${uiType.name}`}>
+                {row.rank !== null ? `${row.rank}. ` : ""}
+                {row.displayName}
+              </span>
+              {row.isViewer ? <YouBadge /> : null}
+            </div>
+            <span className={`shrink-0 ${uiType.metricSm}`}>{row.points}</span>
           </li>
         ))}
       </ol>
       {peek.viewer ? (
-        <p className="border-t border-op-border pt-2 text-sm text-op-text">
-          {peek.viewer.rank !== null ? `${peek.viewer.rank}. ` : ""}
-          {peek.viewer.displayName}{" "}
-          <span className="tabular-nums text-op-muted">
-            {peek.viewer.points} pts
+        <div className="flex items-center justify-between gap-3 border-t border-op-border pt-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <InitialAvatar name={peek.viewer.displayName} />
+            <span className={`min-w-0 truncate ${uiType.name}`}>
+              {peek.viewer.rank !== null ? `${peek.viewer.rank}. ` : ""}
+              {peek.viewer.displayName}
+            </span>
+            <YouBadge />
+          </div>
+          <span className={`shrink-0 ${uiType.metricSm}`}>
+            {peek.viewer.points}
           </span>
-        </p>
+        </div>
       ) : null}
-      <Link
-        href={peek.standingsPath}
-        className="text-sm text-op-secondary underline-offset-2 hover:underline"
-      >
-        Full standings →
-      </Link>
+      <TextLink href={peek.standingsPath}>Full standings →</TextLink>
     </aside>
   );
 }

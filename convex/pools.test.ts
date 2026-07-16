@@ -328,10 +328,45 @@ describe("myPools after create", () => {
         startWeek: 1,
         status: "active",
         archived: false,
-        nextAction: "open_week_board",
+        boardWeek: 1,
+        pickStatus: "needs_pick",
+        nextAction: "make_pick",
+        standing: {
+          kind: "survivor",
+          eligibility: "alive",
+          eliminatedWeek: null,
+          aliveCount: 1,
+          memberCount: 1,
+        },
       },
     ]);
     expect(home.archivedCount).toBe(0);
+  });
+
+  it("flips to pick_saved after an unlocked Survivor pick", async () => {
+    const t = convexTest(schema, modules);
+    const { homeId } = await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Picked Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId: created.poolId,
+      week: 1,
+      nflTeamId: homeId,
+    });
+
+    const home = await asAlex.query(api.participants.myPools, {});
+    expect(home.memberships[0]).toMatchObject({
+      pickStatus: "pick_saved",
+      nextAction: "open_week_board",
+    });
   });
 });
 
@@ -389,6 +424,7 @@ describe("getWeekBoard", () => {
     expect(board).not.toHaveProperty("allWeeks");
     expect(Object.keys(board).sort()).toEqual(
       [
+        "availableWeeks",
         "myConfidencePickSet",
         "mySurvivorPick",
         "participantPickStates",
@@ -398,6 +434,7 @@ describe("getWeekBoard", () => {
         "week",
       ].sort(),
     );
+    expect(board.availableWeeks).toContain(1);
 
     const home = await asAlex.query(api.participants.myPools, {});
     expect(home.memberships[0]).not.toHaveProperty("picks");

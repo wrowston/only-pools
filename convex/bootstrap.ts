@@ -332,7 +332,10 @@ export const runSeasonBootstrap = action({
  * Authorized by Convex deploy access + required operator env (no Clerk session).
  * Prefer the authenticated public action in Production.
  *
- *   bunx convex run internal.bootstrap:runSeasonBootstrapCli '{"seasonLabel":"2025"}'
+ *   bunx convex run bootstrap:runSeasonBootstrapCli '{"seasonLabel":"2025"}'
+ *
+ * For browse-ready Dev data without SportsDB, prefer:
+ *   bunx convex run seedDemo:seedDemoWorld '{"ownerClerkUserId":"user_…"}'
  */
 export const runSeasonBootstrapCli = internalAction({
   args: {

@@ -29,7 +29,20 @@ bunx convex env set PRODUCTION_OPERATOR_CLERK_USER_ID user_XXXX
 3. Run live bootstrap via CLI (uses deploy credentials + operator env for audit actor):
 
 ```bash
-bunx convex run internal.bootstrap:runSeasonBootstrapCli '{"seasonLabel":"2025"}'
+bunx convex run bootstrap:runSeasonBootstrapCli '{"seasonLabel":"2025"}'
 ```
 
 Authenticated operators can also call public `bootstrap:runSeasonBootstrap` from a signed-in session. Fixture path for tests: `runSeasonBootstrapNormalized`.
+
+### Browse-ready Dev seed (no SportsDB)
+
+Free-tier SportsDB often returns only preseason events, so Create Pool stays disabled. For local browsing without the provider:
+
+1. Sign into the app once (creates your `participants` row).
+2. Run:
+
+```bash
+bunx convex run seedDemo:seedDemoWorld '{"ownerClerkUserId":"user_XXXX"}'
+```
+
+This seeds an Available Season, NFL slate, fake members, and pools you own. Dev-only (`DEPLOYMENT_KIND=production` refuses).

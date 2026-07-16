@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { EmptyState } from "./EmptyState";
-import { PoolShell } from "./PoolShell";
+import { usePoolChromeName } from "./PoolChrome";
 
 function absoluteInviteUrl(path: string): string {
   if (typeof window === "undefined") return path;
@@ -67,7 +68,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
+      setError(convexErrorMessage(e, "Action failed"));
     } finally {
       setBusy(false);
     }
@@ -103,6 +104,8 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     }
   }
 
+  usePoolChromeName(members?.poolName);
+
   if (isLoading || (isAuthenticated && members === undefined)) {
     return (
       <EmptyState title="Loading Pool" description="Loading members…" />
@@ -116,7 +119,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
         action={
           <Link
             href="/sign-in"
-            className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+            className="op-btn op-btn-primary"
           >
             Sign in
           </Link>
@@ -133,7 +136,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
         action={
           <Link
             href="/my-pools"
-            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+            className="op-btn op-btn-secondary"
           >
             Back to My Pools
           </Link>
@@ -147,10 +150,9 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     members.callerRole === "owner" || members.callerRole === "admin";
 
   return (
-    <PoolShell poolId={poolId} poolName={members.poolName}>
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-op-text">
+        <h1 className="text-2xl font-medium tracking-tight text-op-text">
           Pool
         </h1>
         <p className="text-sm text-op-secondary">
@@ -160,17 +162,17 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       </div>
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}
 
       {isOwner ? (
         <section className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+          <h2 className="text-lg font-semibold text-op-text">
             Archive
           </h2>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-op-secondary">
             Archive is a reversible read-only overlay. Locks, sync, and scoring
             continue.
           </p>
@@ -185,7 +187,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                     await archivePool({ poolId });
                   })
                 }
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+                className="op-btn op-btn-secondary"
               >
                 Archive Pool
               </button>
@@ -199,7 +201,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                     await restorePool({ poolId });
                   })
                 }
-                className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                className="op-btn op-btn-primary"
               >
                 Restore Pool
               </button>
@@ -210,16 +212,16 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
 
       {members.canManageInvites && !members.archived ? (
         <section className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+          <h2 className="text-lg font-semibold text-op-text">
             Pool Invite
           </h2>
           {members.admissionClosed ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm text-op-secondary">
               Membership admission is closed for this Pool.
             </p>
           ) : (
             <>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="text-sm text-op-secondary">
                 Retrieve or rotate the reusable invite after Step-up Verification.
                 {inviteStatus?.hasActiveInvite
                   ? " An active invite already exists."
@@ -230,7 +232,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   type="button"
                   disabled={busy}
                   onClick={() => void withStepUpRetrieve()}
-                  className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                  className="op-btn op-btn-primary"
                 >
                   {busy ? "Working…" : "Create / retrieve invite"}
                 </button>
@@ -238,18 +240,18 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   type="button"
                   disabled={busy || !inviteStatus?.hasActiveInvite}
                   onClick={() => void withStepUpRotate()}
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+                  className="op-btn op-btn-secondary h-9"
                 >
                   Rotate invite
                 </button>
               </div>
               {inviteUrl ? (
-                <div className="flex flex-col gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                  <code className="break-all text-xs text-zinc-800 dark:text-zinc-200">
+                <div className="flex flex-col gap-2 rounded-[10px] border border-op-border bg-op-surface p-3">
+                  <code className="break-all text-xs text-op-text">
                     {inviteUrl}
                   </code>
                   {expiresAtMs ? (
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-op-muted">
                       Expires{" "}
                       {new Intl.DateTimeFormat(undefined, {
                         dateStyle: "medium",
@@ -260,7 +262,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   <button
                     type="button"
                     onClick={() => void copyLink()}
-                    className="self-start text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                    className="self-start text-sm font-medium text-op-text underline"
                   >
                     {copied ? "Copied" : "Copy link"}
                   </button>
@@ -272,8 +274,8 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       ) : null}
 
       {ownership?.pending ? (
-        <section className="flex flex-col gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+        <section className="flex flex-col gap-2 rounded-[10px] border border-op-border bg-op-surface p-3">
+          <h2 className="text-sm font-semibold text-op-text">
             Ownership transfer pending
           </h2>
           {ownership.pending.canAccept ? (
@@ -287,7 +289,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   });
                 })
               }
-              className="self-start rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+              className="op-btn op-btn-primary self-start"
             >
               Accept ownership
             </button>
@@ -303,7 +305,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   });
                 })
               }
-              className="self-start text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+              className="self-start text-sm font-medium text-op-text underline"
             >
               Cancel offer
             </button>
@@ -312,25 +314,25 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       ) : null}
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+        <h2 className="text-lg font-semibold text-op-text">
           Members
         </h2>
-        <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+        <ul className="divide-y divide-op-border">
           {members.members.map((m) => (
             <li
               key={m.participantId}
               className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between"
             >
               <div>
-                <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                <p className="font-medium text-op-text">
                   {m.displayName}
                 </p>
-                <p className="text-xs uppercase tracking-wide text-zinc-500">
+                <p className="text-xs uppercase tracking-wide text-op-muted">
                   {m.role}
                   {m.status !== "active" ? ` · ${m.status}` : ""}
                 </p>
                 {"email" in m || "phone" in m ? (
-                  <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  <div className="mt-1 text-sm text-op-secondary">
                     {m.email ? <p>{m.email}</p> : null}
                     {m.phone ? <p>{m.phone}</p> : null}
                   </div>
@@ -351,7 +353,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                           });
                         })
                       }
-                      className="text-xs font-medium text-zinc-700 underline dark:text-zinc-300"
+                      className="text-xs font-medium text-op-text underline"
                     >
                       Promote Admin
                     </button>
@@ -369,7 +371,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                           });
                         })
                       }
-                      className="text-xs font-medium text-zinc-700 underline dark:text-zinc-300"
+                      className="text-xs font-medium text-op-text underline"
                     >
                       Demote
                     </button>
@@ -391,7 +393,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                           });
                         })
                       }
-                      className="text-xs font-medium text-red-700 underline dark:text-red-400"
+                      className="text-xs font-medium text-red-700 underline"
                     >
                       Remove
                     </button>
@@ -413,7 +415,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                           });
                         })
                       }
-                      className="text-xs font-medium text-red-700 underline dark:text-red-400"
+                      className="text-xs font-medium text-red-700 underline"
                     >
                       Remove Admin
                     </button>
@@ -433,7 +435,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                       });
                     })
                   }
-                  className="text-xs font-medium text-zinc-700 underline dark:text-zinc-300"
+                  className="text-xs font-medium text-op-text underline"
                 >
                   Offer ownership
                 </button>
@@ -457,7 +459,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                       });
                     })
                   }
-                  className="text-xs font-medium text-zinc-700 underline dark:text-zinc-300"
+                  className="text-xs font-medium text-op-text underline"
                 >
                   Reinstate as Member
                 </button>
@@ -475,7 +477,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                 await leavePool({ poolId });
               })
             }
-            className="self-start text-sm font-medium text-zinc-700 underline dark:text-zinc-300 disabled:opacity-50"
+            className="self-start text-sm font-medium text-op-text underline disabled:opacity-50"
           >
             Leave Pool
           </button>
@@ -483,15 +485,15 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+        <h2 className="text-lg font-semibold text-op-text">
           Abuse Report
         </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           Private report to support. Creates no automatic penalty. Do not include
           Hidden Pick values or invite links.
         </p>
         {abuseSent ? (
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          <p className="text-sm text-op-text">
             Report submitted.
           </p>
         ) : (
@@ -519,7 +521,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               value={abuseReason}
               onChange={(e) => setAbuseReason(e.target.value)}
               placeholder="Reason"
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+              className="op-input"
             />
             <textarea
               maxLength={2000}
@@ -527,12 +529,12 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               onChange={(e) => setAbuseDescription(e.target.value)}
               placeholder="Optional description"
               rows={3}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+              className="op-input"
             />
             <button
               type="submit"
               disabled={busy || abuseReason.trim().length < 3}
-              className="self-start rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+              className="op-btn op-btn-primary self-start"
             >
               Submit report
             </button>
@@ -541,27 +543,27 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+        <h2 className="text-lg font-semibold text-op-text">
           Pool Audit
         </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           Sanitized role, membership, invite, and archive events.
         </p>
         {audit === undefined ? (
-          <p className="text-sm text-zinc-500">Loading audit…</p>
+          <p className="text-sm text-op-muted">Loading audit…</p>
         ) : audit.events.length === 0 ? (
           <EmptyState
             title="No audit events yet"
             description="Role changes, invites, archive, and restore actions will show up here."
           />
         ) : (
-          <ul className="divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+          <ul className="divide-y divide-op-border text-sm">
             {audit.events.map((e, i) => (
               <li key={`${e.action}-${e.atMs}-${i}`} className="py-2">
-                <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                <p className="font-medium text-op-text">
                   {e.action}
                 </p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-op-muted">
                   {new Intl.DateTimeFormat(undefined, {
                     dateStyle: "medium",
                     timeStyle: "short",
@@ -573,6 +575,5 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
         )}
       </section>
     </div>
-    </PoolShell>
   );
 }

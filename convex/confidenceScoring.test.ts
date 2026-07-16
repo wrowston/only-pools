@@ -426,6 +426,10 @@ describe("Confidence scoring (scenarios 15–18, 32–33)", () => {
     expect(standings!.weekSettled).toBe(false);
     expect(standings!.projectedWeekly?.official).toBe(false);
     expect(standings!.weekly.rows.some((r) => r.isViewer)).toBe(true);
+    expect(standings!.season.rows[0]).toMatchObject({
+      wins: expect.any(Number),
+      losses: expect.any(Number),
+    });
     // No Hidden Pick fields
     expect(
       JSON.stringify(standings).includes("pickedTeamId") ||

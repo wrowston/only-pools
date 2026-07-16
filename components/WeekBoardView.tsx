@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import {
   officialWinnerTeamId,
   pickOutcomeLabel,
@@ -12,12 +13,14 @@ import {
   resolvePickOutcome,
   teamPickAccessibleName,
 } from "@/lib/pickPresentation";
+import { SURVIVOR_ONE_USE_MESSAGE } from "@/convex/lib/survivorMessages";
 import { TOUCH_TARGET_MIN_CLASS } from "@/lib/gameDayShell";
 import { ConfidenceStandingsPeek } from "./ConfidenceStandingsPeek";
 import { EmptyState } from "./EmptyState";
 import { PoolShell } from "./PoolShell";
 import { SaveTrust } from "./SaveTrust";
 import { SurvivorStandingsPeek } from "./SurvivorStandingsPeek";
+import { Toast } from "./Toast";
 
 function formatKickoff(ms: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -57,6 +60,7 @@ export function WeekBoardView({
     status: TrustStatus;
     explanation?: string;
   }>({ status: "idle" });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [pendingTeamId, setPendingTeamId] = useState<Id<"nflTeams"> | null>(
     null,
   );
@@ -167,9 +171,25 @@ export function WeekBoardView({
   const selectedTeamId = pendingTeamId ?? board.mySurvivorPick?.nflTeamId ?? null;
   const myPickLocked = board.mySurvivorPick?.locked === true;
   const mySet = board.myConfidencePickSet;
+  const reservedOtherWeek = new Map(
+    board.myReservedTeams
+      .filter((r) => r.week !== board.week)
+      .map((r) => [r.nflTeamId, r] as const),
+  );
 
   async function onSelectTeam(nflTeamId: Id<"nflTeams">, gameLocked: boolean) {
     if (!isSurvivor || myPickLocked || gameLocked) return;
+
+    const priorUse = reservedOtherWeek.get(nflTeamId);
+    if (priorUse) {
+      const explanation = priorUse.abbreviation
+        ? `${priorUse.abbreviation} is already used in week ${priorUse.week}. Survivor picks are one-use — choose a different team.`
+        : SURVIVOR_ONE_USE_MESSAGE;
+      setToastMessage(explanation);
+      setTrust({ status: "error", explanation });
+      return;
+    }
+
     setPendingTeamId(nflTeamId);
     setTrust({ status: "saving" });
     try {
@@ -177,8 +197,11 @@ export function WeekBoardView({
       setTrust({ status: "saved" });
       setPendingTeamId(null);
     } catch (err) {
-      const explanation =
-        err instanceof Error ? err.message : "Save failed — tap a team to retry";
+      const explanation = convexErrorMessage(
+        err,
+        "Save failed — tap a team to retry",
+      );
+      setToastMessage(explanation);
       setTrust({ status: "error", explanation });
       setPendingTeamId(null);
     }
@@ -371,6 +394,7 @@ export function WeekBoardView({
       contextRail={contextRail}
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:max-w-3xl min-[900px]:px-8">
+      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-op-text min-[900px]:text-3xl">
           Week Board

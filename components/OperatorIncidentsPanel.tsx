@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { EmptyState } from "./EmptyState";
 
 type IncidentRow = {
@@ -50,7 +51,7 @@ export function OperatorIncidentsPanel() {
         });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
+      setError(convexErrorMessage(e, "Action failed"));
     } finally {
       setBusyId(null);
     }
@@ -60,13 +61,13 @@ export function OperatorIncidentsPanel() {
 
   return (
     <section
-      className="mx-auto w-full max-w-3xl border-t border-zinc-200 px-6 py-8 dark:border-zinc-800"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 py-12"
       data-operator-incidents
     >
-      <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+      <h1 className="text-3xl font-semibold tracking-tight text-op-text">
         Operator Incidents
-      </h2>
-      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+      </h1>
+      <p className="text-sm text-op-secondary">
         Production Operator recovery — step-up required for acknowledge and
         resolve. Deployment: {me.deploymentKind}
       </p>

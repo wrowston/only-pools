@@ -1,44 +1,61 @@
 @import "tailwindcss";
 
 /*
- * Only Pools tokens — mapped into the theme (settled Week Board palette).
- * Spec issue 20 / ticket 14. Prefer these over ad-hoc zinc for shell surfaces.
+ * Only Pools visual system — aligned to Firecrawl’s light theme:
+ * canvas #f9f9f9, ink #262626, heat accent #fa5d19, hairline borders #ededed.
  */
 :root {
   --background: #f9f9f9;
   --foreground: #262626;
 
   --op-canvas: #f9f9f9;
+  --op-canvas-lighter: #fbfbfb;
   --op-surface: #ffffff;
-  --op-control: #efefef;
-  --op-border: #e4e4e4;
-  --op-border-strong: #dbdbdb;
+  --op-surface-raised: #ffffff;
+  --op-control: #0000000a;
+  --op-border: #ededed;
+  --op-border-strong: #e6e6e6;
   --op-text: #262626;
-  --op-secondary: #616161;
-  --op-muted: #a5a5a5;
-  --op-ink: #363449;
-  --op-ink-hover: #2e2c40;
-  --op-ink-pressed: #252334;
-  --op-selected: #f8eaf4;
-  --op-selected-fg: #5a3652;
-  --op-accent: #f2a6d7;
-  --op-mint: #29e7a5;
+  --op-secondary: #262626a3;
+  --op-muted: #2626267a;
+
+  /* Primary actions = Firecrawl heat */
+  --op-ink: #fa5d19;
+  --op-ink-hover: #e55416;
+  --op-ink-pressed: #d14c14;
+  --op-selected: #fa5d1914;
+  --op-selected-fg: #c44512;
+  --op-accent: #fa5d19;
+  --op-heat: #fa5d19;
+  --op-heat-4: #fa5d190a;
+  --op-heat-8: #fa5d1914;
+  --op-heat-12: #fa5d191f;
+  --op-heat-20: #fa5d1933;
+  --op-heat-40: #fa5d1966;
+
+  --op-mint: #42c366;
   --op-won-bg: #eef9f2;
-  --op-won-border: #b9e1c6;
-  --op-won-fg: #356c49;
+  --op-won-border: #8fcea6;
+  --op-won-fg: #2a5a3c;
   --op-lost-bg: #fff2f2;
-  --op-lost-border: #edc6c8;
-  --op-lost-fg: #8a484c;
+  --op-lost-border: #e5a8ac;
+  --op-lost-fg: #7a3a3e;
   --op-banner-bg: #fff8e8;
   --op-banner-border: #f0d9a8;
   --op-banner-fg: #5c4810;
+
+  --op-radius-sm: 8px;
+  --op-radius: 10px;
+  --op-radius-lg: 16px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-op-canvas: var(--op-canvas);
+  --color-op-canvas-lighter: var(--op-canvas-lighter);
   --color-op-surface: var(--op-surface);
+  --color-op-surface-raised: var(--op-surface-raised);
   --color-op-control: var(--op-control);
   --color-op-border: var(--op-border);
   --color-op-border-strong: var(--op-border-strong);
@@ -51,6 +68,12 @@
   --color-op-selected: var(--op-selected);
   --color-op-selected-fg: var(--op-selected-fg);
   --color-op-accent: var(--op-accent);
+  --color-op-heat: var(--op-heat);
+  --color-op-heat-4: var(--op-heat-4);
+  --color-op-heat-8: var(--op-heat-8);
+  --color-op-heat-12: var(--op-heat-12);
+  --color-op-heat-20: var(--op-heat-20);
+  --color-op-heat-40: var(--op-heat-40);
   --color-op-mint: var(--op-mint);
   --color-op-won-bg: var(--op-won-bg);
   --color-op-won-border: var(--op-won-border);
@@ -61,23 +84,158 @@
   --color-op-banner-bg: var(--op-banner-bg);
   --color-op-banner-border: var(--op-banner-border);
   --color-op-banner-fg: var(--op-banner-fg);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-suisse), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 body {
   background: var(--op-canvas);
   color: var(--op-text);
-  font-family: var(--font-geist-sans), "Helvetica Neue", sans-serif;
+  font-family: var(--font-suisse), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: -0.011em;
 }
 
-/* Visible focus — ink plum; not hover-only. */
+/* Firecrawl-style blueprint grid */
+.op-grid-bg {
+  background-color: var(--op-canvas);
+  background-image:
+    radial-gradient(circle at center, #dbdbdb 1px, transparent 1.2px),
+    linear-gradient(to right, var(--op-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--op-border) 1px, transparent 1px);
+  background-size: 72px 72px, 72px 72px, 72px 72px;
+  background-position: center top;
+}
+
+.op-grid-bg-soft {
+  background-color: var(--op-canvas);
+  background-image:
+    radial-gradient(circle at center, #e0e0e0 0.85px, transparent 1.1px),
+    linear-gradient(to right, color-mix(in srgb, var(--op-border) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--op-border) 55%, transparent) 1px, transparent 1px);
+  background-size: 88px 88px, 88px 88px, 88px 88px;
+}
+
+/* Button primitives — Firecrawl button-primary / tertiary */
+.op-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2rem; /* 32px — Firecrawl header/control height */
+  border-radius: 8px;
+  padding: 0 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  transition:
+    background-color 80ms ease,
+    color 80ms ease,
+    transform 50ms ease;
+  cursor: pointer;
+}
+
+.op-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.op-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.op-btn-primary {
+  background: var(--op-ink);
+  color: #fff;
+}
+
+.op-btn.op-btn-primary {
+  height: 2.25rem; /* 36px — Firecrawl primary CTA */
+  padding: 0 0.75rem;
+}
+
+.op-btn-primary:hover:not(:disabled) {
+  background: var(--op-ink-hover);
+}
+
+.op-btn-primary:active:not(:disabled) {
+  background: var(--op-ink-pressed);
+}
+
+.op-btn-secondary {
+  background: var(--op-control);
+  color: var(--op-text);
+}
+
+.op-btn-secondary:hover:not(:disabled) {
+  background: #00000014;
+}
+
+.op-btn-ghost {
+  background: transparent;
+  color: var(--op-text);
+}
+
+.op-btn-ghost:hover:not(:disabled) {
+  background: var(--op-control);
+}
+
+.op-btn-dark {
+  background: var(--op-text);
+  color: #fff;
+}
+
+.op-btn-dark:hover:not(:disabled) {
+  background: #1a1a1a;
+}
+
+.op-input {
+  width: 100%;
+  border-radius: var(--op-radius-sm);
+  border: 1px solid var(--op-border);
+  background: var(--op-surface);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--op-text);
+  outline: none;
+  transition: border-color 80ms ease;
+}
+
+.op-input:focus {
+  border-color: var(--op-heat-40);
+  box-shadow: 0 0 0 3px var(--op-heat-8);
+}
+
+.op-input::placeholder {
+  color: var(--op-muted);
+}
+
+.op-panel {
+  border: 1px solid var(--op-border);
+  border-radius: var(--op-radius-lg);
+  background: var(--op-surface);
+}
+
+.op-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.op-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 550;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+
+/* Visible focus — heat orange ring */
 :focus-visible {
   outline: 2px solid var(--op-ink);
   outline-offset: 2px;
 }
 
-/* Reduced motion — no required animation to understand state. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

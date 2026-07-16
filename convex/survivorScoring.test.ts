@@ -527,4 +527,77 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
     });
     expect(denied).toBeNull();
   });
+
+  it("standings grid reveals locked picks with outcomes and hides unlocked", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t, { includeWeek2: false });
+    const { asAlex, poolId, memberIds } = await createPoolWithMembers(t, {
+      members: ["blake"],
+    });
+
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.buf,
+    });
+
+    // Before lock: Alex sees own team, Blake's pick is hidden.
+    const hidden = await asAlex.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId },
+    );
+    expect(hidden).not.toBeNull();
+    expect(hidden!.weeks[0]).toBe(1);
+    const alexHidden = hidden!.rows.find(
+      (r) => r.participantId === memberIds.alex,
+    );
+    const blakeHidden = hidden!.rows.find(
+      (r) => r.participantId === memberIds.blake,
+    );
+    expect(alexHidden?.cells[0]).toMatchObject({
+      revealed: true,
+      hasPick: true,
+      teamAbbreviation: "KC",
+    });
+    expect(blakeHidden?.cells[0]).toMatchObject({
+      revealed: false,
+      hasPick: true,
+      teamAbbreviation: null,
+    });
+    expect(JSON.stringify(blakeHidden?.cells[0])).not.toContain("BUF");
+
+    await moveKickoffPast(t, seeded.week1GameId);
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+    await t.mutation(internal.survivorScoring.applySurvivorScoringRevision, {
+      poolId,
+      week: 1,
+    });
+
+    const grid = await asAlex.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId },
+    );
+    const alex = grid!.rows.find((r) => r.participantId === memberIds.alex);
+    const blake = grid!.rows.find((r) => r.participantId === memberIds.blake);
+    expect(alex?.cells[0]).toMatchObject({
+      revealed: true,
+      teamAbbreviation: "KC",
+      outcome: "win",
+    });
+    expect(blake?.cells[0]).toMatchObject({
+      revealed: true,
+      teamAbbreviation: "BUF",
+      outcome: "loss",
+    });
+  });
 });

@@ -2,35 +2,13 @@
 
 import { useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { PoolShell } from "./PoolShell";
+import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
-
-function eligibilityLabel(eligibility: string): string {
-  if (eligibility === "alive") return "Alive";
-  if (eligibility === "winner") return "Winner";
-  return "Eliminated";
-}
-
-function weekContext(row: {
-  eligibility: string;
-  eliminatedWeek: number | null;
-  eliminationReason: string | null;
-  wonAtWeek: number | null;
-}): string {
-  if (row.eligibility === "winner" && row.wonAtWeek !== null) {
-    if (row.eliminationReason) {
-      return `Joint winner · Week ${row.wonAtWeek} (${row.eliminationReason.replace("_", " ")})`;
-    }
-    return `Winner · Week ${row.wonAtWeek}`;
-  }
-  if (row.eligibility === "eliminated" && row.eliminatedWeek !== null) {
-    const reason = row.eliminationReason?.replace("_", " ") ?? "eliminated";
-    return `Week ${row.eliminatedWeek} · ${reason}`;
-  }
-  return "Still Alive";
-}
+import { usePoolChromeName } from "./PoolChrome";
+import { SurvivorPickGrid } from "./standings";
 
 export function SurvivorStandingsView({
   poolId,
@@ -39,18 +17,32 @@ export function SurvivorStandingsView({
 }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const standings = useQuery(
-    api.survivorScoring.getSurvivorStandings,
+    api.survivorScoring.getSurvivorStandingsGrid,
     isAuthenticated ? { poolId } : "skip",
   );
 
+  const currentWeek = useMemo(() => {
+    if (!standings || standings.weeks.length === 0) return 1;
+    for (let i = standings.weeks.length - 1; i >= 0; i--) {
+      const week = standings.weeks[i]!;
+      const hasLocked = standings.rows.some((row) =>
+        row.cells.some((c) => c.week === week && c.locked),
+      );
+      if (hasLocked) return week;
+    }
+    return standings.weeks[standings.weeks.length - 1]!;
+  }, [standings]);
+
+  const [focusWeek, setFocusWeek] = useState<number | null>(null);
+  const activeFocus = focusWeek ?? currentWeek;
+  usePoolChromeName(standings?.poolName);
+
   if (isLoading || standings === undefined) {
     return (
-      <PoolShell poolId={poolId}>
-        <EmptyState
-          title="Loading standings"
-          description="Fetching Survivor standings…"
-        />
-      </PoolShell>
+      <EmptyState
+        title="Loading standings"
+        description="Fetching Survivor standings…"
+      />
     );
   }
 
@@ -62,7 +54,7 @@ export function SurvivorStandingsView({
         action={
           <Link
             href="/my-pools"
-            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+            className="op-btn op-btn-secondary"
           >
             Back to My Pools
           </Link>
@@ -71,64 +63,33 @@ export function SurvivorStandingsView({
     );
   }
 
-  const aliveCount = standings.rows.filter(
-    (r) => r.eligibility === "alive" || r.eligibility === "winner",
-  ).length;
-
   return (
-    <PoolShell poolId={poolId} poolName={standings.poolName}>
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 min-[900px]:px-8">
         <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-op-text">
-            Standings
-          </h1>
+          <h1 className={uiType.title}>Standings</h1>
           <p className="text-sm text-op-secondary">
             Survivor
             {standings.poolStatus === "completed"
               ? ` · Completed week ${standings.completedWeek ?? "—"}`
-              : ` · ${aliveCount} Alive`}
+              : ` · ${standings.aliveCount} Alive`}
+            {` · Focusing Week ${activeFocus}`}
           </p>
         </header>
 
         {standings.rows.length === 0 ? (
           <EmptyState
             title="No standings yet"
-            description="Standings appear after Verified Results are scored for this Pool."
+            description="Standings appear once the Pool has members."
           />
         ) : (
-          <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
-            {standings.rows.map((row) => (
-              <li
-                key={row.participantId}
-                className="flex items-baseline justify-between gap-4 py-3"
-              >
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate font-medium text-op-text">
-                    {row.displayName}
-                    {row.isViewer ? (
-                      <span className="ml-2 text-xs font-normal text-op-muted">
-                        you
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="text-xs text-op-muted">
-                    {weekContext(row)}
-                  </span>
-                </div>
-                <span
-                  className={
-                    row.eligibility === "alive" || row.eligibility === "winner"
-                      ? "shrink-0 text-sm font-medium text-op-text"
-                      : "shrink-0 text-sm text-op-muted"
-                  }
-                >
-                  {eligibilityLabel(row.eligibility)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <SurvivorPickGrid
+            weeks={standings.weeks}
+            rows={standings.rows}
+            focusWeek={activeFocus}
+            currentWeek={currentWeek}
+            onFocusWeek={setFocusWeek}
+          />
         )}
       </div>
-    </PoolShell>
   );
 }

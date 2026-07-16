@@ -5,8 +5,14 @@
 
 export const SHELL_BREAKPOINT_PX = 900;
 
-/** Tailwind min-h-11 / min-w-11 = 2.75rem = 44px. */
+/** Tailwind min-h-11 / min-w-11 = 2.75rem = 44px — pick actions only. */
 export const TOUCH_TARGET_MIN_CLASS = "min-h-11 min-w-11";
+
+/**
+ * Firecrawl chrome control height: nav links / chips / tabs = 32px (h-8).
+ * Measured on firecrawl.dev header: Products, Sign up, etc.
+ */
+export const COMPACT_CONTROL_CLASS = "h-8";
 
 export const SHELL_BREAKPOINT_CLASS = "min-[900px]:";
 
@@ -51,6 +57,26 @@ export function poolNavItems(poolId: string): readonly PoolNavItem[] {
       primary: false,
     },
   ] as const;
+}
+
+/** Same in-pool section on another Pool (picker preserves Board / Standings / Pool). */
+export function poolSectionHref(
+  poolId: string,
+  section: PoolSection,
+): string {
+  if (section === "standings") return `/pools/${poolId}/standings`;
+  if (section === "pool") return `/pools/${poolId}/pool`;
+  return `/pools/${poolId}`;
+}
+
+/** Two-letter badge for the pool picker trigger. */
+export function poolInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "OP";
+  if (parts.length === 1) {
+    return parts[0]!.slice(0, 2).toUpperCase();
+  }
+  return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
 export function backHref(poolId: string, section: PoolSection): string {

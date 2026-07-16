@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
 
 export function JoinReturningInviteView({ token }: { token: string }) {
   const router = useRouter();
@@ -38,9 +39,10 @@ export function JoinReturningInviteView({ token }: { token: string }) {
       router.push(`/pools/${result.poolId}`);
     } catch (e) {
       setError(
-        e instanceof Error
-          ? e.message
-          : "Could not accept Returning Participant Invite",
+        convexErrorMessage(
+          e,
+          "Could not accept Returning Participant Invite",
+        ),
       );
       setBusy(false);
     }
@@ -49,10 +51,10 @@ export function JoinReturningInviteView({ token }: { token: string }) {
   if (!token) {
     return (
       <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-2xl font-semibold tracking-tight text-op-text">
           Returning Participant Invite
         </h1>
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm leading-6 text-op-secondary">
           Open your person-specific Returning Participant Invite link to join.
           Opening alone does not enroll you.
         </p>
@@ -63,17 +65,17 @@ export function JoinReturningInviteView({ token }: { token: string }) {
   if (!isSignedIn) {
     return (
       <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-2xl font-semibold tracking-tight text-op-text">
           Returning Participant Invite
         </h1>
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm leading-6 text-op-secondary">
           Sign in with the invited account to preview this invite. Opening the
           link alone does not enroll you.
         </p>
         <SignInButton mode="modal">
           <button
             type="button"
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+            className="op-btn op-btn-primary"
           >
             Sign in to continue
           </button>
@@ -84,7 +86,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
 
   if (isLoading || preview === undefined) {
     return (
-      <div className="px-6 py-16 text-sm text-zinc-600 dark:text-zinc-400">
+      <div className="px-6 py-16 text-sm text-op-secondary">
         Loading invite…
       </div>
     );
@@ -92,7 +94,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
 
   if (preview === null) {
     return (
-      <div className="mx-auto max-w-md px-6 py-16 text-sm text-zinc-600">
+      <div className="mx-auto max-w-md px-6 py-16 text-sm text-op-secondary">
         Returning Participant Invite unavailable.
       </div>
     );
@@ -100,10 +102,10 @@ export function JoinReturningInviteView({ token }: { token: string }) {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+      <h1 className="text-2xl font-semibold tracking-tight text-op-text">
         Rejoin {preview.poolName}
       </h1>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-op-secondary">
         {preview.poolType === "survivor" ? "Survivor" : "Confidence"} · Start
         Week {preview.startWeek} · Proposed role:{" "}
         {preview.proposedRole === "admin" ? "Pool Admin" : "Pool Member"}
@@ -111,7 +113,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
 
       {preview.alreadyMember ? (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-op-secondary">
             You are already a member of this Pool.
           </p>
           <Link
@@ -122,18 +124,18 @@ export function JoinReturningInviteView({ token }: { token: string }) {
           </Link>
         </div>
       ) : preview.admissionClosed ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           Membership admission is closed for this Pool.
         </p>
       ) : (
         <>
           {preview.proposedRole === "admin" ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm text-op-secondary">
               Accepting grants Pool Admin authority. You must explicitly accept
               — you are not enrolled automatically.
             </p>
           ) : null}
-          <label className="flex items-start gap-3 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+          <label className="flex items-start gap-3 text-sm leading-6 text-op-text">
             <input
               type="checkbox"
               className="mt-1"
@@ -146,7 +148,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
             type="button"
             disabled={!acknowledged || busy}
             onClick={() => void onAccept()}
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+            className="op-btn op-btn-primary"
           >
             {busy
               ? "Accepting…"
@@ -158,7 +160,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
       )}
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}

@@ -4,8 +4,11 @@ import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { BrandMark } from "@/components/BrandMark";
+import { OperatorNavLink } from "@/components/OperatorNavLink";
+import { PoolPicker } from "@/components/PoolPicker";
 import {
-  TOUCH_TARGET_MIN_CLASS,
+  COMPACT_CONTROL_CLASS,
   backHref,
   backLabel,
   poolNavItems,
@@ -25,10 +28,11 @@ function NavLink({
   active: boolean;
   variant: "chip" | "sidebar";
 }) {
+  // Firecrawl nav = 32px (h-8), padding 6px, radius 8px
   const base =
     variant === "chip"
-      ? `${TOUCH_TARGET_MIN_CLASS} inline-flex items-center justify-center rounded-md px-3 text-sm font-medium transition-colors`
-      : `${TOUCH_TARGET_MIN_CLASS} flex w-full items-center rounded-[10px] px-3 text-sm transition-colors`;
+      ? `${COMPACT_CONTROL_CLASS} inline-flex items-center justify-center rounded-[8px] px-2.5 text-[13px] font-medium transition-colors`
+      : `${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium transition-colors`;
 
   const activeClass = active
     ? "bg-op-selected text-op-selected-fg"
@@ -59,7 +63,7 @@ function NavLink({
 
 /**
  * AppShell for in-pool surfaces: phone chips &lt;900px, desktop sidebar ≥900px.
- * Same Board → Standings → Pool hierarchy; no equal-weight bottom tabs.
+ * Firecrawl-aligned: hairline borders, heat selected, canvas/sidebar split.
  */
 export function PoolShell({
   poolId,
@@ -86,31 +90,27 @@ export function PoolShell({
       data-shell-breakpoint="900"
       data-pool-section={section}
     >
-      {/* Desktop sidebar */}
       <aside
-        className={`${chrome.desktopSidebar} sticky top-0 h-[calc(100vh-4.25rem)] w-64 shrink-0 flex-col border-r border-op-border bg-op-canvas`}
+        className={`${chrome.desktopSidebar} sticky top-0 h-screen w-60 shrink-0 flex-col border-r border-op-border bg-op-canvas`}
         aria-label="Pool navigation"
       >
-        <div className="flex h-[4.5rem] items-center gap-3 border-b border-op-border px-5">
-          <span
-            className="grid h-8 w-8 place-items-center rounded-[9px] bg-op-ink text-[10px] font-bold tracking-tight text-white"
-            aria-hidden
+        <div className="flex flex-col gap-1 border-b border-op-border px-3 pb-3 pt-4">
+          <Link
+            href="/"
+            className="inline-flex h-9 items-center gap-2 rounded-[8px] px-2 text-[15px] font-medium tracking-tight text-op-text hover:bg-op-control"
           >
-            OP
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold tracking-tight">
-              {poolName ?? "Pool"}
-            </p>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-op-muted">
-              In pool
-            </p>
-          </div>
+            <BrandMark />
+            Only Pools
+          </Link>
+          <PoolPicker
+            poolId={poolId}
+            poolName={poolName}
+            section={section}
+            variant="sidebar"
+          />
         </div>
-        <nav className="flex flex-col gap-1 px-2 pt-4" aria-label="Pool sections">
-          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-op-muted">
-            Play
-          </p>
+        <nav className="flex flex-col gap-0.5 px-2 pt-3" aria-label="Pool sections">
+          <p className="op-eyebrow px-2.5 pb-1.5">Play</p>
           {items.map((item) => (
             <NavLink
               key={item.section}
@@ -124,11 +124,12 @@ export function PoolShell({
         <div className="mt-auto border-t border-op-border p-2">
           <Link
             href="/my-pools"
-            className={`${TOUCH_TARGET_MIN_CLASS} flex w-full items-center rounded-[10px] px-3 text-sm text-op-secondary hover:bg-op-control hover:text-op-text`}
+            className={`${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
           >
             My Pools
           </Link>
-          <div className="flex items-center gap-2 px-3 py-2">
+          <OperatorNavLink variant="sidebar" />
+          <div className="flex items-center gap-2 px-2.5 py-1.5">
             <UserButton />
             <span className="text-xs text-op-muted">Account</span>
           </div>
@@ -136,19 +137,21 @@ export function PoolShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile / phone chrome */}
-        <div className={`${chrome.mobileChips} flex-col gap-3 border-b border-op-border bg-op-surface px-4 py-3`}>
+        <div
+          className={`${chrome.mobileChips} flex-col gap-2 border-b border-op-border bg-op-surface px-4 py-2.5`}
+        >
           <Link
             href={backTo}
-            className={`${TOUCH_TARGET_MIN_CLASS} inline-flex items-center text-sm text-op-secondary hover:text-op-text`}
+            className={`${COMPACT_CONTROL_CLASS} inline-flex items-center text-[13px] font-medium text-op-secondary hover:text-op-text`}
           >
             ← {backText}
           </Link>
-          {poolName ? (
-            <p className="text-lg font-semibold tracking-tight text-op-text">
-              {poolName}
-            </p>
-          ) : null}
+          <PoolPicker
+            poolId={poolId}
+            poolName={poolName}
+            section={section}
+            variant="mobile"
+          />
           <nav
             aria-label="Pool sections"
             className="flex flex-wrap gap-2"

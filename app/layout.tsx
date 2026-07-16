@@ -1,21 +1,35 @@
-import {
-  ClerkProvider,
-  Show,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from "@clerk/nextjs";
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
-import { OperatorIncidentsPanel } from "@/components/OperatorIncidentsPanel";
+import { SiteHeader } from "@/components/SiteHeader";
 import { StatusBanner } from "@/components/StatusBanner";
+import { clerkAppearance } from "@/lib/clerkAppearance";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+/* Satoshi ≈ Suisse: clean Swiss grotesque used like Firecrawl’s body face */
+const satoshi = localFont({
+  src: [
+    {
+      path: "../public/fonts/Satoshi-Regular.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/Satoshi-Medium.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/Satoshi-Bold.woff2",
+      weight: "700",
+      style: "normal",
+    },
+  ],
+  variable: "--font-suisse",
+  display: "swap",
+  fallback: ["ui-sans-serif", "system-ui", "sans-serif"],
 });
 
 const geistMono = Geist_Mono({
@@ -25,7 +39,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Only Pools",
-  description: "Only Pools",
+  description: "Private NFL prediction competitions for verified adults.",
 };
 
 export default function RootLayout({
@@ -36,37 +50,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${satoshi.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <ClerkProvider>
+      <body className="flex min-h-full flex-col font-sans text-op-text">
+        <ClerkProvider appearance={clerkAppearance}>
           <ConvexClientProvider>
-            <header className="flex items-center justify-between border-b border-op-border bg-op-surface px-6 py-4">
-              <Link
-                href="/"
-                className="text-sm font-semibold tracking-tight text-op-ink"
-              >
-                Only Pools
-              </Link>
-              <div className="flex items-center gap-3">
-                <Show when="signed-out">
-                  <SignInButton />
-                  <SignUpButton />
-                </Show>
-                <Show when="signed-in">
-                  <Link
-                    href="/my-pools"
-                    className="text-sm text-op-secondary underline-offset-4 hover:underline"
-                  >
-                    My Pools
-                  </Link>
-                  <UserButton />
-                </Show>
-              </div>
-            </header>
+            <SiteHeader />
             <StatusBanner />
-            {children}
-            <OperatorIncidentsPanel />
+            <div id="main" className="flex min-h-0 flex-1 flex-col">
+              {children}
+            </div>
           </ConvexClientProvider>
         </ClerkProvider>
       </body>

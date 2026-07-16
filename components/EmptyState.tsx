@@ -16,11 +16,11 @@ export function EmptyState({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight text-op-text">
+      <h1 className="text-2xl font-medium tracking-tight text-op-text">
         {title}
       </h1>
       {description ? (
-        <p className="text-sm leading-6 text-op-secondary">{description}</p>
+        <p className="text-[15px] leading-6 text-op-secondary">{description}</p>
       ) : null}
       {children}
       {action ? <div className="flex flex-wrap items-center gap-3">{action}</div> : null}

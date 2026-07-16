@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { EmptyState } from "./EmptyState";
 
 export function JoinInviteView({ token }: { token: string }) {
@@ -36,7 +37,7 @@ export function JoinInviteView({ token }: { token: string }) {
       }
       router.push(`/pools/${result.poolId}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not join Pool");
+      setError(convexErrorMessage(e, "Could not join Pool"));
       setBusy(false);
     }
   }
@@ -67,7 +68,7 @@ export function JoinInviteView({ token }: { token: string }) {
           <SignInButton mode="modal">
             <button
               type="button"
-              className="rounded-md bg-op-ink px-4 py-2.5 text-sm font-medium text-white hover:bg-op-ink-hover"
+              className="op-btn op-btn-primary"
             >
               Sign in to continue
             </button>
@@ -102,17 +103,17 @@ export function JoinInviteView({ token }: { token: string }) {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+      <h1 className="text-2xl font-semibold tracking-tight text-op-text">
         Join {preview.poolName}
       </h1>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-op-secondary">
         {preview.poolType === "survivor" ? "Survivor" : "Confidence"} · Start
         Week {preview.startWeek}
       </p>
 
       {preview.alreadyMember ? (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-op-secondary">
             You are already a member of this Pool.
           </p>
           <Link
@@ -123,12 +124,12 @@ export function JoinInviteView({ token }: { token: string }) {
           </Link>
         </div>
       ) : preview.admissionClosed ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-op-secondary">
           Membership admission is closed for this Pool.
         </p>
       ) : (
         <>
-          <label className="flex items-start gap-3 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+          <label className="flex items-start gap-3 text-sm leading-6 text-op-text">
             <input
               type="checkbox"
               className="mt-1"
@@ -141,7 +142,7 @@ export function JoinInviteView({ token }: { token: string }) {
             type="button"
             disabled={!acknowledged || busy}
             onClick={() => void onAccept()}
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+            className="op-btn op-btn-primary"
           >
             {busy ? "Joining…" : "Accept invite"}
           </button>
@@ -149,7 +150,7 @@ export function JoinInviteView({ token }: { token: string }) {
       )}
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -9,11 +9,12 @@ import {
   type SaveTrustState,
 } from "./lib/pickLock";
 import { isPoolArchived } from "./lib/poolArchive";
+import { SURVIVOR_ONE_USE_MESSAGE } from "./lib/survivorMessages";
 
-class SurvivorPickError extends Error {
+/** Application error — client reads `error.data` for the user-facing message. */
+class SurvivorPickError extends ConvexError<string> {
   constructor(message: string) {
     super(message);
-    this.name = "SurvivorPickError";
   }
 }
 
@@ -115,9 +116,7 @@ async function reserveTeam(
   if (existing) {
     // Same week re-save of same team is fine; other week is one-use conflict.
     if (existing.week !== args.week) {
-      throw new SurvivorPickError(
-        "That NFL Team is already reserved under the one-use Survivor rule",
-      );
+      throw new SurvivorPickError(SURVIVOR_ONE_USE_MESSAGE);
     }
     await ctx.db.patch(existing._id, { updatedAtMs: args.nowMs });
     return;
@@ -276,9 +275,7 @@ export const autosaveSurvivorPick = mutation({
       args.nflTeamId,
     );
     if (conflict && conflict.week !== args.week) {
-      throw new SurvivorPickError(
-        "That NFL Team is already reserved under the one-use Survivor rule",
-      );
+      throw new SurvivorPickError(SURVIVOR_ONE_USE_MESSAGE);
     }
 
     const provisional = args.week > pool.startWeek;

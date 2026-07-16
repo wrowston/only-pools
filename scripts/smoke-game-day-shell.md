@@ -16,7 +16,7 @@ Automated seams already covered:
 - [ ] Phone (&lt;900px): chips show **Board · Standings · Pool** (not equal-weight bottom tabs)
 - [ ] Desktop (≥900px): same hierarchy in left sidebar; Week Board shows context rail
 - [ ] Standings / Pool back control returns to Week Board; Board back returns to My Pools
-- [ ] Switch pools only by returning to My Pools (no header pool switcher)
+- [ ] Pool picker in shell chrome switches memberships (preserves Board / Standings / Pool); All pools still returns to My Pools
 
 ## 46 — Keyboard & touch
 

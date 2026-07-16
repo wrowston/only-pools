@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
   AuthError,
@@ -6,6 +7,11 @@ import {
   hasAvailableSeason,
   requireParticipant,
 } from "./lib/auth";
+import {
+  buildMembershipStatus,
+  loadEarliestKickoffByWeek,
+  resolveBoardWeek,
+} from "./lib/myPoolsStatus";
 
 /**
  * Create or refresh the Clerk-linked Participant after dual verification.
@@ -79,6 +85,12 @@ export const myPools = query({
       )
       .take(80);
 
+    const nowMs = Date.now();
+    const kickoffBySeason = new Map<
+      Id<"poolSeasons">,
+      Map<number, number>
+    >();
+
     const memberships = [];
     const archivedMemberships = [];
     for (const row of membershipRows) {
@@ -87,6 +99,23 @@ export const myPools = query({
       if (!pool || (pool.status !== "active" && pool.status !== "completed")) {
         continue;
       }
+
+      let earliestByWeek = kickoffBySeason.get(pool.seasonId);
+      if (!earliestByWeek) {
+        earliestByWeek = await loadEarliestKickoffByWeek(ctx, pool.seasonId);
+        kickoffBySeason.set(pool.seasonId, earliestByWeek);
+      }
+      const boardWeek = resolveBoardWeek({
+        startWeek: pool.startWeek,
+        earliestKickoffByWeek: earliestByWeek,
+        nowMs,
+      });
+      const status = await buildMembershipStatus(ctx, {
+        pool,
+        participantId: participant._id,
+        boardWeek,
+      });
+
       const entry = {
         poolId: pool._id,
         name: pool.name,
@@ -95,7 +124,10 @@ export const myPools = query({
         startWeek: pool.startWeek,
         status: pool.status,
         archived: pool.archived === true,
-        nextAction: "open_week_board" as const,
+        boardWeek: status.boardWeek,
+        pickStatus: status.pickStatus,
+        standing: status.standing,
+        nextAction: status.nextAction,
       };
       if (pool.archived === true) {
         archivedMemberships.push(entry);

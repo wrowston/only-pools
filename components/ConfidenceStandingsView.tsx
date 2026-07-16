@@ -5,9 +5,19 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { TOUCH_TARGET_MIN_CLASS } from "@/lib/gameDayShell";
+import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
-import { PoolShell } from "./PoolShell";
+import { usePoolChromeName } from "./PoolChrome";
+import {
+  InitialAvatar,
+  SegmentedControl,
+  YouBadge,
+} from "./standings";
+
+const STANDINGS_TABS = [
+  { value: "weekly" as const, label: "Weekly Standing" },
+  { value: "season" as const, label: "Season Standing" },
+];
 
 export function ConfidenceStandingsView({
   poolId,
@@ -20,15 +30,14 @@ export function ConfidenceStandingsView({
     api.confidenceScoring.getConfidenceStandings,
     isAuthenticated ? { poolId } : "skip",
   );
+  usePoolChromeName(standings?.poolName);
 
   if (isLoading || standings === undefined) {
     return (
-      <PoolShell poolId={poolId}>
-        <EmptyState
-          title="Loading standings"
-          description="Fetching Confidence standings…"
-        />
-      </PoolShell>
+      <EmptyState
+        title="Loading standings"
+        description="Fetching Confidence standings…"
+      />
     );
   }
 
@@ -40,7 +49,7 @@ export function ConfidenceStandingsView({
         action={
           <Link
             href="/my-pools"
-            className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+            className="op-btn op-btn-secondary"
           >
             Back to My Pools
           </Link>
@@ -50,12 +59,9 @@ export function ConfidenceStandingsView({
   }
 
   return (
-    <PoolShell poolId={poolId} poolName={standings.poolName}>
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:px-8">
         <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-op-text">
-            Standings
-          </h1>
+          <h1 className={uiType.title}>Standings</h1>
           <p className="text-sm text-op-secondary">
             Confidence
             {standings.poolStatus === "completed"
@@ -66,118 +72,135 @@ export function ConfidenceStandingsView({
           </p>
         </header>
 
-        <div
-          role="tablist"
-          aria-label="Standings view"
-          className="flex flex-wrap gap-2 text-sm"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "weekly"}
-            onClick={() => setTab("weekly")}
-            className={
-              tab === "weekly"
-                ? `${TOUCH_TARGET_MIN_CLASS} rounded-md bg-op-selected px-3 font-medium text-op-selected-fg`
-                : `${TOUCH_TARGET_MIN_CLASS} rounded-md border border-op-border-strong px-3 text-op-secondary`
-            }
-          >
-            Weekly Standing
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "season"}
-            onClick={() => setTab("season")}
-            className={
-              tab === "season"
-                ? `${TOUCH_TARGET_MIN_CLASS} rounded-md bg-op-selected px-3 font-medium text-op-selected-fg`
-                : `${TOUCH_TARGET_MIN_CLASS} rounded-md border border-op-border-strong px-3 text-op-secondary`
-            }
-          >
-            Season Standing
-          </button>
-        </div>
+        <SegmentedControl
+          options={STANDINGS_TABS}
+          value={tab}
+          onChange={setTab}
+          ariaLabel="Standings view"
+        />
 
         {tab === "weekly" && standings.projectedWeekly ? (
-          <p className="text-xs text-amber-800">
+          <p className="rounded-md border border-op-banner-border bg-op-banner-bg px-3 py-2 text-xs text-op-banner-fg">
             {standings.projectedWeekly.label}. {standings.projectedWeekly.note}
           </p>
         ) : null}
 
-        {tab === "weekly" ? (
-          standings.weekly.rows.length === 0 ? (
+        {/* Keep both panels mounted so tab switches don't remount the list tree. */}
+        <div hidden={tab !== "weekly"}>
+          {standings.weekly.rows.length === 0 ? (
             <EmptyState
               title="No weekly standings yet"
               description="Weekly standings appear as Verified Results are scored for this week."
             />
           ) : (
-            <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
-              {standings.weekly.rows.map((row) => (
-                <li
-                  key={row.participantId}
-                  className="flex items-baseline justify-between gap-4 py-3"
-                >
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate font-medium text-op-text">
-                      {row.rank !== null ? `${row.rank}. ` : ""}
-                      {row.displayName}
-                      {row.isViewer ? (
-                        <span className="ml-2 text-xs font-normal text-op-muted">
-                          you
+            <div className="overflow-hidden rounded-[16px] border border-op-border bg-op-surface">
+              <div className="flex items-center justify-between gap-4 bg-op-control px-4 py-2">
+                <span className={uiType.eyebrow}>Player</span>
+                <span className={uiType.eyebrow}>Points</span>
+              </div>
+              <ul className="divide-y divide-op-border">
+                {standings.weekly.rows.map((row) => (
+                  <li
+                    key={row.participantId}
+                    className={[
+                      "flex items-center justify-between gap-4 px-4 py-3",
+                      row.isViewer ? "bg-op-selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <InitialAvatar name={row.displayName} />
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          className={`flex min-w-0 items-center truncate ${uiType.name}`}
+                        >
+                          <span className="truncate">
+                            {row.rank !== null ? `${row.rank}. ` : ""}
+                            {row.displayName}
+                          </span>
+                          {row.isViewer ? <YouBadge /> : null}
                         </span>
-                      ) : null}
+                        <span className={uiType.meta}>
+                          {row.correctPickCount} correct
+                          {!standings.weekSettled
+                            ? ` · ${row.possibleRemainingPoints} possible remaining`
+                            : null}
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`shrink-0 ${uiType.metricSm}`}>
+                      {row.points} pts
                     </span>
-                    <span className="text-xs text-op-muted">
-                      {row.correctPickCount} correct
-                      {!standings.weekSettled
-                        ? ` · ${row.possibleRemainingPoints} possible remaining`
-                        : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        <div hidden={tab !== "season"}>
+          {standings.season.rows.length === 0 ? (
+            <EmptyState
+              title="No season standings yet"
+              description="Season standings advance only after a Pool Week fully resolves."
+            />
+          ) : (
+            <div className="overflow-hidden rounded-[16px] border border-op-border bg-op-surface">
+              <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem_4.5rem] items-center gap-2 bg-op-control px-4 py-2">
+                <span className={uiType.eyebrow}>Player</span>
+                <span className={`text-right ${uiType.eyebrow}`}>W</span>
+                <span className={`text-right ${uiType.eyebrow}`}>L</span>
+                <span className={`text-right ${uiType.eyebrow}`}>Points</span>
+              </div>
+              <ul className="divide-y divide-op-border">
+                {standings.season.rows.map((row) => (
+                  <li
+                    key={row.participantId}
+                    className={[
+                      "grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem_4.5rem] items-center gap-2 px-4 py-3",
+                      row.isViewer ? "bg-op-selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <InitialAvatar name={row.displayName} />
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          className={`flex min-w-0 items-center truncate ${uiType.name}`}
+                        >
+                          <span className="truncate">
+                            {row.seasonRank !== null
+                              ? `${row.seasonRank}. `
+                              : ""}
+                            {row.displayName}
+                          </span>
+                          {row.isViewer ? <YouBadge /> : null}
+                        </span>
+                        {row.eligibility === "winner" ? (
+                          <span className={uiType.meta}>Confidence Winner</span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <span
+                      className={`text-right tabular-nums text-sm text-op-text`}
+                    >
+                      {row.wins}
                     </span>
-                  </div>
-                  <span className="shrink-0 text-sm font-medium text-op-text">
-                    {row.points} pts
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )
-        ) : standings.season.rows.length === 0 ? (
-          <EmptyState
-            title="No season standings yet"
-            description="Season standings advance only after a Pool Week fully resolves."
-          />
-        ) : (
-          <ul className="divide-y divide-op-border rounded-xl border border-op-border bg-op-surface px-4">
-            {standings.season.rows.map((row) => (
-              <li
-                key={row.participantId}
-                className="flex items-baseline justify-between gap-4 py-3"
-              >
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate font-medium text-op-text">
-                    {row.seasonRank !== null ? `${row.seasonRank}. ` : ""}
-                    {row.displayName}
-                    {row.isViewer ? (
-                      <span className="ml-2 text-xs font-normal text-op-muted">
-                        you
-                      </span>
-                    ) : null}
-                  </span>
-                  {row.eligibility === "winner" ? (
-                    <span className="text-xs text-op-muted">
-                      Confidence Winner
+                    <span
+                      className={`text-right tabular-nums text-sm text-op-text`}
+                    >
+                      {row.losses}
                     </span>
-                  ) : null}
-                </div>
-                <span className="shrink-0 text-sm font-medium text-op-text">
-                  {row.seasonPoints} pts
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+                    <span className={`text-right ${uiType.metricSm}`}>
+                      {row.seasonPoints} pts
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
-    </PoolShell>
   );
 }

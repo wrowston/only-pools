@@ -777,6 +777,37 @@ export const getConfidenceStandings = query({
       return a.displayName.localeCompare(b.displayName);
     });
 
+    const seasonWins = new Map<Id<"participants">, number>();
+    const seasonLosses = new Map<Id<"participants">, number>();
+    for (const m of memberships) {
+      seasonWins.set(m.participantId, 0);
+      seasonLosses.set(m.participantId, 0);
+    }
+    for (let w = pool.startWeek; w <= 18; w++) {
+      const weekOutcomes = await ctx.db
+        .query("confidencePickOutcomes")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", w),
+        )
+        .take(4096);
+      for (const outcome of weekOutcomes) {
+        if (outcome.outcome === "correct") {
+          seasonWins.set(
+            outcome.participantId,
+            (seasonWins.get(outcome.participantId) ?? 0) + 1,
+          );
+        } else if (
+          outcome.outcome === "incorrect" ||
+          outcome.outcome === "omission_zero"
+        ) {
+          seasonLosses.set(
+            outcome.participantId,
+            (seasonLosses.get(outcome.participantId) ?? 0) + 1,
+          );
+        }
+      }
+    }
+
     const season = [];
     for (const m of memberships) {
       const standing = await ctx.db
@@ -792,6 +823,8 @@ export const getConfidenceStandings = query({
         seasonPoints: standing?.seasonPoints ?? 0,
         seasonRank: standing?.seasonRank ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
+        wins: seasonWins.get(m.participantId) ?? 0,
+        losses: seasonLosses.get(m.participantId) ?? 0,
         isViewer: m.participantId === participant._id,
       });
     }

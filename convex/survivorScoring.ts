@@ -860,3 +860,199 @@ export const getSurvivorStandings = query({
     };
   },
 });
+
+export type SurvivorStandingsGridCell = {
+  week: number;
+  /** Team identity visible: locked for anyone, or always for the viewer. */
+  revealed: boolean;
+  hasPick: boolean;
+  locked: boolean;
+  teamAbbreviation: string | null;
+  provenance: "authored" | "omission" | null;
+  outcome:
+    | "win"
+    | "loss"
+    | "tie"
+    | "missing_pick"
+    | "pending"
+    | "invalidated"
+    | "no_contest_advance"
+    | null;
+};
+
+/**
+ * Member-facing Survivor standings with week-by-week pick cells.
+ * Preserves Hidden Pick rules: unlocked opponent team identity is omitted.
+ */
+export const getSurvivorStandingsGrid = query({
+  args: {
+    poolId: v.id("pools"),
+  },
+  handler: async (ctx, args) => {
+    let participant;
+    try {
+      participant = await requireParticipant(ctx);
+    } catch (error) {
+      if (error instanceof AuthError) return null;
+      throw error;
+    }
+
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) return null;
+    if (pool.type !== "survivor") return null;
+
+    try {
+      await requirePoolMembership(ctx, pool._id, participant._id);
+    } catch (error) {
+      if (error instanceof AuthError) return null;
+      throw error;
+    }
+
+    const memberships = (
+      await ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+        .take(120)
+    ).filter((m) => m.status === "active");
+
+    const pickByParticipantWeek = new Map<
+      string,
+      Doc<"survivorPicks">
+    >();
+    const outcomeByParticipantWeek = new Map<
+      string,
+      Doc<"survivorPickOutcomes">
+    >();
+    let maxActivityWeek = pool.startWeek;
+
+    for (let week = pool.startWeek; week <= SURVIVOR_FINAL_WEEK; week++) {
+      const weekPicks = await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .take(200);
+      for (const pick of weekPicks) {
+        pickByParticipantWeek.set(`${pick.participantId}:${week}`, pick);
+        if (week > maxActivityWeek) maxActivityWeek = week;
+      }
+
+      const weekOutcomes = await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .take(200);
+      for (const outcome of weekOutcomes) {
+        outcomeByParticipantWeek.set(
+          `${outcome.participantId}:${week}`,
+          outcome,
+        );
+        if (week > maxActivityWeek) maxActivityWeek = week;
+      }
+    }
+
+    if (pool.completedWeek != null && pool.completedWeek > maxActivityWeek) {
+      maxActivityWeek = pool.completedWeek;
+    }
+
+    // Show through activity (and at least a short runway for new pools).
+    const endWeek = Math.min(
+      SURVIVOR_FINAL_WEEK,
+      Math.max(maxActivityWeek, Math.min(pool.startWeek + 3, SURVIVOR_FINAL_WEEK)),
+    );
+    const weeks: number[] = [];
+    for (let w = pool.startWeek; w <= endWeek; w++) weeks.push(w);
+
+    const teamAbbrCache = new Map<Id<"nflTeams">, string>();
+    async function teamAbbr(
+      teamId: Id<"nflTeams"> | undefined,
+    ): Promise<string | null> {
+      if (!teamId) return null;
+      const cached = teamAbbrCache.get(teamId);
+      if (cached !== undefined) return cached;
+      const team = await ctx.db.get(teamId);
+      const abbr = team?.abbreviation ?? null;
+      if (abbr) teamAbbrCache.set(teamId, abbr);
+      return abbr;
+    }
+
+    const rows = [];
+    for (const m of memberships) {
+      const standing = await ctx.db
+        .query("seasonStandings")
+        .withIndex("by_poolId_and_participantId", (q) =>
+          q.eq("poolId", pool._id).eq("participantId", m.participantId),
+        )
+        .unique();
+      const person = await ctx.db.get(m.participantId);
+      const isViewer = m.participantId === participant._id;
+
+      const cells: SurvivorStandingsGridCell[] = [];
+      for (const week of weeks) {
+        const key = `${m.participantId}:${week}`;
+        const pick = pickByParticipantWeek.get(key);
+        const outcomeDoc = outcomeByParticipantWeek.get(key);
+        const hasPick =
+          pick !== undefined &&
+          pick.provenance === "authored" &&
+          pick.invalidated !== true;
+        const locked = pick?.locked === true;
+        const revealed = locked || isViewer;
+
+        let teamAbbreviation: string | null = null;
+        let provenance: "authored" | "omission" | null = null;
+        if (pick && revealed) {
+          provenance = pick.provenance;
+          if (pick.provenance === "authored" && pick.invalidated !== true) {
+            teamAbbreviation = await teamAbbr(pick.nflTeamId);
+          }
+        }
+
+        cells.push({
+          week,
+          revealed,
+          hasPick,
+          locked,
+          teamAbbreviation: revealed ? teamAbbreviation : null,
+          provenance: revealed ? provenance : null,
+          outcome: revealed ? (outcomeDoc?.outcome ?? null) : null,
+        });
+      }
+
+      rows.push({
+        participantId: m.participantId,
+        displayName: person?.displayName ?? "Participant",
+        eligibility: standing?.eligibility ?? ("alive" as const),
+        eliminatedWeek: standing?.eliminatedWeek ?? null,
+        eliminationReason: standing?.eliminationReason ?? null,
+        wonAtWeek: standing?.wonAtWeek ?? null,
+        isViewer,
+        cells,
+      });
+    }
+
+    rows.sort((a, b) => {
+      const rank = (e: string) =>
+        e === "alive" || e === "winner" ? 0 : 1;
+      const d = rank(a.eligibility) - rank(b.eligibility);
+      if (d !== 0) return d;
+      return a.displayName.localeCompare(b.displayName);
+    });
+
+    const aliveCount = rows.filter(
+      (r) => r.eligibility === "alive" || r.eligibility === "winner",
+    ).length;
+
+    return {
+      poolId: pool._id,
+      poolName: pool.name,
+      poolStatus: pool.status,
+      completedWeek: pool.completedWeek ?? null,
+      startWeek: pool.startWeek,
+      weeks,
+      aliveCount,
+      rows,
+    };
+  },
+});
