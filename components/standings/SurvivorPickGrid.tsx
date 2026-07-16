@@ -74,6 +74,7 @@ export function SurvivorPickGrid({
   const firstEliminatedIndex = rows.findIndex(
     (r) => r.eligibility === "eliminated",
   );
+  const focusedWeekIndex = weeks.indexOf(focusWeek);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRefs = useRef<Map<number, HTMLTableCellElement>>(new Map());
   const didInitScrollRef = useRef(false);
@@ -118,7 +119,9 @@ export function SurvivorPickGrid({
                       "relative px-1 py-2.5 text-center min-[900px]:px-2 min-[900px]:py-3.5",
                       WEEK_COL,
                       uiType.eyebrow,
-                      focused ? "bg-op-heat-8 text-op-selected-fg" : "",
+                      focused
+                        ? "border-x border-t border-x-op-heat-40 border-t-op-heat-40 bg-op-heat-8 text-op-selected-fg"
+                        : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
@@ -150,6 +153,7 @@ export function SurvivorPickGrid({
             {rows.map((row, index) => {
               const showEliminatedDivider =
                 index === firstEliminatedIndex && firstEliminatedIndex > 0;
+              const isLastRow = index === rows.length - 1;
               const playerBg = row.isViewer
                 ? "bg-op-selected"
                 : "bg-op-surface group-hover:bg-op-canvas";
@@ -159,9 +163,29 @@ export function SurvivorPickGrid({
                     <tr>
                       <td
                         colSpan={weeks.length + 1}
-                        className="border-y border-op-border bg-op-canvas px-4 py-2 text-center text-[11px] text-op-muted min-[900px]:py-2.5 min-[900px]:text-xs"
+                        className="relative border-y border-op-border bg-op-canvas px-4 py-2 text-center text-[11px] text-op-muted min-[900px]:py-2.5 min-[900px]:text-xs"
                       >
                         Entries below have been eliminated
+                        {focusedWeekIndex >= 0 ? (
+                          <>
+                            <span
+                              className="pointer-events-none absolute inset-y-0 border-x border-x-op-heat-40 min-[900px]:hidden"
+                              style={{
+                                left: `${9.5 + focusedWeekIndex * 3}rem`,
+                                width: "3rem",
+                              }}
+                              aria-hidden
+                            />
+                            <span
+                              className="pointer-events-none absolute inset-y-0 hidden border-x border-x-op-heat-40 min-[900px]:block"
+                              style={{
+                                left: `${16 + focusedWeekIndex * 4}rem`,
+                                width: "4rem",
+                              }}
+                              aria-hidden
+                            />
+                          </>
+                        ) : null}
                       </td>
                       <td
                         className={`border-y border-op-border bg-op-canvas ${STATUS_COL}`}
@@ -215,7 +239,12 @@ export function SurvivorPickGrid({
                             WEEK_COL,
                             row.isViewer ? "bg-op-selected" : "",
                             focused
-                              ? "ring-1 ring-inset ring-op-selected-fg/30"
+                              ? [
+                                  "border-x border-x-op-heat-40 bg-op-heat-4",
+                                  isLastRow
+                                    ? "border-b border-b-op-heat-40"
+                                    : "",
+                                ].join(" ")
                               : "",
                           ]
                             .filter(Boolean)
