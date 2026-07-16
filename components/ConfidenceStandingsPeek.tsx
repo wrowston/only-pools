@@ -51,7 +51,10 @@ export function ConfidenceStandingsPeek({
             className="flex min-w-0 items-center justify-between gap-3"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <InitialAvatar name={row.displayName} />
+              <InitialAvatar
+                name={row.displayName}
+                imageUrl={row.avatarUrl}
+              />
               <span className={`min-w-0 truncate ${uiType.name}`}>
                 {row.rank !== null ? `${row.rank}. ` : ""}
                 {row.displayName}
@@ -65,7 +68,10 @@ export function ConfidenceStandingsPeek({
       {peek.viewer ? (
         <div className="flex items-center justify-between gap-3 border-t border-op-border pt-3">
           <div className="flex min-w-0 items-center gap-2">
-            <InitialAvatar name={peek.viewer.displayName} />
+            <InitialAvatar
+              name={peek.viewer.displayName}
+              imageUrl={peek.viewer.avatarUrl}
+            />
             <span className={`min-w-0 truncate ${uiType.name}`}>
               {peek.viewer.rank !== null ? `${peek.viewer.rank}. ` : ""}
               {peek.viewer.displayName}

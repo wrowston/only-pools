@@ -834,6 +834,7 @@ export const getSurvivorStandings = query({
       rows.push({
         participantId: m.participantId,
         displayName: person?.displayName ?? "Participant",
+        avatarUrl: person?.avatarUrl ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
         eliminatedWeek: standing?.eliminatedWeek ?? null,
         eliminationReason: standing?.eliminationReason ?? null,
@@ -1023,6 +1024,7 @@ export const getSurvivorStandingsGrid = query({
       rows.push({
         participantId: m.participantId,
         displayName: person?.displayName ?? "Participant",
+        avatarUrl: person?.avatarUrl ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
         eliminatedWeek: standing?.eliminatedWeek ?? null,
         eliminationReason: standing?.eliminationReason ?? null,

@@ -46,6 +46,7 @@ function weekContext(row: {
 export type SurvivorPickGridRow = {
   participantId: string;
   displayName: string;
+  avatarUrl?: string | null;
   eligibility: string;
   eliminatedWeek: number | null;
   eliminationReason: string | null;
@@ -188,6 +189,7 @@ export function SurvivorPickGrid({
                         <span className="mt-0.5 shrink-0">
                           <InitialAvatar
                             name={row.displayName}
+                            imageUrl={row.avatarUrl}
                             className="min-[900px]:h-9 min-[900px]:w-9 min-[900px]:text-sm"
                           />
                         </span>

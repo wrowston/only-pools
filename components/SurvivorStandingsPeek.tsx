@@ -44,7 +44,10 @@ export function SurvivorStandingsPeek({
             key={row.participantId}
             className="flex min-w-0 items-center gap-2"
           >
-            <InitialAvatar name={row.displayName} />
+            <InitialAvatar
+              name={row.displayName}
+              imageUrl={row.avatarUrl}
+            />
             <span className={`min-w-0 truncate ${uiType.name}`}>
               {row.displayName}
             </span>

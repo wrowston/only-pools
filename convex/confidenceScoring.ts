@@ -762,6 +762,7 @@ export const getConfidenceStandings = query({
       weekly.push({
         participantId: m.participantId,
         displayName: person?.displayName ?? "Participant",
+        avatarUrl: person?.avatarUrl ?? null,
         points: row?.points ?? 0,
         possibleRemainingPoints: row?.possibleRemainingPoints ?? 0,
         rank: row?.rank ?? null,
@@ -820,6 +821,7 @@ export const getConfidenceStandings = query({
       season.push({
         participantId: m.participantId,
         displayName: person?.displayName ?? "Participant",
+        avatarUrl: person?.avatarUrl ?? null,
         seasonPoints: standing?.seasonPoints ?? 0,
         seasonRank: standing?.seasonRank ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
@@ -926,6 +928,7 @@ export const getConfidenceStandingsPeek = query({
       rows.push({
         participantId: m.participantId,
         displayName: person?.displayName ?? "Participant",
+        avatarUrl: person?.avatarUrl ?? null,
         points: row?.points ?? 0,
         rank: row?.rank ?? null,
         isViewer: m.participantId === participant._id,
