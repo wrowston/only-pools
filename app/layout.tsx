@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatusBanner } from "@/components/StatusBanner";
+import { POST_AUTH_HOME } from "@/lib/authRoutes";
 import { clerkAppearance } from "@/lib/clerkAppearance";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
@@ -53,7 +54,11 @@ export default function RootLayout({
       className={`${satoshi.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col font-sans text-op-text">
-        <ClerkProvider appearance={clerkAppearance}>
+        <ClerkProvider
+          appearance={clerkAppearance}
+          signInFallbackRedirectUrl={POST_AUTH_HOME}
+          signUpFallbackRedirectUrl={POST_AUTH_HOME}
+        >
           <ConvexClientProvider>
             <SiteHeader />
             <StatusBanner />
