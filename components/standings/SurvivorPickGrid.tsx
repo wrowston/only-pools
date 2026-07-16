@@ -8,13 +8,14 @@ import { WeekChips } from "./WeekChips";
 
 /** Sticky player column — narrow on mobile so week picks stay visible. */
 const PLAYER_COL =
-  "w-[8.75rem] min-w-[8.75rem] max-w-[8.75rem] min-[900px]:w-[13rem] min-[900px]:min-w-[13rem] min-[900px]:max-w-[13rem]";
+  "w-[9.5rem] min-w-[9.5rem] max-w-[9.5rem] min-[900px]:w-[13rem] min-[900px]:min-w-[13rem] min-[900px]:max-w-[13rem]";
 
 /** Week pick columns — match PickCell (2.5rem) + horizontal padding. */
 const WEEK_COL = "w-12 min-w-12 max-w-12";
 
-/** Sticky status column — wide enough for “Eliminated” chip. */
-const STATUS_COL = "w-[5.75rem] min-w-[5.75rem] max-w-[5.75rem]";
+/** Sticky status column — desktop only; mobile uses player meta for status. */
+const STATUS_COL =
+  "hidden min-[900px]:table-cell w-[6rem] min-w-[6rem] max-w-[6rem]";
 
 function eligibilityLabel(eligibility: string): string {
   if (eligibility === "alive") return "Alive";
@@ -72,7 +73,6 @@ export function SurvivorPickGrid({
   const firstEliminatedIndex = rows.findIndex(
     (r) => r.eligibility === "eliminated",
   );
-  const colSpan = weeks.length + 2;
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRefs = useRef<Map<number, HTMLTableCellElement>>(new Map());
   const didInitScrollRef = useRef(false);
@@ -164,11 +164,15 @@ export function SurvivorPickGrid({
                   {showEliminatedDivider ? (
                     <tr>
                       <td
-                        colSpan={colSpan}
+                        colSpan={weeks.length + 1}
                         className="border-y border-op-border bg-op-canvas px-4 py-2 text-center text-[11px] text-op-muted"
                       >
                         Entries below have been eliminated
                       </td>
+                      <td
+                        className={`border-y border-op-border bg-op-canvas ${STATUS_COL}`}
+                        aria-hidden
+                      />
                     </tr>
                   ) : null}
                   <tr className="group">
