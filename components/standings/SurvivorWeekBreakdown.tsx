@@ -64,23 +64,20 @@ function WeekStat({
 }) {
   const styles = STAT_TONES[tone];
   return (
-    <div className={`rounded-xl border p-3.5 min-[900px]:p-4 ${styles.card}`}>
-      <p className={`flex items-center gap-2 text-[13px] font-medium ${styles.label}`}>
-        <span className={`h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
-        {label}
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-2xl font-medium tabular-nums text-op-text">{value}</p>
-          <p className={uiType.meta}>Entries</p>
-        </div>
-        <div>
-          <p className="text-2xl font-medium tabular-nums text-op-text">
-            {percentLabel(percentage)}
-          </p>
-          <p className={uiType.meta}>Of field</p>
-        </div>
+    <div className={`rounded-[10px] border px-3 py-2.5 ${styles.card}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className={`flex min-w-0 items-center gap-1.5 text-xs font-medium ${styles.label}`}>
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} aria-hidden />
+          <span className="truncate">{label}</span>
+        </p>
+        <span className="shrink-0 text-sm font-medium tabular-nums text-op-text">
+          {percentLabel(percentage)}
+        </span>
       </div>
+      <p className="mt-1.5 flex items-baseline gap-1.5">
+        <span className="text-xl font-medium tabular-nums text-op-text">{value}</span>
+        <span className="text-[11px] text-op-muted">entries</span>
+      </p>
     </div>
   );
 }
@@ -158,7 +155,7 @@ export function SurvivorWeekBreakdown({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-2.5 border-b border-op-border bg-op-canvas-lighter p-3 min-[560px]:grid-cols-3 min-[900px]:gap-3 min-[900px]:p-4">
+      <div className="grid grid-cols-1 gap-2 border-b border-op-border bg-op-canvas-lighter p-2.5 min-[560px]:grid-cols-3 min-[900px]:p-3">
         <WeekStat
           label="Survived"
           value={breakdown.survived}
