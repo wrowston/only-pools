@@ -18,13 +18,19 @@ function hashName(name: string): number {
 /**
  * Initial circle — heat-tinted first palette for brand cohesion.
  */
-export function InitialAvatar({ name }: { name: string }) {
+export function InitialAvatar({
+  name,
+  className = "",
+}: {
+  name: string;
+  className?: string;
+}) {
   const initial = (name.trim().charAt(0) || "?").toUpperCase();
   const palette = AVATAR_PALETTES[hashName(name) % AVATAR_PALETTES.length];
 
   return (
     <span
-      className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-xs font-medium ${palette}`}
+      className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-xs font-medium ${palette} ${className}`}
       aria-hidden
     >
       {initial}

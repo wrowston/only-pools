@@ -64,10 +64,10 @@ export function SurvivorStandingsView({
   }
 
   return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 min-[900px]:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 min-[900px]:max-w-none min-[900px]:px-8 min-[900px]:py-10">
         <header className="flex flex-col gap-1">
-          <h1 className={uiType.title}>Standings</h1>
-          <p className="text-sm text-op-secondary">
+          <h1 className={`${uiType.title} min-[900px]:text-3xl`}>Standings</h1>
+          <p className="text-sm text-op-secondary min-[900px]:text-[15px]">
             Survivor
             {standings.poolStatus === "completed"
               ? ` · Completed week ${standings.completedWeek ?? "—"}`

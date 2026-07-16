@@ -8,14 +8,15 @@ import { WeekChips } from "./WeekChips";
 
 /** Sticky player column — narrow on mobile so week picks stay visible. */
 const PLAYER_COL =
-  "w-[9.5rem] min-w-[9.5rem] max-w-[9.5rem] min-[900px]:w-[13rem] min-[900px]:min-w-[13rem] min-[900px]:max-w-[13rem]";
+  "w-[9.5rem] min-w-[9.5rem] max-w-[9.5rem] min-[900px]:w-[16rem] min-[900px]:min-w-[16rem] min-[900px]:max-w-[16rem]";
 
-/** Week pick columns — match PickCell (2.5rem) + horizontal padding. */
-const WEEK_COL = "w-12 min-w-12 max-w-12";
+/** Week pick columns — match PickCell size + padding (compact mobile, larger desktop). */
+const WEEK_COL =
+  "w-12 min-w-12 max-w-12 min-[900px]:w-16 min-[900px]:min-w-16 min-[900px]:max-w-16";
 
 /** Sticky status column — desktop only; mobile uses player meta for status. */
 const STATUS_COL =
-  "hidden min-[900px]:table-cell w-[6rem] min-w-[6rem] max-w-[6rem]";
+  "hidden min-[900px]:table-cell min-[900px]:w-[7.5rem] min-[900px]:min-w-[7.5rem] min-[900px]:max-w-[7.5rem]";
 
 function eligibilityLabel(eligibility: string): string {
   if (eligibility === "alive") return "Alive";
@@ -90,7 +91,7 @@ export function SurvivorPickGrid({
   }, [focusWeek]);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex w-full flex-col gap-3">
       <WeekChips
         weeks={weeks}
         value={focusWeek}
@@ -100,13 +101,13 @@ export function SurvivorPickGrid({
       />
       <div
         ref={scrollRef}
-        className="overflow-x-auto rounded-[16px] border border-op-border bg-op-surface"
+        className="w-full overflow-x-auto rounded-[16px] border border-op-border bg-op-surface"
       >
         <table className="min-w-max border-collapse text-left">
           <thead>
             <tr className="bg-op-control">
               <th
-                className={`sticky left-0 z-20 overflow-hidden border-r border-op-border bg-op-control px-2.5 py-2.5 min-[900px]:px-4 ${PLAYER_COL} ${uiType.eyebrow}`}
+                className={`sticky left-0 z-20 overflow-hidden border-r border-op-border bg-op-control px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5 ${PLAYER_COL} ${uiType.eyebrow}`}
               >
                 Player
               </th>
@@ -121,7 +122,7 @@ export function SurvivorPickGrid({
                       else headerRefs.current.delete(week);
                     }}
                     className={[
-                      "relative px-1 py-2.5 text-center",
+                      "relative px-1 py-2.5 text-center min-[900px]:px-2 min-[900px]:py-3.5",
                       WEEK_COL,
                       uiType.eyebrow,
                       focused ? "bg-op-heat-8 text-op-selected-fg" : "",
@@ -146,7 +147,7 @@ export function SurvivorPickGrid({
                 );
               })}
               <th
-                className={`sticky right-0 z-20 overflow-hidden border-l border-op-border bg-op-control px-2 py-2.5 text-right min-[900px]:px-4 ${STATUS_COL} ${uiType.eyebrow}`}
+                className={`sticky right-0 z-20 overflow-hidden border-l border-op-border bg-op-control px-2 py-2.5 text-right min-[900px]:px-5 min-[900px]:py-3.5 ${STATUS_COL} ${uiType.eyebrow}`}
               >
                 Status
               </th>
@@ -165,7 +166,7 @@ export function SurvivorPickGrid({
                     <tr>
                       <td
                         colSpan={weeks.length + 1}
-                        className="border-y border-op-border bg-op-canvas px-4 py-2 text-center text-[11px] text-op-muted"
+                        className="border-y border-op-border bg-op-canvas px-4 py-2 text-center text-[11px] text-op-muted min-[900px]:py-2.5 min-[900px]:text-xs"
                       >
                         Entries below have been eliminated
                       </td>
@@ -178,25 +179,32 @@ export function SurvivorPickGrid({
                   <tr className="group">
                     <td
                       className={[
-                        "sticky left-0 z-10 overflow-hidden border-r border-op-border border-t px-2.5 py-2.5 min-[900px]:px-4",
+                        "sticky left-0 z-10 overflow-hidden border-r border-op-border border-t px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5",
                         PLAYER_COL,
                         playerBg,
                       ].join(" ")}
                     >
-                      <div className="flex min-w-0 items-start gap-2">
+                      <div className="flex min-w-0 items-start gap-2 min-[900px]:gap-3">
                         <span className="mt-0.5 shrink-0">
-                          <InitialAvatar name={row.displayName} />
+                          <InitialAvatar
+                            name={row.displayName}
+                            className="min-[900px]:h-9 min-[900px]:w-9 min-[900px]:text-sm"
+                          />
                         </span>
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span
-                            className={`flex min-w-0 items-center ${uiType.name}`}
+                            className={`flex min-w-0 items-center ${uiType.name} min-[900px]:text-[15px]`}
                           >
                             <span className="min-w-0 truncate">
                               {row.displayName}
                             </span>
-                            {row.isViewer ? <YouBadge /> : null}
+                            {row.isViewer ? (
+                              <YouBadge className="min-[900px]:px-2 min-[900px]:text-[11px]" />
+                            ) : null}
                           </span>
-                          <span className={`truncate ${uiType.meta}`}>
+                          <span
+                            className={`truncate ${uiType.meta} min-[900px]:text-[13px]`}
+                          >
                             {weekContext(row)}
                           </span>
                         </div>
@@ -208,7 +216,7 @@ export function SurvivorPickGrid({
                         <td
                           key={cell.week}
                           className={[
-                            "border-t border-op-border px-1 py-2.5 text-center",
+                            "border-t border-op-border px-1 py-2.5 text-center min-[900px]:px-2 min-[900px]:py-3.5",
                             WEEK_COL,
                             row.isViewer ? "bg-op-selected" : "",
                             focused
@@ -226,13 +234,16 @@ export function SurvivorPickGrid({
                     })}
                     <td
                       className={[
-                        "sticky right-0 z-10 overflow-hidden border-l border-op-border border-t px-2 py-2.5 min-[900px]:px-3",
+                        "sticky right-0 z-10 overflow-hidden border-l border-op-border border-t px-2 py-2.5 min-[900px]:px-3 min-[900px]:py-3.5",
                         STATUS_COL,
                         playerBg,
                       ].join(" ")}
                     >
                       <div className="flex justify-end">
-                        <StatusChip tone={eligibilityTone(row.eligibility)}>
+                        <StatusChip
+                          tone={eligibilityTone(row.eligibility)}
+                          className="min-[900px]:px-2.5 min-[900px]:py-1 min-[900px]:text-xs"
+                        >
                           {eligibilityLabel(row.eligibility)}
                         </StatusChip>
                       </div>

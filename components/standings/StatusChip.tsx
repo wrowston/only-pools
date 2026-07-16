@@ -19,13 +19,15 @@ const TONE_CLASS: Record<StatusChipTone, string> = {
 export function StatusChip({
   tone,
   children,
+  className = "",
 }: {
   tone: StatusChipTone;
   children: string;
+  className?: string;
 }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-[8px] border px-2 py-0.5 text-[11px] font-medium ${TONE_CLASS[tone]}`}
+      className={`inline-flex shrink-0 items-center rounded-[8px] border px-2 py-0.5 text-[11px] font-medium ${TONE_CLASS[tone]} ${className}`}
     >
       {children}
     </span>
