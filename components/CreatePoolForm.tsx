@@ -286,7 +286,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="rounded-md border border-op-border bg-op-surface"
-          placeholder="Sunday Best Friends"
+          placeholder="Name your pool"
         />
       </label>
 
