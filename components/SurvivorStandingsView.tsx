@@ -8,7 +8,11 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
 import { usePoolChromeName } from "./PoolChrome";
-import { SurvivorPickGrid } from "./standings";
+import {
+  SurvivorPickGrid,
+  SurvivorWeekBreakdown,
+  WeekChips,
+} from "./standings";
 
 export function SurvivorStandingsView({
   poolId,
@@ -85,13 +89,35 @@ export function SurvivorStandingsView({
             description="Standings appear once the Pool has members."
           />
         ) : (
-          <SurvivorPickGrid
-            weeks={standings.weeks}
-            rows={standings.rows}
-            focusWeek={activeFocus}
-            currentWeek={currentWeek}
-            onFocusWeek={setFocusWeek}
-          />
+          <div className="flex flex-col gap-4">
+            <WeekChips
+              weeks={standings.weeks}
+              value={activeFocus}
+              onChange={setFocusWeek}
+              currentWeek={currentWeek}
+              ariaLabel="Standings week"
+            />
+            <SurvivorWeekBreakdown
+              week={activeFocus}
+              rows={standings.rows}
+            />
+            <div className="mt-1 flex items-end justify-between gap-4">
+              <div>
+                <p className={uiType.eyebrow}>Entry history</p>
+                <h2 className="mt-1 text-lg font-medium tracking-tight text-op-text">
+                  Pool standings
+                </h2>
+              </div>
+              <p className="text-xs text-op-muted">Week {activeFocus} highlighted</p>
+            </div>
+            <SurvivorPickGrid
+              weeks={standings.weeks}
+              rows={standings.rows}
+              focusWeek={activeFocus}
+              currentWeek={currentWeek}
+              onFocusWeek={setFocusWeek}
+            />
+          </div>
         )}
       </div>
   );

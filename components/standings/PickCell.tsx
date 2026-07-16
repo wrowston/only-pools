@@ -4,6 +4,7 @@ export type StandingsPickCell = {
   hasPick: boolean;
   locked: boolean;
   teamAbbreviation: string | null;
+  teamName: string | null;
   provenance: "authored" | "omission" | null;
   outcome:
     | "win"

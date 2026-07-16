@@ -11,4 +11,5 @@ export { PickCell } from "./PickCell";
 export type { StandingsPickCell } from "./PickCell";
 export { SurvivorPickGrid } from "./SurvivorPickGrid";
 export type { SurvivorPickGridRow } from "./SurvivorPickGrid";
+export { SurvivorWeekBreakdown } from "./SurvivorWeekBreakdown";
 export { WeekChips } from "./WeekChips";

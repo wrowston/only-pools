@@ -564,13 +564,16 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       revealed: true,
       hasPick: true,
       teamAbbreviation: "KC",
+      teamName: "Kansas City Chiefs",
     });
     expect(blakeHidden?.cells[0]).toMatchObject({
       revealed: false,
       hasPick: true,
       teamAbbreviation: null,
+      teamName: null,
     });
     expect(JSON.stringify(blakeHidden?.cells[0])).not.toContain("BUF");
+    expect(JSON.stringify(blakeHidden?.cells[0])).not.toContain("Buffalo Bills");
 
     await moveKickoffPast(t, seeded.week1GameId);
     await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
@@ -592,11 +595,13 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
     expect(alex?.cells[0]).toMatchObject({
       revealed: true,
       teamAbbreviation: "KC",
+      teamName: "Kansas City Chiefs",
       outcome: "win",
     });
     expect(blake?.cells[0]).toMatchObject({
       revealed: true,
       teamAbbreviation: "BUF",
+      teamName: "Buffalo Bills",
       outcome: "loss",
     });
   });

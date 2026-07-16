@@ -470,7 +470,7 @@ export const applySurvivorScoringRevision = internalMutation({
     }
 
     // Load current pool week revision pointer.
-    let poolWeek = await ctx.db
+    const poolWeek = await ctx.db
       .query("poolWeeks")
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", args.week),
@@ -869,6 +869,7 @@ export type SurvivorStandingsGridCell = {
   hasPick: boolean;
   locked: boolean;
   teamAbbreviation: string | null;
+  teamName: string | null;
   provenance: "authored" | "omission" | null;
   outcome:
     | "win"
@@ -965,17 +966,22 @@ export const getSurvivorStandingsGrid = query({
     const weeks: number[] = [];
     for (let w = pool.startWeek; w <= endWeek; w++) weeks.push(w);
 
-    const teamAbbrCache = new Map<Id<"nflTeams">, string>();
-    async function teamAbbr(
+    const teamCache = new Map<
+      Id<"nflTeams">,
+      { abbreviation: string; name: string }
+    >();
+    async function teamIdentity(
       teamId: Id<"nflTeams"> | undefined,
-    ): Promise<string | null> {
+    ): Promise<{ abbreviation: string; name: string } | null> {
       if (!teamId) return null;
-      const cached = teamAbbrCache.get(teamId);
+      const cached = teamCache.get(teamId);
       if (cached !== undefined) return cached;
       const team = await ctx.db.get(teamId);
-      const abbr = team?.abbreviation ?? null;
-      if (abbr) teamAbbrCache.set(teamId, abbr);
-      return abbr;
+      const identity = team
+        ? { abbreviation: team.abbreviation, name: team.name }
+        : null;
+      if (identity) teamCache.set(teamId, identity);
+      return identity;
     }
 
     const rows = [];
@@ -1002,11 +1008,14 @@ export const getSurvivorStandingsGrid = query({
         const revealed = locked || isViewer;
 
         let teamAbbreviation: string | null = null;
+        let teamName: string | null = null;
         let provenance: "authored" | "omission" | null = null;
         if (pick && revealed) {
           provenance = pick.provenance;
           if (pick.provenance === "authored" && pick.invalidated !== true) {
-            teamAbbreviation = await teamAbbr(pick.nflTeamId);
+            const team = await teamIdentity(pick.nflTeamId);
+            teamAbbreviation = team?.abbreviation ?? null;
+            teamName = team?.name ?? null;
           }
         }
 
@@ -1016,6 +1025,7 @@ export const getSurvivorStandingsGrid = query({
           hasPick,
           locked,
           teamAbbreviation: revealed ? teamAbbreviation : null,
+          teamName: revealed ? teamName : null,
           provenance: revealed ? provenance : null,
           outcome: revealed ? (outcomeDoc?.outcome ?? null) : null,
         });

@@ -4,7 +4,6 @@ import { ParticipantAvatar } from "./ParticipantAvatar";
 import { StatusChip, eligibilityTone } from "./StatusChip";
 import { YouBadge } from "./YouBadge";
 import { PickCell, type StandingsPickCell } from "./PickCell";
-import { WeekChips } from "./WeekChips";
 
 /** Sticky player column — narrow on mobile so week picks stay visible. */
 const PLAYER_COL =
@@ -92,14 +91,7 @@ export function SurvivorPickGrid({
   }, [focusWeek]);
 
   return (
-    <div className="flex w-full flex-col gap-3">
-      <WeekChips
-        weeks={weeks}
-        value={focusWeek}
-        onChange={onFocusWeek}
-        currentWeek={currentWeek}
-        ariaLabel="Standings week"
-      />
+    <div className="flex w-full flex-col">
       <div
         ref={scrollRef}
         className="w-full overflow-x-auto rounded-[16px] border border-op-border bg-op-surface"
