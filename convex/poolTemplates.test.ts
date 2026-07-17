@@ -261,6 +261,8 @@ describe("createPoolFromTemplate (acceptance scenario 11)", () => {
     expect(created.type).toBe("survivor");
     expect(created.pickLockMode).toBe("weeklyCutoff");
     expect(created.name).toBe("Office Survivor 2024");
+    expect(created.inviteUrl).toMatch(/^\/join\/[0-9a-f]{64}$/);
+    expect(created.expiresAtMs).toBeGreaterThan(Date.now());
 
     const newPool = await t.run(async (ctx) => ctx.db.get(created.poolId));
     expect(newPool).toMatchObject({
@@ -287,6 +289,22 @@ describe("createPoolFromTemplate (acceptance scenario 11)", () => {
       role: "owner",
       status: "active",
     });
+
+    const ordinaryInvites = await t.run(async (ctx) =>
+      ctx.db
+        .query("poolInvites")
+        .withIndex("by_poolId", (q) => q.eq("poolId", created.poolId))
+        .collect(),
+    );
+    expect(ordinaryInvites).toHaveLength(1);
+    expect(ordinaryInvites[0]).toMatchObject({
+      status: "active",
+      createdByParticipantId: alexId,
+      expiresAtMs: created.expiresAtMs,
+    });
+    expect(created.inviteUrl).toBe(
+      `/join/${ordinaryInvites[0]!.credentialSecret}`,
+    );
 
     const picks = await t.run(async (ctx) =>
       ctx.db

@@ -13,6 +13,7 @@ import {
   earliestStartWeekKickoffMs,
   resolveAdmissionClosedAtMs,
 } from "./lib/membershipCutoff";
+import { mintOrdinaryPoolInvite } from "./lib/mintOrdinaryInvite";
 import { assertValidStartWeekSlate } from "./lib/poolRules";
 import { isPoolArchived } from "./lib/poolArchive";
 import {
@@ -405,6 +406,12 @@ export const createPoolFromTemplate = mutation({
       }
     }
 
+    const invite = await mintOrdinaryPoolInvite(ctx, {
+      poolId,
+      createdByParticipantId: participant._id,
+      nowMs,
+    });
+
     return {
       poolId,
       status: "active" as const,
@@ -413,6 +420,8 @@ export const createPoolFromTemplate = mutation({
       type: source.type,
       pickLockMode,
       name,
+      inviteUrl: invite.url,
+      expiresAtMs: invite.expiresAtMs,
       returningInvites,
     };
   },

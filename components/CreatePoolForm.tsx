@@ -19,6 +19,22 @@ type FormerParticipant = {
   formerRole: "admin" | "member";
 };
 
+type CreatedPoolSuccess = {
+  poolId: Id<"pools">;
+  inviteUrl: string;
+  expiresAtMs: number;
+  returningInvites: Array<{
+    displayName: string;
+    role: ProposedRole;
+    url: string;
+  }>;
+};
+
+function absoluteInviteUrl(path: string): string {
+  if (typeof window === "undefined") return path;
+  return `${window.location.origin}${path}`;
+}
+
 export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
   const router = useRouter();
   const createPool = useMutation(api.pools.createPool);
@@ -40,14 +56,8 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
   >({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [createdReturningUrls, setCreatedReturningUrls] = useState<
-    Array<{
-      displayName: string;
-      role: ProposedRole;
-      url: string;
-      poolId: Id<"pools">;
-    }>
-  >([]);
+  const [created, setCreated] = useState<CreatedPoolSuccess | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const weeks = startWeeks?.weeks ?? [];
   const weeksKey = weeks.join(",");
@@ -82,6 +92,16 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
     value: ProposedRole | "skip",
   ) {
     setInviteSelections((prev) => ({ ...prev, [participantId]: value }));
+  }
+
+  async function copyShareLink() {
+    if (!created) return;
+    try {
+      await navigator.clipboard.writeText(created.inviteUrl);
+      setCopied(true);
+    } catch {
+      setError("Could not copy link");
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -120,23 +140,22 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           returningInvites,
         });
 
-        const urls = result.returningInvites.map((invite) => {
-          const person = selectedTemplate?.formerParticipants.find(
-            (p) => p.participantId === invite.participantId,
-          );
-          return {
-            displayName: person?.displayName ?? "Participant",
-            role: invite.proposedRole,
-            url: invite.url,
-            poolId: result.poolId,
-          };
+        setCreated({
+          poolId: result.poolId,
+          inviteUrl: absoluteInviteUrl(result.inviteUrl),
+          expiresAtMs: result.expiresAtMs,
+          returningInvites: result.returningInvites.map((invite) => {
+            const person = selectedTemplate?.formerParticipants.find(
+              (p) => p.participantId === invite.participantId,
+            );
+            return {
+              displayName: person?.displayName ?? "Participant",
+              role: invite.proposedRole,
+              url: absoluteInviteUrl(invite.url),
+            };
+          }),
         });
-        if (urls.length > 0) {
-          setCreatedReturningUrls(urls);
-          setBusy(false);
-          return;
-        }
-        router.push(`/pools/${result.poolId}`);
+        setBusy(false);
         return;
       }
 
@@ -146,48 +165,86 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
         startWeek: effectiveStartWeek,
         pickLockMode,
       });
-      router.push(`/pools/${result.poolId}`);
+      setCreated({
+        poolId: result.poolId,
+        inviteUrl: absoluteInviteUrl(result.inviteUrl),
+        expiresAtMs: result.expiresAtMs,
+        returningInvites: [],
+      });
+      setBusy(false);
     } catch (err) {
       setError(convexErrorMessage(err, "Could not create Pool"));
       setBusy(false);
     }
   }
 
-  if (createdReturningUrls.length > 0) {
-    const poolId = createdReturningUrls[0]!.poolId;
+  if (created) {
     return (
       <div className="flex flex-col gap-4 op-panel p-5">
-        <h2 className="text-lg font-semibold text-op-text">
-          Pool created — share Returning Participant Invites
-        </h2>
+        <h2 className="text-lg font-semibold text-op-text">Pool created</h2>
         <p className="text-sm text-op-secondary">
-          Nobody was enrolled automatically. Share each person-specific link;
-          they must accept before joining.
+          Share this link so others can join. Opening the link alone does not
+          enroll anyone — they must accept.
         </p>
-        <ul className="flex flex-col gap-3 text-sm">
-          {createdReturningUrls.map((row) => (
-            <li
-              key={row.url}
-              className="rounded-[10px] border border-op-border bg-op-surface p-3"
-            >
-              <p className="font-medium text-op-text">
-                {row.displayName}{" "}
-                <span className="font-normal text-op-muted">
-                  ({row.role === "admin" ? "proposed Admin" : "Member"})
-                </span>
-              </p>
-              <code className="mt-1 block break-all text-xs text-op-secondary">
-                {row.url}
-              </code>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-2 rounded-[10px] border border-op-border bg-op-surface p-3">
+          <code className="break-all text-xs text-op-text">
+            {created.inviteUrl}
+          </code>
+          <p className="text-xs text-op-muted">
+            Expires{" "}
+            {new Intl.DateTimeFormat(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(created.expiresAtMs))}
+          </p>
+          <button
+            type="button"
+            onClick={() => void copyShareLink()}
+            className="self-start text-sm font-medium text-op-text underline"
+          >
+            {copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
+        {created.returningInvites.length > 0 ? (
+          <>
+            <h3 className="text-sm font-semibold text-op-text">
+              Returning Participant Invites
+            </h3>
+            <p className="text-sm text-op-secondary">
+              Person-specific links. Nobody was enrolled automatically; each
+              person must accept their own invite.
+            </p>
+            <ul className="flex flex-col gap-3 text-sm">
+              {created.returningInvites.map((row) => (
+                <li
+                  key={row.url}
+                  className="rounded-[10px] border border-op-border bg-op-surface p-3"
+                >
+                  <p className="font-medium text-op-text">
+                    {row.displayName}{" "}
+                    <span className="font-normal text-op-muted">
+                      ({row.role === "admin" ? "proposed Admin" : "Member"})
+                    </span>
+                  </p>
+                  <code className="mt-1 block break-all text-xs text-op-secondary">
+                    {row.url}
+                  </code>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {error ? (
+          <p className="text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        ) : null}
         <button
           type="button"
-          onClick={() => router.push(`/pools/${poolId}`)}
+          onClick={() => router.push(`/pools/${created.poolId}`)}
           className="op-btn op-btn-primary"
         >
-          Open Pool
+          View pool / Make picks
         </button>
       </div>
     );

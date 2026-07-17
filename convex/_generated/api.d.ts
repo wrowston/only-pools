@@ -27,6 +27,7 @@ import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
 import type * as lib_inviteDisclosure from "../lib/inviteDisclosure.js";
 import type * as lib_inviteThrottle from "../lib/inviteThrottle.js";
 import type * as lib_membershipCutoff from "../lib/membershipCutoff.js";
+import type * as lib_mintOrdinaryInvite from "../lib/mintOrdinaryInvite.js";
 import type * as lib_myPoolsStatus from "../lib/myPoolsStatus.js";
 import type * as lib_operator from "../lib/operator.js";
 import type * as lib_pickLock from "../lib/pickLock.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   "lib/inviteDisclosure": typeof lib_inviteDisclosure;
   "lib/inviteThrottle": typeof lib_inviteThrottle;
   "lib/membershipCutoff": typeof lib_membershipCutoff;
+  "lib/mintOrdinaryInvite": typeof lib_mintOrdinaryInvite;
   "lib/myPoolsStatus": typeof lib_myPoolsStatus;
   "lib/operator": typeof lib_operator;
   "lib/pickLock": typeof lib_pickLock;

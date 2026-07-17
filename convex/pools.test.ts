@@ -137,6 +137,8 @@ describe("createPool", () => {
     expect(result.status).toBe("active");
     expect(result.startWeek).toBe(1);
     expect(result.seasonId).toEqual(seasonId);
+    expect(result.inviteUrl).toMatch(/^\/join\/[0-9a-f]{64}$/);
+    expect(result.expiresAtMs).toBeGreaterThan(Date.now());
 
     const pool = await t.run(async (ctx) => ctx.db.get(result.poolId));
     expect(pool).toMatchObject({
@@ -162,6 +164,20 @@ describe("createPool", () => {
       role: "owner",
       status: "active",
     });
+
+    const invites = await t.run(async (ctx) =>
+      ctx.db
+        .query("poolInvites")
+        .withIndex("by_poolId", (q) => q.eq("poolId", result.poolId))
+        .collect(),
+    );
+    expect(invites).toHaveLength(1);
+    expect(invites[0]).toMatchObject({
+      status: "active",
+      createdByParticipantId: participantId,
+      expiresAtMs: result.expiresAtMs,
+    });
+    expect(result.inviteUrl).toBe(`/join/${invites[0]!.credentialSecret}`);
   });
 
   it("rejects Start Week with missing slate", async () => {

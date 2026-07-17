@@ -14,6 +14,7 @@ import {
 import { defaultConfidenceRanking } from "./lib/confidenceScale";
 import { deriveFreshness } from "./lib/freshness";
 import { isPoolArchived } from "./lib/poolArchive";
+import { mintOrdinaryPoolInvite } from "./lib/mintOrdinaryInvite";
 import {
   MAX_MEMBERSHIPS_PER_SEASON,
   MAX_OWNED_POOLS,
@@ -167,11 +168,19 @@ export const createPool = mutation({
       status: "active",
     });
 
+    const invite = await mintOrdinaryPoolInvite(ctx, {
+      poolId,
+      createdByParticipantId: participant._id,
+      nowMs,
+    });
+
     return {
       poolId,
       status: "active" as const,
       startWeek: args.startWeek,
       seasonId: season._id,
+      inviteUrl: invite.url,
+      expiresAtMs: invite.expiresAtMs,
     };
   },
 });
