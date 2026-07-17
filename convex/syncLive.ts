@@ -37,6 +37,7 @@ import {
 } from "./lib/providerBudget";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
+import { enqueueSentryDelivery } from "./sentry";
 import {
   CONFIRMATION_15_MS,
   CONFIRMATION_60_MS,
@@ -540,10 +541,13 @@ export const recordSyncSurfaceHealth = internalMutation({
         message: args.exceptionMessage ?? "Provider Exception",
         createdAtMs: args.nowMs,
       });
-      captureException(args.exceptionMessage ?? "Provider Exception", {
-        tags: { channel: "sync", surface: args.surface },
-        extra: { scopeKey: args.scopeKey },
-      });
+      await enqueueSentryDelivery(
+        ctx,
+        captureException(args.exceptionMessage ?? "Provider Exception", {
+          tags: { channel: "sync", surface: args.surface },
+          extra: { scopeKey: args.scopeKey },
+        }),
+      );
     }
 
     const freshness = deriveFreshness({

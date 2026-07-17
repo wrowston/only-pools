@@ -48,6 +48,7 @@ import type * as pools from "../pools.js";
 import type * as providers_thesportsdb_adapter from "../providers/thesportsdb/adapter.js";
 import type * as providers_thesportsdb_client from "../providers/thesportsdb/client.js";
 import type * as seedDemo from "../seedDemo.js";
+import type * as sentry from "../sentry.js";
 import type * as survivorPicks from "../survivorPicks.js";
 import type * as survivorScoring from "../survivorScoring.js";
 import type * as sync from "../sync.js";
@@ -100,6 +101,7 @@ declare const fullApi: ApiFromModules<{
   "providers/thesportsdb/adapter": typeof providers_thesportsdb_adapter;
   "providers/thesportsdb/client": typeof providers_thesportsdb_client;
   seedDemo: typeof seedDemo;
+  sentry: typeof sentry;
   survivorPicks: typeof survivorPicks;
   survivorScoring: typeof survivorScoring;
   sync: typeof sync;

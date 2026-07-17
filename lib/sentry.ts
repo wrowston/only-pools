@@ -1,9 +1,10 @@
 /**
- * Client/Next Sentry wiring for MVP exception channel.
+ * Shared Sentry types / Convex sink re-exports for Next.js call sites that
+ * need the same capture shape as Convex (tests, operator signals).
  *
- * Production DSN is a human deploy follow-up (`SENTRY_DSN` /
- * `NEXT_PUBLIC_SENTRY_DSN`). Without a DSN this is a no-op recorder.
- * Preview/Dev never page production — see `convex/lib/sentry.ts`.
+ * Prefer `@sentry/nextjs` (`Sentry.captureException`) for App Router errors —
+ * the SDK is initialized in `instrumentation-client.ts` / `sentry.*.config.ts`.
+ * Production DSN: `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`.
  */
 
 export {

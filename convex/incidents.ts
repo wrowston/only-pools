@@ -25,6 +25,7 @@ import {
 import { isProductionOperator } from "./lib/operator";
 import { captureIncidentSignal } from "./lib/sentry";
 import { resolveDeploymentKind } from "./lib/syncGate";
+import { enqueueSentryDelivery } from "./sentry";
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 
@@ -192,12 +193,15 @@ async function openFromTrigger(
     maintenanceLock: false,
   });
 
-  captureIncidentSignal({
-    signal: "opened",
-    incidentType: decision.type,
-    dedupeKey,
-    summary,
-  });
+  await enqueueSentryDelivery(
+    ctx,
+    captureIncidentSignal({
+      signal: "opened",
+      incidentType: decision.type,
+      dedupeKey,
+      summary,
+    }),
+  );
 
   return { opened: true as const, incidentId, deduped: false as const };
 }
@@ -253,12 +257,15 @@ export const autoResolveIncident = internalMutation({
       resolvedAutomatically: true,
     });
 
-    captureIncidentSignal({
-      signal: "resolved",
-      incidentType: args.type,
-      dedupeKey,
-      summary: existing.summary,
-    });
+    await enqueueSentryDelivery(
+      ctx,
+      captureIncidentSignal({
+        signal: "resolved",
+        incidentType: args.type,
+        dedupeKey,
+        summary: existing.summary,
+      }),
+    );
 
     return { resolved: true as const, incidentId: existing._id };
   },
@@ -384,12 +391,15 @@ export const acknowledgeIncident = mutation({
       },
     });
 
-    captureIncidentSignal({
-      signal: "escalated",
-      incidentType: incident.type,
-      dedupeKey: incident.dedupeKey,
-      summary: "acknowledged",
-    });
+    await enqueueSentryDelivery(
+      ctx,
+      captureIncidentSignal({
+        signal: "escalated",
+        incidentType: incident.type,
+        dedupeKey: incident.dedupeKey,
+        summary: "acknowledged",
+      }),
+    );
 
     return { status: "acknowledged" as const };
   },
@@ -430,12 +440,15 @@ export const resolveIncident = mutation({
       },
     });
 
-    captureIncidentSignal({
-      signal: "resolved",
-      incidentType: incident.type,
-      dedupeKey: incident.dedupeKey,
-      summary: args.resolutionNote,
-    });
+    await enqueueSentryDelivery(
+      ctx,
+      captureIncidentSignal({
+        signal: "resolved",
+        incidentType: incident.type,
+        dedupeKey: incident.dedupeKey,
+        summary: args.resolutionNote,
+      }),
+    );
 
     return { status: "resolved" as const };
   },
@@ -648,12 +661,15 @@ export const openIncidentForTest = internalMutation({
       maintenanceLock: false,
     });
 
-    captureIncidentSignal({
-      signal: "opened",
-      incidentType: type,
-      dedupeKey,
-      summary,
-    });
+    await enqueueSentryDelivery(
+      ctx,
+      captureIncidentSignal({
+        signal: "opened",
+        incidentType: type,
+        dedupeKey,
+        summary,
+      }),
+    );
 
     return id;
   },

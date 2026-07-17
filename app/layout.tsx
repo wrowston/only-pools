@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { SentryUserContext } from "@/components/SentryUserContext";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatusBanner } from "@/components/StatusBanner";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
@@ -77,6 +78,7 @@ export default function RootLayout({
           signUpFallbackRedirectUrl={POST_AUTH_HOME}
         >
           <ConvexClientProvider>
+            <SentryUserContext />
             <SiteHeader />
             <StatusBanner />
             <div id="main" className="flex min-h-0 flex-1 flex-col">

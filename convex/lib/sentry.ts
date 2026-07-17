@@ -2,7 +2,9 @@
  * Sentry sink for MVP exception + Operator Incident signals.
  *
  * Without SENTRY_DSN / NEXT_PUBLIC_SENTRY_DSN the sink is a no-op recorder
- * that tests can assert was called. Dev/Preview never page production.
+ * that tests can assert was called. Dev/Preview never page production —
+ * delivery is gated by `pagesProduction` and flushed via
+ * `enqueueSentryDelivery` in `convex/sentry.ts`.
  */
 
 import { resolveDeploymentKind } from "./syncGate";
@@ -52,15 +54,8 @@ function createSink(): SentrySink {
         atMs: event.atMs ?? Date.now(),
       };
 
-      // Always record for tests / local observability. Real SDK send is
-      // gated: only production with a DSN would page; unset DSN is no-op.
+      // Always record for tests / local observability.
       captures.push(record);
-
-      if (pagesProduction && typeof console !== "undefined") {
-        // Placeholder until human wires @sentry/node — DSN present means
-        // production paging is eligible; SDK install is a deploy follow-up.
-        console.info("[sentry:production]", record.message, record.tags);
-      }
 
       return record;
     },
