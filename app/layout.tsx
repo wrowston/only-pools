@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { PostHogUserContext } from "@/components/PostHogUserContext";
 import { SentryUserContext } from "@/components/SentryUserContext";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatusBanner } from "@/components/StatusBanner";
@@ -79,6 +80,7 @@ export default function RootLayout({
         >
           <ConvexClientProvider>
             <SentryUserContext />
+            <PostHogUserContext />
             <SiteHeader />
             <StatusBanner />
             <div id="main" className="flex min-h-0 flex-1 flex-col">

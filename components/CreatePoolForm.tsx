@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -99,6 +100,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
     try {
       await navigator.clipboard.writeText(created.inviteUrl);
       setCopied(true);
+      posthog.capture("invite_link_copied", { pool_id: created.poolId });
     } catch {
       setError("Could not copy link");
     }
@@ -155,6 +157,12 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
             };
           }),
         });
+        posthog.capture("pool_created_from_template", {
+          pool_id: result.poolId,
+          pool_type: type,
+          start_week: effectiveStartWeek,
+          pick_lock_mode: pickLockMode,
+        });
         setBusy(false);
         return;
       }
@@ -170,6 +178,12 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
         inviteUrl: absoluteInviteUrl(result.inviteUrl),
         expiresAtMs: result.expiresAtMs,
         returningInvites: [],
+      });
+      posthog.capture("pool_created", {
+        pool_id: result.poolId,
+        pool_type: type,
+        start_week: effectiveStartWeek,
+        pick_lock_mode: pickLockMode,
       });
       setBusy(false);
     } catch (err) {

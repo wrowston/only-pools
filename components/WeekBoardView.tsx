@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
@@ -284,6 +285,10 @@ export function WeekBoardView({
       await autosaveSurvivor({ poolId, week: board!.week, nflTeamId });
       setTrust({ status: "saved" });
       setPendingTeamId(null);
+      posthog.capture("survivor_pick_saved", {
+        pool_id: poolId,
+        week: board!.week,
+      });
     } catch (err) {
       const explanation = convexErrorMessage(
         err,
@@ -315,6 +320,10 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
+        posthog.capture("confidence_pick_saved", {
+          pool_id: poolId,
+          week: board!.week,
+        });
       }
     } catch (err) {
       setTrust({

@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { SignInButton, useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
@@ -35,6 +36,7 @@ export function JoinInviteView({ token }: { token: string }) {
         setBusy(false);
         return;
       }
+      posthog.capture("invite_accepted", { pool_id: result.poolId });
       router.push(`/pools/${result.poolId}`);
     } catch (e) {
       setError(convexErrorMessage(e, "Could not join Pool"));

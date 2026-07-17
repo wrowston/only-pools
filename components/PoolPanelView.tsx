@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
@@ -81,6 +82,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       const result = await createOrRetrieve({ poolId });
       setInviteUrl(absoluteInviteUrl(result.url));
       setExpiresAtMs(result.expiresAtMs);
+      posthog.capture("pool_invite_retrieved", { pool_id: poolId });
     });
   }
 
@@ -91,6 +93,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       const result = await rotateInvite({ poolId });
       setInviteUrl(absoluteInviteUrl(result.url));
       setExpiresAtMs(result.expiresAtMs);
+      posthog.capture("pool_invite_rotated", { pool_id: poolId });
     });
   }
 
@@ -99,6 +102,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     try {
       await navigator.clipboard.writeText(inviteUrl);
       setCopied(true);
+      posthog.capture("pool_invite_link_copied", { pool_id: poolId });
     } catch {
       setError("Could not copy link");
     }
@@ -188,6 +192,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   void runAdminAction(async () => {
                     await confirmStepUp({});
                     await archivePool({ poolId });
+                    posthog.capture("pool_archived", { pool_id: poolId });
                   })
                 }
                 className="op-btn op-btn-secondary"
@@ -202,6 +207,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                   void runAdminAction(async () => {
                     await confirmStepUp({});
                     await restorePool({ poolId });
+                    posthog.capture("pool_restored", { pool_id: poolId });
                   })
                 }
                 className="op-btn op-btn-primary"
@@ -399,6 +405,10 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                             participantId: m.participantId,
                             reason,
                           });
+                          posthog.capture("member_removed", {
+                            pool_id: poolId,
+                            removed_role: "member",
+                          });
                         })
                       }
                       className="text-xs font-medium text-red-700 underline"
@@ -420,6 +430,10 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                             poolId,
                             participantId: m.participantId,
                             reason,
+                          });
+                          posthog.capture("member_removed", {
+                            pool_id: poolId,
+                            removed_role: "admin",
                           });
                         })
                       }
@@ -483,6 +497,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               void runAdminAction(async () => {
                 if (!window.confirm("Leave this Pool?")) return;
                 await leavePool({ poolId });
+                posthog.capture("pool_left", { pool_id: poolId });
               })
             }
             className="self-start text-sm font-medium text-op-text underline disabled:opacity-50"
