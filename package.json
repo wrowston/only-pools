@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench:page-load": "node scripts/bench-page-load.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.18",

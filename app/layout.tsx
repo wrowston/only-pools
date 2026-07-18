@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
-import { ConvexClientProvider } from "@/components/ConvexClientProvider";
-import { PostHogUserContext } from "@/components/PostHogUserContext";
-import { SentryUserContext } from "@/components/SentryUserContext";
-import { SiteHeader } from "@/components/SiteHeader";
-import { StatusBanner } from "@/components/StatusBanner";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
 import { clerkAppearance } from "@/lib/clerkAppearance";
 import { siteUrl } from "@/lib/siteUrl";
@@ -78,15 +73,7 @@ export default function RootLayout({
           signInFallbackRedirectUrl={POST_AUTH_HOME}
           signUpFallbackRedirectUrl={POST_AUTH_HOME}
         >
-          <ConvexClientProvider>
-            <SentryUserContext />
-            <PostHogUserContext />
-            <SiteHeader />
-            <StatusBanner />
-            <div id="main" className="flex min-h-0 flex-1 flex-col">
-              {children}
-            </div>
-          </ConvexClientProvider>
+          {children}
         </ClerkProvider>
       </body>
     </html>

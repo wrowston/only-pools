@@ -10,3 +10,16 @@ export const PUBLIC_ROUTE_PATTERNS = [
   "/sign-in(.*)",
   "/sign-up(.*)",
 ];
+
+/**
+ * Paths that require a signed-in Participant. Kept in sync with `proxy.ts`
+ * matcher — public HTML never enters clerkMiddleware.
+ */
+export const PROTECTED_ROUTE_PATTERNS = [
+  "/my-pools(.*)",
+  "/pools(.*)",
+  "/join(.*)",
+  "/return(.*)",
+  "/operator(.*)",
+  "/prototype(.*)",
+];
