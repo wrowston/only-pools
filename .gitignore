@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/scripts/bench-results/*.json
+!/scripts/bench-results/.gitkeep
 
 # next.js
 /.next/

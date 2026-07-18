@@ -4,6 +4,22 @@ import createMDX from "@next/mdx";
 
 const nextConfig: NextConfig = {
   pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
+  async headers() {
+    // Long-lived cache for prerendered public HTML behind a CDN / warm Node.
+    // Auth product routes stay uncached (matcher excludes them).
+    const publicHtmlCache = [
+      {
+        key: "Cache-Control",
+        value: "public, max-age=0, s-maxage=300, stale-while-revalidate=86400",
+      },
+    ];
+    return [
+      { source: "/", headers: publicHtmlCache },
+      { source: "/guides", headers: publicHtmlCache },
+      { source: "/guides/:slug", headers: publicHtmlCache },
+      { source: "/sitemap.xml", headers: publicHtmlCache },
+    ];
+  },
   async rewrites() {
     return [
       {

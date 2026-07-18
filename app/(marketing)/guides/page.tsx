@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { GUIDE_CATEGORIES, guides } from "@/lib/guides";
 
+export const dynamic = "force-static";
+
 export const metadata: Metadata = {
   title: "Guides",
   description: "Everything you need to run or play in an Only Pools Survivor or Confidence Pool.",

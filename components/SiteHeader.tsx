@@ -15,8 +15,15 @@ import { POST_AUTH_HOME } from "@/lib/authRoutes";
 /**
  * Global top bar. Hidden on in-pool desktop (≥900px) — brand lives in the
  * sidebar above the pool picker. Still shown on phone and non-pool routes.
+ *
+ * `variant="marketing"` omits Convex-backed Operator nav so public pages do
+ * not need a Convex provider in the tree.
  */
-export function SiteHeader() {
+export function SiteHeader({
+  variant = "app",
+}: {
+  variant?: "marketing" | "app";
+}) {
   const pathname = usePathname() ?? "";
   const inPool = pathname.startsWith("/pools/");
 
@@ -71,7 +78,7 @@ export function SiteHeader() {
             >
               My Pools
             </Link>
-            <OperatorNavLink />
+            {variant === "app" ? <OperatorNavLink /> : null}
             <div className="ml-1 flex items-center">
               <UserButton />
             </div>
