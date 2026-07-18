@@ -17,3 +17,20 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+<!-- effect-start -->
+
+## Effect
+
+This project uses [Effect](https://effect.website) (stable 3.x) for typed effects at impure boundaries.
+
+Conventions:
+
+- Prefer Effect for external I/O and multi-step impure workflows (e.g. TheSportsDB).
+- Use `Data.TaggedError` (or Schema-tagged errors) instead of `throw new Error` in new Effect code.
+- Decode unknown I/O with Effect `Schema` at boundaries. Convex `v.*` validators remain the source of truth for Convex args and `convex/schema.ts`.
+- Call `runEffect` / `runAppEffect` only at action, script, or HTTP edges. Do not put Layer graphs inside Convex mutations/queries.
+- New Effect modules should prefer namespace/deep imports (`import * as Effect from "effect/Effect"`) when practical.
+- Convex Effect code lives under `convex/effect/`. Next.js edge helpers live under `lib/effect/`.
+
+<!-- effect-end -->
