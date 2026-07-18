@@ -3,32 +3,23 @@
  * Clients never call this module.
  * THESPORTSDB_API_KEY should be a paid key in deployed environments; the
  * public key remains a local-development fallback.
+ *
+ * Implementation lives in convex/effect/sportsdb (Effect + Schema).
+ * This module keeps the Promise adapters used by bootstrap / syncLive.
  */
 
 import type { SportsDbEvent, SportsDbTeam } from "./adapter";
+import {
+  fetchEventLookupEffect,
+  fetchLeagueLivescoreEffect,
+  fetchNflTeamsEffect,
+  fetchSeasonEventsEffect,
+  NFL_LEAGUE_ID,
+  sportsDbApiKey,
+} from "../../effect/sportsdb/client";
+import { runEffect } from "../../effect/run";
 
-export const NFL_LEAGUE_ID = "4391";
-
-const V1_BASE = "https://www.thesportsdb.com/api/v1/json";
-
-export function sportsDbApiKey(
-  env: Record<string, string | undefined> = process.env as Record<
-    string,
-    string | undefined
-  >,
-): string {
-  return env.THESPORTSDB_API_KEY?.trim() || "123";
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(
-      `TheSportsDB request failed: ${response.status} ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as T;
-}
+export { NFL_LEAGUE_ID, sportsDbApiKey };
 
 /**
  * A paid key returns the complete NFL team set from this list endpoint.
@@ -36,18 +27,14 @@ async function getJson<T>(url: string): Promise<T> {
 export async function fetchNflTeams(
   apiKey: string = sportsDbApiKey(),
 ): Promise<SportsDbTeam[]> {
-  const url = `${V1_BASE}/${apiKey}/search_all_teams.php?l=NFL`;
-  const body = await getJson<{ teams: SportsDbTeam[] | null }>(url);
-  return body.teams ?? [];
+  return [...(await runEffect(fetchNflTeamsEffect(apiKey)))];
 }
 
 export async function fetchSeasonEvents(
   seasonLabel: string,
   apiKey: string = sportsDbApiKey(),
 ): Promise<SportsDbEvent[]> {
-  const url = `${V1_BASE}/${apiKey}/eventsseason.php?id=${NFL_LEAGUE_ID}&s=${encodeURIComponent(seasonLabel)}`;
-  const body = await getJson<{ events: SportsDbEvent[] | null }>(url);
-  return body.events ?? [];
+  return [...(await runEffect(fetchSeasonEventsEffect(seasonLabel, apiKey)))];
 }
 
 /**
@@ -57,11 +44,7 @@ export async function fetchSeasonEvents(
 export async function fetchLeagueLivescore(
   apiKey: string = sportsDbApiKey(),
 ): Promise<SportsDbEvent[]> {
-  const url = `${V1_BASE}/${apiKey}/livescore.php?l=${NFL_LEAGUE_ID}`;
-  const body = await getJson<{ events?: SportsDbEvent[] | null; livescore?: SportsDbEvent[] | null }>(
-    url,
-  );
-  return body.events ?? body.livescore ?? [];
+  return [...(await runEffect(fetchLeagueLivescoreEffect(apiKey)))];
 }
 
 /**
@@ -71,7 +54,5 @@ export async function fetchEventLookup(
   eventId: string,
   apiKey: string = sportsDbApiKey(),
 ): Promise<SportsDbEvent | null> {
-  const url = `${V1_BASE}/${apiKey}/lookupevent.php?id=${encodeURIComponent(eventId)}`;
-  const body = await getJson<{ events: SportsDbEvent[] | null }>(url);
-  return body.events?.[0] ?? null;
+  return runEffect(fetchEventLookupEffect(eventId, apiKey));
 }
