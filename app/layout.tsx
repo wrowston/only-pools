@@ -40,6 +40,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl()),
   title: "Only Pools",
   description: "Private NFL prediction competitions for verified adults.",
+  appleWebApp: {
+    capable: true,
+    title: "Only Pools",
+    statusBarStyle: "default",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
