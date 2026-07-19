@@ -20,8 +20,12 @@ import {
 import { isPoolArchived } from "./lib/poolArchive";
 import {
   MAX_MEMBERSHIPS_PER_SEASON,
-  MAX_POOL_MEMBERS,
+  MAX_POOL_ENTRIES,
 } from "./lib/quotas";
+import {
+  countActivePoolEntries,
+  createPrimaryEntry,
+} from "./lib/poolEntries";
 import { CONTACT_VISIBILITY_DISCLOSURE } from "./lib/inviteDisclosure";
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
@@ -516,13 +520,11 @@ export const acceptInvite = mutation({
       throw new InviteError(INVITE_UNAVAILABLE);
     }
 
-    const memberCount = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_poolId", (q) => q.eq("poolId", activePool._id))
-      .take(MAX_POOL_MEMBERS + 1);
-    const activeCount = memberCount.filter((m) => m.status === "active").length;
-    if (activeCount >= MAX_POOL_MEMBERS) {
-      throw new InviteError("This Pool has reached its participant limit");
+    const activeEntryCount = await countActivePoolEntries(ctx, activePool._id);
+    if (activeEntryCount >= MAX_POOL_ENTRIES) {
+      throw new InviteError(
+        `This Pool has reached its entry limit (${MAX_POOL_ENTRIES})`,
+      );
     }
 
     // ≤50 active memberships per season.
@@ -555,6 +557,13 @@ export const acceptInvite = mutation({
         statusReason: undefined,
       });
 
+      await createPrimaryEntry(ctx, {
+        poolId: activePool._id,
+        participantId: participant._id,
+        membershipId: existingMembership._id,
+        nowMs,
+      });
+
       await writeAudit(ctx, {
         poolId: activePool._id,
         actorParticipantId: participant._id,
@@ -577,11 +586,18 @@ export const acceptInvite = mutation({
       throw new InviteError(INVITE_UNAVAILABLE);
     }
 
-    await ctx.db.insert("poolMemberships", {
+    const membershipId = await ctx.db.insert("poolMemberships", {
       poolId: activePool._id,
       participantId: participant._id,
       role: "member",
       status: "active",
+    });
+
+    await createPrimaryEntry(ctx, {
+      poolId: activePool._id,
+      participantId: participant._id,
+      membershipId,
+      nowMs,
     });
 
     await writeAudit(ctx, {
@@ -623,7 +639,7 @@ export const listPoolMembers = query({
     const memberships = await ctx.db
       .query("poolMemberships")
       .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-      .take(MAX_POOL_MEMBERS);
+      .take(MAX_POOL_ENTRIES);
 
     const members = [];
     for (const row of memberships) {

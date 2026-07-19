@@ -10,6 +10,12 @@ import {
 } from "./lib/pickLock";
 import { isPoolArchived } from "./lib/poolArchive";
 import { SURVIVOR_ONE_USE_MESSAGE } from "./lib/survivorMessages";
+import {
+  ensurePrimaryEntryIfMissing,
+  listActivePoolEntries,
+  requireOwnedActiveEntry,
+} from "./lib/poolEntries";
+import { MAX_POOL_ENTRIES } from "./lib/quotas";
 
 /** Application error — client reads `error.data` for the user-facing message. */
 class SurvivorPickError extends ConvexError<string> {
@@ -64,16 +70,13 @@ function findTeamGame(
 async function loadActiveReservation(
   ctx: DbCtx,
   poolId: Id<"pools">,
-  participantId: Id<"participants">,
+  entryId: Id<"poolEntries">,
   nflTeamId: Id<"nflTeams">,
 ) {
   const rows = await ctx.db
     .query("survivorTeamReservations")
-    .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
-      q
-        .eq("poolId", poolId)
-        .eq("participantId", participantId)
-        .eq("nflTeamId", nflTeamId),
+    .withIndex("by_poolId_and_entryId_and_nflTeamId", (q) =>
+      q.eq("poolId", poolId).eq("entryId", entryId).eq("nflTeamId", nflTeamId),
     )
     .take(8);
   return rows.find((r) => !r.released) ?? null;
@@ -82,16 +85,11 @@ async function loadActiveReservation(
 async function releaseReservation(
   ctx: MutationCtx,
   poolId: Id<"pools">,
-  participantId: Id<"participants">,
+  entryId: Id<"poolEntries">,
   nflTeamId: Id<"nflTeams">,
   nowMs: number,
 ) {
-  const active = await loadActiveReservation(
-    ctx,
-    poolId,
-    participantId,
-    nflTeamId,
-  );
+  const active = await loadActiveReservation(ctx, poolId, entryId, nflTeamId);
   if (active) {
     await ctx.db.patch(active._id, { released: true, updatedAtMs: nowMs });
   }
@@ -102,6 +100,7 @@ async function reserveTeam(
   args: {
     poolId: Id<"pools">;
     participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     nflTeamId: Id<"nflTeams">;
     week: number;
     nowMs: number;
@@ -110,7 +109,7 @@ async function reserveTeam(
   const existing = await loadActiveReservation(
     ctx,
     args.poolId,
-    args.participantId,
+    args.entryId,
     args.nflTeamId,
   );
   if (existing) {
@@ -124,6 +123,7 @@ async function reserveTeam(
   await ctx.db.insert("survivorTeamReservations", {
     poolId: args.poolId,
     participantId: args.participantId,
+    entryId: args.entryId,
     nflTeamId: args.nflTeamId,
     week: args.week,
     released: false,
@@ -165,6 +165,7 @@ export const autosaveSurvivorPick = mutation({
     poolId: v.id("pools"),
     week: v.number(),
     nflTeamId: v.id("nflTeams"),
+    entryId: v.optional(v.id("poolEntries")),
     /** Ignored if present — server Date.now() is authoritative. */
     clientNowMs: v.optional(v.number()),
   },
@@ -178,7 +179,11 @@ export const autosaveSurvivorPick = mutation({
       throw new SurvivorPickError("Survivor picks only apply to Survivor Pools");
     }
 
-    await requirePoolMembership(ctx, pool._id, participant._id);
+    const membership = await requirePoolMembership(
+      ctx,
+      pool._id,
+      participant._id,
+    );
 
     if (pool.status === "completed") {
       throw new SurvivorPickError(
@@ -191,11 +196,23 @@ export const autosaveSurvivorPick = mutation({
       );
     }
 
-    // Alive Participant only — eliminated / winner cannot submit new picks.
+    await ensurePrimaryEntryIfMissing(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      membershipId: membership._id,
+      nowMs: Date.now(),
+    });
+    const entry = await requireOwnedActiveEntry(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      entryId: args.entryId,
+    });
+
+    // Alive entry only — eliminated / winner cannot submit new picks.
     const standing = await ctx.db
       .query("seasonStandings")
-      .withIndex("by_poolId_and_participantId", (q) =>
-        q.eq("poolId", pool._id).eq("participantId", participant._id),
+      .withIndex("by_poolId_and_entryId", (q) =>
+        q.eq("poolId", pool._id).eq("entryId", entry._id),
       )
       .unique();
     if (standing && standing.eligibility !== "alive") {
@@ -253,10 +270,10 @@ export const autosaveSurvivorPick = mutation({
 
     const existingPick = await ctx.db
       .query("survivorPicks")
-      .withIndex("by_poolId_and_participantId_and_week", (q) =>
+      .withIndex("by_poolId_and_entryId_and_week", (q) =>
         q
           .eq("poolId", pool._id)
-          .eq("participantId", participant._id)
+          .eq("entryId", entry._id)
           .eq("week", args.week),
       )
       .unique();
@@ -267,11 +284,11 @@ export const autosaveSurvivorPick = mutation({
       );
     }
 
-    // One-use: refuse if team reserved on another week.
+    // One-use: refuse if team reserved on another week (per entry).
     const conflict = await loadActiveReservation(
       ctx,
       pool._id,
-      participant._id,
+      entry._id,
       args.nflTeamId,
     );
     if (conflict && conflict.week !== args.week) {
@@ -286,13 +303,14 @@ export const autosaveSurvivorPick = mutation({
         await releaseReservation(
           ctx,
           pool._id,
-          participant._id,
+          entry._id,
           previousTeamId,
           nowMs,
         );
         await reserveTeam(ctx, {
           poolId: pool._id,
           participantId: participant._id,
+          entryId: entry._id,
           nflTeamId: args.nflTeamId,
           week: args.week,
           nowMs,
@@ -301,6 +319,7 @@ export const autosaveSurvivorPick = mutation({
         await reserveTeam(ctx, {
           poolId: pool._id,
           participantId: participant._id,
+          entryId: entry._id,
           nflTeamId: args.nflTeamId,
           week: args.week,
           nowMs,
@@ -309,6 +328,7 @@ export const autosaveSurvivorPick = mutation({
       await ctx.db.patch(existingPick._id, {
         nflTeamId: args.nflTeamId,
         gameId: game._id,
+        entryId: entry._id,
         provisional,
         provenance: "authored",
         invalidated: undefined,
@@ -319,6 +339,7 @@ export const autosaveSurvivorPick = mutation({
       await reserveTeam(ctx, {
         poolId: pool._id,
         participantId: participant._id,
+        entryId: entry._id,
         nflTeamId: args.nflTeamId,
         week: args.week,
         nowMs,
@@ -326,6 +347,7 @@ export const autosaveSurvivorPick = mutation({
       await ctx.db.insert("survivorPicks", {
         poolId: pool._id,
         participantId: participant._id,
+        entryId: entry._id,
         week: args.week,
         nflTeamId: args.nflTeamId,
         gameId: game._id,
@@ -356,6 +378,7 @@ export const autosaveSurvivorPick = mutation({
 
     return {
       poolId: pool._id,
+      entryId: entry._id,
       week: args.week,
       nflTeamId: args.nflTeamId,
       locked: false as const,
@@ -430,7 +453,7 @@ export const materializeSurvivorLocks = mutation({
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", args.week),
       )
-      .take(200);
+      .take(MAX_POOL_ENTRIES);
 
     let lockedCount = 0;
     for (const pick of picks) {
@@ -457,20 +480,19 @@ export const materializeSurvivorLocks = mutation({
 
     let omissionCount = 0;
     if (allGamesLocked) {
-      const memberships = await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120);
-      const pickByParticipant = new Map(
-        picks.map((p) => [p.participantId, p] as const),
+      const entries = await listActivePoolEntries(ctx, pool._id);
+      const pickByEntry = new Map(
+        picks
+          .filter((p) => p.entryId !== undefined)
+          .map((p) => [p.entryId!, p] as const),
       );
 
-      for (const m of memberships) {
-        if (m.status !== "active") continue;
-        if (pickByParticipant.has(m.participantId)) continue;
+      for (const entry of entries) {
+        if (pickByEntry.has(entry._id)) continue;
         await ctx.db.insert("survivorPicks", {
           poolId: pool._id,
-          participantId: m.participantId,
+          participantId: entry.participantId,
+          entryId: entry._id,
           week: args.week,
           locked: true,
           lockedAtMs: nowMs,
@@ -497,6 +519,7 @@ export const getMySurvivorPick = query({
   args: {
     poolId: v.id("pools"),
     week: v.number(),
+    entryId: v.optional(v.id("poolEntries")),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -506,12 +529,18 @@ export const getMySurvivorPick = query({
     }
     await requirePoolMembership(ctx, pool._id, participant._id);
 
+    const entry = await requireOwnedActiveEntry(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      entryId: args.entryId,
+    });
+
     const pick = await ctx.db
       .query("survivorPicks")
-      .withIndex("by_poolId_and_participantId_and_week", (q) =>
+      .withIndex("by_poolId_and_entryId_and_week", (q) =>
         q
           .eq("poolId", pool._id)
-          .eq("participantId", participant._id)
+          .eq("entryId", entry._id)
           .eq("week", args.week),
       )
       .unique();
@@ -524,6 +553,7 @@ export const getMySurvivorPick = query({
             provenance: "omission" as const,
             nflTeamId: null,
             provisional: false,
+            entryId: entry._id,
           }
         : null;
     }
@@ -535,6 +565,7 @@ export const getMySurvivorPick = query({
       nflTeamId: pick.nflTeamId,
       provisional: pick.provisional,
       updatedAtMs: pick.updatedAtMs,
+      entryId: entry._id,
     };
   },
 });

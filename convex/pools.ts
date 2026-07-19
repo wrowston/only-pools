@@ -18,7 +18,19 @@ import { mintOrdinaryPoolInvite } from "./lib/mintOrdinaryInvite";
 import {
   MAX_MEMBERSHIPS_PER_SEASON,
   MAX_OWNED_POOLS,
+  MAX_POOL_ENTRIES,
 } from "./lib/quotas";
+import {
+  assertValidMaxEntriesPerUser,
+  countActivePoolEntries,
+  createPrimaryEntry,
+  entryHasAnyPicks,
+  listActiveEntriesForParticipant,
+  nextEntryNumber,
+  PoolEntryError,
+  poolMaxEntriesPerUser,
+} from "./lib/poolEntries";
+import { isAdmissionClosed } from "./lib/membershipCutoff";
 
 const poolTypeValidator = v.union(
   v.literal("survivor"),
@@ -100,6 +112,7 @@ export const createPool = mutation({
     type: poolTypeValidator,
     startWeek: v.number(),
     pickLockMode: pickLockModeValidator,
+    maxEntriesPerUser: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -111,6 +124,14 @@ export const createPool = mutation({
     }
     if (args.startWeek < 1 || args.startWeek > 18) {
       throw new PoolError("Start Week must be a regular-season week 1–18");
+    }
+
+    const maxEntriesPerUser = args.maxEntriesPerUser ?? 1;
+    try {
+      assertValidMaxEntriesPerUser(maxEntriesPerUser);
+    } catch (err) {
+      if (err instanceof PoolEntryError) throw new PoolError(err.message);
+      throw err;
     }
 
     const owned = await ctx.db
@@ -159,13 +180,21 @@ export const createPool = mutation({
       archived: false,
       ownerParticipantId: participant._id,
       createdAtMs: nowMs,
+      maxEntriesPerUser,
     });
 
-    await ctx.db.insert("poolMemberships", {
+    const membershipId = await ctx.db.insert("poolMemberships", {
       poolId,
       participantId: participant._id,
       role: "owner",
       status: "active",
+    });
+
+    await createPrimaryEntry(ctx, {
+      poolId,
+      participantId: participant._id,
+      membershipId,
+      nowMs,
     });
 
     const invite = await mintOrdinaryPoolInvite(ctx, {
@@ -181,7 +210,248 @@ export const createPool = mutation({
       seasonId: season._id,
       inviteUrl: invite.url,
       expiresAtMs: invite.expiresAtMs,
+      maxEntriesPerUser,
     };
+  },
+});
+
+async function assertPoolAdmissionOpen(
+  ctx: MutationCtx | QueryCtx,
+  pool: Doc<"pools">,
+  nowMs: number,
+): Promise<void> {
+  const games = await loadWeekGames(ctx, pool.seasonId, pool.startWeek);
+  const earliestKickoffMs =
+    games.length === 0
+      ? null
+      : Math.min(...games.map((g) => g.scheduledKickoffMs));
+  if (
+    isAdmissionClosed({
+      nowMs,
+      admissionClosedAtMs: pool.admissionClosedAtMs,
+      earliestKickoffMs,
+    })
+  ) {
+    throw new PoolError("Pool admission is closed — entries cannot change");
+  }
+}
+
+/**
+ * Owner may raise/lower max entries per user while admission is open.
+ * Never below any member's current active entry count.
+ */
+export const updateMaxEntriesPerUser = mutation({
+  args: {
+    poolId: v.id("pools"),
+    maxEntriesPerUser: v.number(),
+  },
+  returns: v.object({
+    poolId: v.id("pools"),
+    maxEntriesPerUser: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) throw new PoolError("Pool not found");
+    await requirePoolMembership(ctx, pool._id, participant._id);
+    await requirePoolOwner(ctx, pool, participant._id);
+    if (isPoolArchived(pool)) {
+      throw new PoolError(
+        "Archived Pools are read-only — restore before editing",
+      );
+    }
+    try {
+      assertValidMaxEntriesPerUser(args.maxEntriesPerUser);
+    } catch (err) {
+      if (err instanceof PoolEntryError) throw new PoolError(err.message);
+      throw err;
+    }
+
+    const nowMs = Date.now();
+    await assertPoolAdmissionOpen(ctx, pool, nowMs);
+
+    const memberships = await ctx.db
+      .query("poolMemberships")
+      .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+      .take(MAX_POOL_ENTRIES);
+    let highestHeld = 0;
+    for (const membership of memberships) {
+      if (membership.status !== "active") continue;
+      const held = await listActiveEntriesForParticipant(
+        ctx,
+        pool._id,
+        membership.participantId,
+      );
+      if (held.length > highestHeld) highestHeld = held.length;
+    }
+    if (args.maxEntriesPerUser < highestHeld) {
+      throw new PoolError(
+        `Cannot set maxEntriesPerUser below ${highestHeld} — a member already holds that many entries`,
+      );
+    }
+
+    await ctx.db.patch(pool._id, {
+      maxEntriesPerUser: args.maxEntriesPerUser,
+    });
+    return { poolId: pool._id, maxEntriesPerUser: args.maxEntriesPerUser };
+  },
+});
+
+export const listMyPoolEntries = query({
+  args: { poolId: v.id("pools") },
+  returns: v.object({
+    poolId: v.id("pools"),
+    maxEntriesPerUser: v.number(),
+    admissionClosed: v.boolean(),
+    entries: v.array(
+      v.object({
+        entryId: v.id("poolEntries"),
+        entryNumber: v.number(),
+        status: v.literal("active"),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) throw new PoolError("Pool not found");
+    await requirePoolMembership(ctx, pool._id, participant._id);
+
+    const games = await loadWeekGames(ctx, pool.seasonId, pool.startWeek);
+    const earliestKickoffMs =
+      games.length === 0
+        ? null
+        : Math.min(...games.map((g) => g.scheduledKickoffMs));
+    const admissionClosed = isAdmissionClosed({
+      nowMs: Date.now(),
+      admissionClosedAtMs: pool.admissionClosedAtMs,
+      earliestKickoffMs,
+    });
+
+    const entries = await listActiveEntriesForParticipant(
+      ctx,
+      pool._id,
+      participant._id,
+    );
+    return {
+      poolId: pool._id,
+      maxEntriesPerUser: poolMaxEntriesPerUser(pool),
+      admissionClosed,
+      entries: entries.map((e) => ({
+        entryId: e._id,
+        entryNumber: e.entryNumber,
+        status: "active" as const,
+      })),
+    };
+  },
+});
+
+export const addPoolEntry = mutation({
+  args: { poolId: v.id("pools") },
+  returns: v.object({
+    entryId: v.id("poolEntries"),
+    entryNumber: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) throw new PoolError("Pool not found");
+    if (pool.status !== "active") {
+      throw new PoolError("Cannot add entries to a Completed Pool");
+    }
+    if (isPoolArchived(pool)) {
+      throw new PoolError("Archived Pools are read-only");
+    }
+    const membership = await requirePoolMembership(
+      ctx,
+      pool._id,
+      participant._id,
+    );
+
+    const nowMs = Date.now();
+    await assertPoolAdmissionOpen(ctx, pool, nowMs);
+
+    const max = poolMaxEntriesPerUser(pool);
+    const held = await listActiveEntriesForParticipant(
+      ctx,
+      pool._id,
+      participant._id,
+    );
+    if (held.length >= max) {
+      throw new PoolError(
+        `This Pool allows at most ${max} entries per participant`,
+      );
+    }
+
+    const poolEntryCount = await countActivePoolEntries(ctx, pool._id);
+    if (poolEntryCount >= MAX_POOL_ENTRIES) {
+      throw new PoolError(
+        `This Pool has reached its entry limit (${MAX_POOL_ENTRIES})`,
+      );
+    }
+
+    const entryNumber = await nextEntryNumber(
+      ctx,
+      pool._id,
+      participant._id,
+    );
+    const entryId = await ctx.db.insert("poolEntries", {
+      poolId: pool._id,
+      participantId: participant._id,
+      membershipId: membership._id,
+      entryNumber,
+      status: "active",
+      createdAtMs: nowMs,
+    });
+    return { entryId, entryNumber };
+  },
+});
+
+export const dropPoolEntry = mutation({
+  args: {
+    poolId: v.id("pools"),
+    entryId: v.id("poolEntries"),
+  },
+  returns: v.object({ entryId: v.id("poolEntries"), status: v.literal("ended") }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) throw new PoolError("Pool not found");
+    await requirePoolMembership(ctx, pool._id, participant._id);
+
+    const nowMs = Date.now();
+    await assertPoolAdmissionOpen(ctx, pool, nowMs);
+
+    const entry = await ctx.db.get(args.entryId);
+    if (
+      !entry ||
+      entry.poolId !== pool._id ||
+      entry.participantId !== participant._id ||
+      entry.status !== "active"
+    ) {
+      throw new PoolError("Entry not found");
+    }
+
+    const held = await listActiveEntriesForParticipant(
+      ctx,
+      pool._id,
+      participant._id,
+    );
+    if (held.length <= 1) {
+      throw new PoolError(
+        "Cannot drop your last entry — use Leave pool instead",
+      );
+    }
+
+    if (await entryHasAnyPicks(ctx, entry._id)) {
+      throw new PoolError("Cannot drop an entry that already has picks");
+    }
+
+    await ctx.db.patch(entry._id, {
+      status: "ended",
+      endedAtMs: nowMs,
+    });
+    return { entryId: entry._id, status: "ended" as const };
   },
 });
 
