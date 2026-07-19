@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { MAX_OWNED_POOLS, MAX_POOL_MEMBERS } from "./lib/quotas";
+import { MAX_OWNED_POOLS, MAX_POOL_ENTRIES } from "./lib/quotas";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -441,38 +441,40 @@ describe("quotas (acceptance scenario 39)", () => {
     ).rejects.toThrow(/at most 10/);
   });
 
-  it("refuses accept when Pool already has 100 active members", async () => {
+  it("refuses accept when Pool already has 2000 active entries", async () => {
     const t = convexTest(schema, modules);
     const { asAlex, poolId } = await createOwnedPool(t);
 
+    // Owner already has 1 entry from createPool. Fill remaining slots in DB.
     await t.run(async (ctx) => {
-      for (let i = 0; i < MAX_POOL_MEMBERS - 1; i++) {
-        const pid = await ctx.db.insert("participants", {
-          tokenIdentifier: `https://viable-eagle-73.clerk.accounts.dev|filler_${i}`,
-          clerkUserId: `filler_${i}`,
-          displayName: `Filler ${i}`,
-          emailVerified: true,
-          phoneVerified: true,
-          ageConfirmed: true,
-          suspended: false,
-        });
-        await ctx.db.insert("poolMemberships", {
+      const ownerMembership = await ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId", (q) => q.eq("poolId", poolId))
+        .first();
+      if (!ownerMembership) throw new Error("missing owner membership");
+      const nowMs = Date.now();
+      for (let i = 2; i <= MAX_POOL_ENTRIES; i++) {
+        await ctx.db.insert("poolEntries", {
           poolId,
-          participantId: pid,
-          role: "member",
+          participantId: ownerMembership.participantId,
+          membershipId: ownerMembership._id,
+          entryNumber: i,
           status: "active",
+          createdAtMs: nowMs,
         });
       }
     });
 
-    const active = await t.run(async (ctx) => {
+    const activeEntries = await t.run(async (ctx) => {
       const rows = await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", poolId))
-        .collect();
-      return rows.filter((m) => m.status === "active").length;
+        .query("poolEntries")
+        .withIndex("by_poolId_and_status", (q) =>
+          q.eq("poolId", poolId).eq("status", "active"),
+        )
+        .take(MAX_POOL_ENTRIES + 1);
+      return rows.length;
     });
-    expect(active).toBe(MAX_POOL_MEMBERS);
+    expect(activeEntries).toBe(MAX_POOL_ENTRIES);
 
     await asAlex.mutation(api.invites.confirmStepUp, {});
     const invite = await asAlex.mutation(api.invites.createOrRetrieveInvite, {
@@ -486,7 +488,7 @@ describe("quotas (acceptance scenario 39)", () => {
         token: rawToken,
         acknowledgedContactVisibility: true,
       }),
-    ).rejects.toThrow(/participant limit/);
+    ).rejects.toThrow(/entry limit/);
   });
 
   it("refuses create when participant already has 50 active memberships in the season", async () => {

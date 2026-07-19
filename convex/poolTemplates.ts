@@ -19,8 +19,15 @@ import { isPoolArchived } from "./lib/poolArchive";
 import {
   MAX_MEMBERSHIPS_PER_SEASON,
   MAX_OWNED_POOLS,
-  MAX_POOL_MEMBERS,
+  MAX_POOL_ENTRIES,
 } from "./lib/quotas";
+import {
+  assertValidMaxEntriesPerUser,
+  countActivePoolEntries,
+  createPrimaryEntry,
+  poolMaxEntriesPerUser,
+  PoolEntryError,
+} from "./lib/poolEntries";
 import { CONTACT_VISIBILITY_DISCLOSURE } from "./lib/inviteDisclosure";
 
 const INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -204,7 +211,7 @@ export const listMyTemplates = query({
       const memberships = await ctx.db
         .query("poolMemberships")
         .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(MAX_POOL_MEMBERS);
+        .take(MAX_POOL_ENTRIES);
 
       const formerParticipants = [];
       for (const row of memberships) {
@@ -224,6 +231,7 @@ export const listMyTemplates = query({
         type: pool.type,
         pickLockMode: pool.pickLockMode,
         startWeek: pool.startWeek,
+        maxEntriesPerUser: poolMaxEntriesPerUser(pool),
         seasonLabel: season?.label ?? null,
         status: pool.status,
         formerParticipants,
@@ -248,6 +256,7 @@ export const createPoolFromTemplate = mutation({
     pickLockMode: v.optional(
       v.union(v.literal("gameKickoff"), v.literal("weeklyCutoff")),
     ),
+    maxEntriesPerUser: v.optional(v.number()),
     returningInvites: v.optional(
       v.array(
         v.object({
@@ -285,6 +294,14 @@ export const createPoolFromTemplate = mutation({
     }
 
     const pickLockMode = args.pickLockMode ?? source.pickLockMode;
+    const maxEntriesPerUser =
+      args.maxEntriesPerUser ?? poolMaxEntriesPerUser(source);
+    try {
+      assertValidMaxEntriesPerUser(maxEntriesPerUser);
+    } catch (err) {
+      if (err instanceof PoolEntryError) throw new TemplateError(err.message);
+      throw err;
+    }
     const startWeek =
       args.startWeek !== undefined
         ? args.startWeek
@@ -312,13 +329,20 @@ export const createPoolFromTemplate = mutation({
       archived: false,
       ownerParticipantId: participant._id,
       createdAtMs: nowMs,
+      maxEntriesPerUser,
     });
 
-    await ctx.db.insert("poolMemberships", {
+    const membershipId = await ctx.db.insert("poolMemberships", {
       poolId,
       participantId: participant._id,
       role: "owner",
       status: "active",
+    });
+    await createPrimaryEntry(ctx, {
+      poolId,
+      participantId: participant._id,
+      membershipId,
+      nowMs,
     });
 
     const returningInvites: Array<{
@@ -335,7 +359,7 @@ export const createPoolFromTemplate = mutation({
       const sourceMemberships = await ctx.db
         .query("poolMemberships")
         .withIndex("by_poolId", (q) => q.eq("poolId", source._id))
-        .take(MAX_POOL_MEMBERS);
+        .take(MAX_POOL_ENTRIES);
       const formerIds = new Set(
         sourceMemberships.map((m) => m.participantId as string),
       );
@@ -601,13 +625,11 @@ export const acceptReturningInvite = mutation({
       throw new TemplateError("Returning Participant Invite unavailable");
     }
 
-    const memberCount = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-      .take(MAX_POOL_MEMBERS + 1);
-    const activeCount = memberCount.filter((m) => m.status === "active").length;
-    if (activeCount >= MAX_POOL_MEMBERS) {
-      throw new TemplateError("This Pool has reached its participant limit");
+    const activeEntryCount = await countActivePoolEntries(ctx, pool._id);
+    if (activeEntryCount >= MAX_POOL_ENTRIES) {
+      throw new TemplateError(
+        `This Pool has reached its entry limit (${MAX_POOL_ENTRIES})`,
+      );
     }
 
     const seasonMemberships = await ctx.db
@@ -632,6 +654,7 @@ export const acceptReturningInvite = mutation({
 
     const role = invite.proposedRole;
 
+    let membershipId: Id<"poolMemberships">;
     if (existingMembership?.status === "left") {
       await ctx.db.patch(existingMembership._id, {
         status: "active",
@@ -639,8 +662,9 @@ export const acceptReturningInvite = mutation({
         statusChangedAtMs: nowMs,
         statusReason: undefined,
       });
+      membershipId = existingMembership._id;
     } else if (!existingMembership) {
-      await ctx.db.insert("poolMemberships", {
+      membershipId = await ctx.db.insert("poolMemberships", {
         poolId: pool._id,
         participantId: participant._id,
         role,
@@ -649,6 +673,13 @@ export const acceptReturningInvite = mutation({
     } else {
       throw new TemplateError("Returning Participant Invite unavailable");
     }
+
+    await createPrimaryEntry(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      membershipId,
+      nowMs,
+    });
 
     await ctx.db.patch(invite._id, {
       status: "accepted",

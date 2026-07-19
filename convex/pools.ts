@@ -24,8 +24,10 @@ import {
   assertValidMaxEntriesPerUser,
   countActivePoolEntries,
   createPrimaryEntry,
+  entryDisplayName,
   entryHasAnyPicks,
   listActiveEntriesForParticipant,
+  listActivePoolEntries,
   nextEntryNumber,
   PoolEntryError,
   poolMaxEntriesPerUser,
@@ -594,6 +596,7 @@ export const getWeekBoard = query({
   args: {
     poolId: v.id("pools"),
     week: v.optional(v.number()),
+    entryId: v.optional(v.id("poolEntries")),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -603,6 +606,26 @@ export const getWeekBoard = query({
     }
 
     await requirePoolMembership(ctx, pool._id, participant._id);
+
+    let boardEntryId = args.entryId;
+    if (boardEntryId === undefined) {
+      const mine = await listActiveEntriesForParticipant(
+        ctx,
+        pool._id,
+        participant._id,
+      );
+      boardEntryId = mine[0]?._id;
+    } else {
+      const entry = await ctx.db.get(boardEntryId);
+      if (
+        !entry ||
+        entry.poolId !== pool._id ||
+        entry.participantId !== participant._id ||
+        entry.status !== "active"
+      ) {
+        throw new PoolError("Entry not found");
+      }
+    }
 
     const week = args.week ?? pool.startWeek;
     const games = await loadWeekGames(ctx, pool.seasonId, week);
@@ -741,9 +764,12 @@ export const getWeekBoard = query({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", week),
         )
-        .take(200);
+        .take(MAX_POOL_ENTRIES);
 
-      const myPick = picks.find((p) => p.participantId === participant._id);
+      const myPick =
+        boardEntryId !== undefined
+          ? picks.find((p) => p.entryId === boardEntryId)
+          : picks.find((p) => p.participantId === participant._id);
       if (myPick) {
         mySurvivorPick = {
           nflTeamId:
@@ -757,12 +783,18 @@ export const getWeekBoard = query({
         };
       }
 
-      const reservations = await ctx.db
-        .query("survivorTeamReservations")
-        .withIndex("by_poolId_and_participantId", (q) =>
-          q.eq("poolId", pool._id).eq("participantId", participant._id),
-        )
-        .take(64);
+      const reservations =
+        boardEntryId !== undefined
+          ? await ctx.db
+              .query("survivorTeamReservations")
+              .withIndex("by_entryId", (q) => q.eq("entryId", boardEntryId))
+              .take(64)
+          : await ctx.db
+              .query("survivorTeamReservations")
+              .withIndex("by_poolId_and_participantId", (q) =>
+                q.eq("poolId", pool._id).eq("participantId", participant._id),
+              )
+              .take(64);
       for (const reservation of reservations) {
         if (reservation.released) continue;
         const team = await ctx.db.get(reservation.nflTeamId);
@@ -773,19 +805,19 @@ export const getWeekBoard = query({
         });
       }
 
-      const memberships = await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120);
+      const entries = await listActivePoolEntries(ctx, pool._id);
 
-      for (const m of memberships) {
-        if (m.status !== "active") continue;
-        if (m.participantId === participant._id) continue;
-        const member = await ctx.db.get(m.participantId);
-        const pick = picks.find((p) => p.participantId === m.participantId);
+      for (const entry of entries) {
+        if (entry.participantId === participant._id) continue;
+        const member = await ctx.db.get(entry.participantId);
+        const pick = picks.find((p) => p.entryId === entry._id);
         const hasPick =
           pick !== undefined && pick.provenance === "authored";
         const locked = pick?.locked === true;
+        const label = entryDisplayName(
+          member?.displayName ?? "Participant",
+          entry.entryNumber,
+        );
 
         if (locked && pick) {
           let teamAbbreviation: string | null = null;
@@ -796,8 +828,8 @@ export const getWeekBoard = query({
             teamLogoUrl = team?.logoUrl ?? null;
           }
           participantPickStates.push({
-            participantId: m.participantId,
-            displayName: member?.displayName ?? "Participant",
+            participantId: entry.participantId,
+            displayName: label,
             hasPick,
             locked: true,
             nflTeamId:
@@ -809,8 +841,8 @@ export const getWeekBoard = query({
         } else {
           // Hidden: completion only — never nflTeamId / abbreviation.
           participantPickStates.push({
-            participantId: m.participantId,
-            displayName: member?.displayName ?? "Participant",
+            participantId: entry.participantId,
+            displayName: label,
             hasPick,
             locked: false,
           });
@@ -824,15 +856,26 @@ export const getWeekBoard = query({
         )
         .unique();
 
-      const mySet = await ctx.db
-        .query("confidencePickSets")
-        .withIndex("by_poolId_and_participantId_and_week", (q) =>
-          q
-            .eq("poolId", pool._id)
-            .eq("participantId", participant._id)
-            .eq("week", week),
-        )
-        .unique();
+      const mySet =
+        boardEntryId !== undefined
+          ? await ctx.db
+              .query("confidencePickSets")
+              .withIndex("by_poolId_and_entryId_and_week", (q) =>
+                q
+                  .eq("poolId", pool._id)
+                  .eq("entryId", boardEntryId)
+                  .eq("week", week),
+              )
+              .unique()
+          : await ctx.db
+              .query("confidencePickSets")
+              .withIndex("by_poolId_and_participantId_and_week", (q) =>
+                q
+                  .eq("poolId", pool._id)
+                  .eq("participantId", participant._id)
+                  .eq("week", week),
+              )
+              .unique();
 
       if (sheet && mySet) {
         const myPicks = await ctx.db
@@ -875,31 +918,29 @@ export const getWeekBoard = query({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", week),
         )
-        .take(120);
+        .take(MAX_POOL_ENTRIES);
       const allPicks = await ctx.db
         .query("confidencePicks")
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", week),
         )
-        .take(2000);
+        .take(MAX_POOL_ENTRIES * 20);
 
-      const memberships = await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120);
+      const entries = await listActivePoolEntries(ctx, pool._id);
 
-      for (const m of memberships) {
-        if (m.status !== "active") continue;
-        if (m.participantId === participant._id) continue;
-        const member = await ctx.db.get(m.participantId);
-        const set = allSets.find((s) => s.participantId === m.participantId);
-        const picks = allPicks.filter(
-          (p) => p.participantId === m.participantId,
-        );
+      for (const entry of entries) {
+        if (entry.participantId === participant._id) continue;
+        const member = await ctx.db.get(entry.participantId);
+        const set = allSets.find((s) => s.entryId === entry._id);
+        const picks = allPicks.filter((p) => p.entryId === entry._id);
         const hasPick =
           set !== undefined &&
           (set.origin === "authored" || set.origin === "automatic");
         const anyLocked = picks.some((p) => p.locked);
+        const label = entryDisplayName(
+          member?.displayName ?? "Participant",
+          entry.entryNumber,
+        );
 
         if (anyLocked && set) {
           const revealedPicks = [];
@@ -921,8 +962,8 @@ export const getWeekBoard = query({
             });
           }
           participantPickStates.push({
-            participantId: m.participantId,
-            displayName: member?.displayName ?? "Participant",
+            participantId: entry.participantId,
+            displayName: label,
             hasPick,
             locked: true,
             provenance: set.origin === "untouched" ? "omission" : set.origin,
@@ -933,8 +974,8 @@ export const getWeekBoard = query({
           });
         } else {
           participantPickStates.push({
-            participantId: m.participantId,
-            displayName: member?.displayName ?? "Participant",
+            participantId: entry.participantId,
+            displayName: label,
             hasPick,
             locked: false,
           });

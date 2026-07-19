@@ -179,7 +179,6 @@ async function upsertPickOutcome(
     await ctx.db.insert("confidencePickOutcomes", {
       poolId: args.poolId,
       participantId: args.participantId,
-      entryId: args.entryId,
       week: args.week,
       gameId: args.gameId,
       ...patch,
@@ -232,7 +231,6 @@ async function upsertWeeklyStanding(
     await ctx.db.insert("weeklyStandings", {
       poolId: args.poolId,
       participantId: args.participantId,
-      entryId: args.entryId,
       week: args.week,
       ...fields,
     });

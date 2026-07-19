@@ -55,7 +55,13 @@ export function WeekBoardView({
   );
   const boardResult = useQuery(
     api.pools.getWeekBoard,
-    isAuthenticated ? { poolId, week: selectedWeek } : "skip",
+    isAuthenticated
+      ? {
+          poolId,
+          week: selectedWeek,
+          ...(activeEntryId ? { entryId: activeEntryId } : {}),
+        }
+      : "skip",
   );
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,

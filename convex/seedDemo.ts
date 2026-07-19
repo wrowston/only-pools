@@ -373,32 +373,51 @@ export const seedDemoWorld = internalMutation({
       });
       poolIds.push(poolId);
 
-      await ctx.db.insert("poolMemberships", {
+      const ownerMembershipId = await ctx.db.insert("poolMemberships", {
         poolId,
         participantId: owner._id,
         role: "owner",
         status: "active",
       });
       membershipCount += 1;
+      const ownerEntryId = await ctx.db.insert("poolEntries", {
+        poolId,
+        participantId: owner._id,
+        membershipId: ownerMembershipId,
+        entryNumber: 1,
+        status: "active",
+        createdAtMs: nowMs + i,
+      });
 
       const memberCount = 6 + (i % 7); // 6–12
       const members = rotateSlice(fakeIds, i * 3, memberCount);
+      const entryIds: Id<"poolEntries">[] = [ownerEntryId];
       const allMemberIds: Id<"participants">[] = [owner._id, ...members];
       for (let m = 0; m < members.length; m++) {
         const role = m < 2 ? ("admin" as const) : ("member" as const);
-        await ctx.db.insert("poolMemberships", {
+        const membershipId = await ctx.db.insert("poolMemberships", {
           poolId,
           participantId: members[m]!,
           role,
           status: "active",
         });
         membershipCount += 1;
+        const entryId = await ctx.db.insert("poolEntries", {
+          poolId,
+          participantId: members[m]!,
+          membershipId,
+          entryNumber: 1,
+          status: "active",
+          createdAtMs: nowMs + i,
+        });
+        entryIds.push(entryId);
       }
 
       if (bp.type === "survivor") {
         survivorPickCount += await seedSurvivorStandingsHistory(ctx, {
           poolId,
           memberIds: allMemberIds,
+          entryIds,
           teamIds,
           nowMs,
         });
@@ -445,6 +464,7 @@ async function seedSurvivorStandingsHistory(
   args: {
     poolId: Id<"pools">;
     memberIds: Id<"participants">[];
+    entryIds: Id<"poolEntries">[];
     teamIds: Id<"nflTeams">[];
     nowMs: number;
   },
@@ -479,13 +499,15 @@ async function seedSurvivorStandingsHistory(
 
     for (let i = 0; i < args.memberIds.length; i++) {
       const participantId = args.memberIds[i]!;
-      if (eliminated.has(participantId)) continue;
+      const entryId = args.entryIds[i]!;
+      if (eliminated.has(entryId)) continue;
 
       const teamId = args.teamIds[(i + week * 3) % args.teamIds.length]!;
       const locked = week <= 3;
       const pickId = await ctx.db.insert("survivorPicks", {
         poolId: args.poolId,
         participantId,
+        entryId,
         week,
         nflTeamId: teamId,
         locked,
@@ -499,6 +521,7 @@ async function seedSurvivorStandingsHistory(
       await ctx.db.insert("survivorTeamReservations", {
         poolId: args.poolId,
         participantId,
+        entryId,
         nflTeamId: teamId,
         week,
         released: false,
@@ -512,6 +535,7 @@ async function seedSurvivorStandingsHistory(
         await ctx.db.insert("survivorPickOutcomes", {
           poolId: args.poolId,
           participantId,
+          entryId,
           week,
           pickId,
           outcome,
@@ -519,10 +543,11 @@ async function seedSurvivorStandingsHistory(
           updatedAtMs: args.nowMs,
         });
         if (loses) {
-          eliminated.add(participantId);
+          eliminated.add(entryId);
           await ctx.db.insert("seasonStandings", {
             poolId: args.poolId,
             participantId,
+            entryId,
             eligibility: "eliminated",
             eliminatedWeek: week,
             eliminationReason: "loss",
@@ -536,18 +561,21 @@ async function seedSurvivorStandingsHistory(
     }
   }
 
-  for (const participantId of args.memberIds) {
-    if (eliminated.has(participantId)) continue;
+  for (let i = 0; i < args.memberIds.length; i++) {
+    const participantId = args.memberIds[i]!;
+    const entryId = args.entryIds[i]!;
+    if (eliminated.has(entryId)) continue;
     const existing = await ctx.db
       .query("seasonStandings")
-      .withIndex("by_poolId_and_participantId", (q) =>
-        q.eq("poolId", args.poolId).eq("participantId", participantId),
+      .withIndex("by_poolId_and_entryId", (q) =>
+        q.eq("poolId", args.poolId).eq("entryId", entryId),
       )
       .unique();
     if (!existing) {
       await ctx.db.insert("seasonStandings", {
         poolId: args.poolId,
         participantId,
+        entryId,
         eligibility: "alive",
         seasonPoints: 0,
         updatedAtMs: args.nowMs,
@@ -569,6 +597,9 @@ async function clearPriorSeed(ctx: {
   );
   const seedPoolIds = new Set(pools.map((p) => p._id));
 
+  for (const row of await ctx.db.query("poolEntries").collect()) {
+    if (seedPoolIds.has(row.poolId)) await ctx.db.delete(row._id);
+  }
   for (const row of await ctx.db.query("poolMemberships").collect()) {
     if (seedPoolIds.has(row.poolId)) await ctx.db.delete(row._id);
   }
