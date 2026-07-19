@@ -18,6 +18,7 @@ import {
   isSurvivorPickLocked,
 } from "./lib/pickLock";
 import {
+  displayIndexByEntryId,
   ensurePrimaryEntryIfMissing,
   entryDisplayName,
   listActivePoolEntries,
@@ -845,6 +846,7 @@ export const getSurvivorStandings = query({
     }
 
     const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const rows = [];
     for (const entry of entries) {
@@ -860,7 +862,7 @@ export const getSurvivorStandings = query({
         entryId: entry._id,
         displayName: entryDisplayName(
           person?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         ),
         avatarUrl: person?.avatarUrl ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
@@ -940,6 +942,7 @@ export const getSurvivorStandingsGrid = query({
     }
 
     const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const pickByEntryWeek = new Map<string, Doc<"survivorPicks">>();
     const outcomeByEntryWeek = new Map<string, Doc<"survivorPickOutcomes">>();
@@ -1064,7 +1067,7 @@ export const getSurvivorStandingsGrid = query({
         entryId: entry._id,
         displayName: entryDisplayName(
           person?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         ),
         avatarUrl: person?.avatarUrl ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),

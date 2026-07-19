@@ -19,12 +19,37 @@ export function poolMaxEntriesPerUser(pool: Doc<"pools">): number {
   return effectiveMaxEntriesPerUser(pool.maxEntriesPerUser);
 }
 
+/**
+ * Label for standings/board. `displayIndex` is 1-based among that
+ * participant's currently active lines (not the durable entryNumber).
+ */
 export function entryDisplayName(
   participantDisplayName: string,
-  entryNumber: number,
+  displayIndex: number,
 ): string {
-  if (entryNumber <= 1) return participantDisplayName;
-  return `${participantDisplayName} (${entryNumber})`;
+  if (displayIndex <= 1) return participantDisplayName;
+  return `${participantDisplayName} (${displayIndex})`;
+}
+
+/** Map entryId → 1-based display index among each participant's active entries. */
+export function displayIndexByEntryId(
+  entries: Array<{ _id: Id<"poolEntries">; participantId: Id<"participants">; entryNumber: number }>,
+): Map<string, number> {
+  const byParticipant = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    const key = entry.participantId as string;
+    const list = byParticipant.get(key) ?? [];
+    list.push(entry);
+    byParticipant.set(key, list);
+  }
+  const result = new Map<string, number>();
+  for (const list of byParticipant.values()) {
+    list.sort((a, b) => a.entryNumber - b.entryNumber);
+    list.forEach((entry, i) => {
+      result.set(entry._id, i + 1);
+    });
+  }
+  return result;
 }
 
 export async function countActivePoolEntries(

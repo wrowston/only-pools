@@ -53,6 +53,14 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const restorePool = useMutation(api.membershipAdmin.restorePool);
   const leavePool = useMutation(api.membershipAdmin.leavePool);
   const createAbuseReport = useMutation(api.membershipAdmin.createAbuseReport);
+  const updateMaxEntriesPerUser = useMutation(
+    api.pools.updateMaxEntriesPerUser,
+  );
+  const [entriesNowMs] = useState(() => Date.now());
+  const myEntries = useQuery(
+    api.pools.listMyPoolEntries,
+    isAuthenticated ? { poolId, nowMs: entriesNowMs } : "skip",
+  );
 
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
@@ -62,6 +70,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const [abuseReason, setAbuseReason] = useState("");
   const [abuseDescription, setAbuseDescription] = useState("");
   const [abuseSent, setAbuseSent] = useState(false);
+  const [maxEntriesDraft, setMaxEntriesDraft] = useState<number | null>(null);
 
   async function runAdminAction(fn: () => Promise<void>) {
     setBusy(true);
@@ -172,6 +181,53 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
         <p className="text-sm text-red-600" role="alert">
           {error}
         </p>
+      ) : null}
+
+      {isOwner && myEntries && !myEntries.admissionClosed && !members.archived ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold text-op-text">
+            Max entries per person
+          </h2>
+          <p className="text-sm text-op-secondary">
+            Editable while admission is open. Cannot go below what anyone
+            already holds.
+          </p>
+          <label className="flex flex-wrap items-center gap-2 text-sm text-op-text">
+            <select
+              className="h-9 rounded-[8px] border border-op-border bg-op-surface px-3"
+              value={maxEntriesDraft ?? myEntries.maxEntriesPerUser}
+              onChange={(e) => setMaxEntriesDraft(Number(e.target.value))}
+            >
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={
+                busy ||
+                (maxEntriesDraft ?? myEntries.maxEntriesPerUser) ===
+                  myEntries.maxEntriesPerUser
+              }
+              onClick={() =>
+                void runAdminAction(async () => {
+                  const next =
+                    maxEntriesDraft ?? myEntries.maxEntriesPerUser;
+                  await updateMaxEntriesPerUser({
+                    poolId,
+                    maxEntriesPerUser: next,
+                  });
+                  setMaxEntriesDraft(null);
+                })
+              }
+              className="op-btn op-btn-secondary"
+            >
+              Save
+            </button>
+          </label>
+        </section>
       ) : null}
 
       {isOwner ? (

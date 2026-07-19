@@ -89,6 +89,7 @@ describe("multi-entry pools", () => {
 
     const entries = await asAlex.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     expect(entries.maxEntriesPerUser).toBe(1);
     expect(entries.entries).toHaveLength(1);
@@ -124,6 +125,7 @@ describe("multi-entry pools", () => {
 
     let mine = await asBlake.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     expect(mine.entries).toHaveLength(1);
 
@@ -132,6 +134,7 @@ describe("multi-entry pools", () => {
     });
     mine = await asBlake.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     expect(mine.entries).toHaveLength(2);
     expect(mine.entries.map((e) => e.entryNumber)).toEqual([1, 2]);
@@ -160,6 +163,7 @@ describe("multi-entry pools", () => {
 
     const listed = await asAlex.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     const only = listed.entries[0]!;
     await expect(
@@ -172,6 +176,7 @@ describe("multi-entry pools", () => {
     await asAlex.mutation(api.pools.addPoolEntry, { poolId: created.poolId });
     const two = await asAlex.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     const second = two.entries[1]!;
 
@@ -196,9 +201,11 @@ describe("multi-entry pools", () => {
     });
     const after = await asAlex.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     expect(after.entries).toHaveLength(1);
     expect(after.entries[0]!.entryId).toBe(second.entryId);
+    expect(after.entries[0]!.displayIndex).toBe(1);
   });
 
   it("updateMaxEntriesPerUser cannot go below a member's current count", async () => {
@@ -248,6 +255,7 @@ describe("multi-entry pools", () => {
     await asAlex.mutation(api.pools.addPoolEntry, { poolId: created.poolId });
     const mine = await asAlex.query(api.pools.listMyPoolEntries, {
       poolId: created.poolId,
+      nowMs: Date.now(),
     });
     const [e1, e2] = mine.entries;
 

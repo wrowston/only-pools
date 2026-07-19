@@ -63,10 +63,12 @@ export function WeekBoardView({
         }
       : "skip",
   );
+  const [entriesNowMs] = useState(() => Date.now());
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
-    isAuthenticated ? { poolId } : "skip",
+    isAuthenticated ? { poolId, nowMs: entriesNowMs } : "skip",
   );
+  const dropPoolEntry = useMutation(api.pools.dropPoolEntry);
   // Keep last successful board so week switches don't tear down the shell.
   const [cachedBoard, setCachedBoard] = useState<WeekBoard | null>(null);
   if (boardResult && boardResult !== cachedBoard) {
@@ -133,6 +135,7 @@ export function WeekBoardView({
     null,
   );
   const [addingEntry, setAddingEntry] = useState(false);
+  const [droppingEntry, setDroppingEntry] = useState(false);
 
   useEffect(() => {
     if (!myEntries?.entries.length) return;
@@ -197,6 +200,19 @@ export function WeekBoardView({
       setToastMessage(convexErrorMessage(err, "Could not add entry"));
     } finally {
       setAddingEntry(false);
+    }
+  }
+
+  async function onDropEntry() {
+    if (droppingEntry || !activeEntryId) return;
+    setDroppingEntry(true);
+    try {
+      await dropPoolEntry({ poolId, entryId: activeEntryId });
+      setActiveEntryId(null);
+    } catch (err) {
+      setToastMessage(convexErrorMessage(err, "Could not drop entry"));
+    } finally {
+      setDroppingEntry(false);
     }
   }
 
@@ -376,12 +392,18 @@ export function WeekBoardView({
 
   const selectedTeamId = pendingTeamId ?? mySurvivorPick?.nflTeamId ?? null;
   const myPickLocked = mySurvivorPick?.locked === true;
-  // Board reservations are participant-scoped; only use for single-entry UX.
+  // Board is entry-scoped when activeEntryId is passed to getWeekBoard.
   const reservedOtherWeek = new Map(
-    (entries.length <= 1 ? board.myReservedTeams : [])
+    board.myReservedTeams
       .filter((r) => r.week !== board.week)
       .map((r) => [r.nflTeamId, r] as const),
   );
+  const activeEntry = entries.find((e) => e.entryId === activeEntryId) ?? null;
+  const canDropActiveEntry =
+    Boolean(myEntries?.canManageEntries) &&
+    entries.length > 1 &&
+    activeEntry !== null &&
+    !activeEntry.hasPicks;
 
   async function onSelectTeam(nflTeamId: Id<"nflTeams">, gameLocked: boolean) {
     if (!isSurvivor || myPickLocked || gameLocked) return;
@@ -644,7 +666,7 @@ export function WeekBoardView({
                 >
                   {entries.map((entry) => (
                     <option key={entry.entryId} value={entry.entryId}>
-                      Entry {entry.entryNumber}
+                      Entry {entry.displayIndex}
                     </option>
                   ))}
                 </select>
@@ -658,6 +680,16 @@ export function WeekBoardView({
                 className="op-btn op-btn-secondary h-9 px-3 text-sm"
               >
                 {addingEntry ? "Adding…" : "Add entry"}
+              </button>
+            ) : null}
+            {canDropActiveEntry ? (
+              <button
+                type="button"
+                disabled={droppingEntry}
+                onClick={() => void onDropEntry()}
+                className="op-btn op-btn-secondary h-9 px-3 text-sm"
+              >
+                {droppingEntry ? "Dropping…" : "Drop entry"}
               </button>
             ) : null}
           </div>

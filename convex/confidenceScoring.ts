@@ -19,6 +19,7 @@ import {
   isConfidenceGameLocked,
 } from "./lib/pickLock";
 import {
+  displayIndexByEntryId,
   ensurePrimaryEntryIfMissing,
   entryDisplayName,
   listActivePoolEntries,
@@ -770,6 +771,7 @@ export const getConfidenceStandings = query({
 
     const week = args.week ?? pool.startWeek;
     const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const poolWeek = await ctx.db
       .query("poolWeeks")
@@ -794,7 +796,7 @@ export const getConfidenceStandings = query({
         entryId: entry._id,
         displayName: entryDisplayName(
           person?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         ),
         avatarUrl: person?.avatarUrl ?? null,
         points: row?.points ?? 0,
@@ -858,7 +860,7 @@ export const getConfidenceStandings = query({
         entryId: entry._id,
         displayName: entryDisplayName(
           person?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         ),
         avatarUrl: person?.avatarUrl ?? null,
         seasonPoints: standing?.seasonPoints ?? 0,
@@ -954,6 +956,7 @@ export const getConfidenceStandingsPeek = query({
       .take(MAX_POOL_ENTRIES);
 
     const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const rows = [];
     for (const entry of entries) {
@@ -964,7 +967,7 @@ export const getConfidenceStandingsPeek = query({
         entryId: entry._id,
         displayName: entryDisplayName(
           person?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         ),
         avatarUrl: person?.avatarUrl ?? null,
         points: row?.points ?? 0,

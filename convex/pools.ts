@@ -24,6 +24,7 @@ import {
   assertValidMaxEntriesPerUser,
   countActivePoolEntries,
   createPrimaryEntry,
+  displayIndexByEntryId,
   entryDisplayName,
   entryHasAnyPicks,
   listActiveEntriesForParticipant,
@@ -300,16 +301,23 @@ export const updateMaxEntriesPerUser = mutation({
 });
 
 export const listMyPoolEntries = query({
-  args: { poolId: v.id("pools") },
+  args: {
+    poolId: v.id("pools"),
+    /** Client wall clock for admission-open checks (queries must not use Date.now). */
+    nowMs: v.number(),
+  },
   returns: v.object({
     poolId: v.id("pools"),
     maxEntriesPerUser: v.number(),
     admissionClosed: v.boolean(),
+    canManageEntries: v.boolean(),
     entries: v.array(
       v.object({
         entryId: v.id("poolEntries"),
         entryNumber: v.number(),
+        displayIndex: v.number(),
         status: v.literal("active"),
+        hasPicks: v.boolean(),
       }),
     ),
   }),
@@ -325,7 +333,7 @@ export const listMyPoolEntries = query({
         ? null
         : Math.min(...games.map((g) => g.scheduledKickoffMs));
     const admissionClosed = isAdmissionClosed({
-      nowMs: Date.now(),
+      nowMs: args.nowMs,
       admissionClosedAtMs: pool.admissionClosedAtMs,
       earliestKickoffMs,
     });
@@ -335,15 +343,23 @@ export const listMyPoolEntries = query({
       pool._id,
       participant._id,
     );
+    const detailed = [];
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i]!;
+      detailed.push({
+        entryId: e._id,
+        entryNumber: e.entryNumber,
+        displayIndex: i + 1,
+        status: "active" as const,
+        hasPicks: await entryHasAnyPicks(ctx, e._id),
+      });
+    }
     return {
       poolId: pool._id,
       maxEntriesPerUser: poolMaxEntriesPerUser(pool),
       admissionClosed,
-      entries: entries.map((e) => ({
-        entryId: e._id,
-        entryNumber: e.entryNumber,
-        status: "active" as const,
-      })),
+      canManageEntries: !admissionClosed,
+      entries: detailed,
     };
   },
 });
@@ -806,6 +822,7 @@ export const getWeekBoard = query({
       }
 
       const entries = await listActivePoolEntries(ctx, pool._id);
+      const displayIndexes = displayIndexByEntryId(entries);
 
       for (const entry of entries) {
         if (entry.participantId === participant._id) continue;
@@ -816,7 +833,7 @@ export const getWeekBoard = query({
         const locked = pick?.locked === true;
         const label = entryDisplayName(
           member?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         );
 
         if (locked && pick) {
@@ -927,6 +944,7 @@ export const getWeekBoard = query({
         .take(MAX_POOL_ENTRIES * 20);
 
       const entries = await listActivePoolEntries(ctx, pool._id);
+      const displayIndexes = displayIndexByEntryId(entries);
 
       for (const entry of entries) {
         if (entry.participantId === participant._id) continue;
@@ -939,7 +957,7 @@ export const getWeekBoard = query({
         const anyLocked = picks.some((p) => p.locked);
         const label = entryDisplayName(
           member?.displayName ?? "Participant",
-          entry.entryNumber,
+          displayIndexes.get(entry._id) ?? 1,
         );
 
         if (anyLocked && set) {
