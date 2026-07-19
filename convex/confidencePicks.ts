@@ -17,6 +17,12 @@ import {
   type SaveTrustState,
 } from "./lib/pickLock";
 import { isPoolArchived } from "./lib/poolArchive";
+import {
+  ensurePrimaryEntryIfMissing,
+  listActivePoolEntries,
+  requireOwnedActiveEntry,
+} from "./lib/poolEntries";
+import { MAX_POOL_ENTRIES } from "./lib/quotas";
 
 class ConfidencePickError extends Error {
   constructor(message: string) {
@@ -157,6 +163,7 @@ async function loadOrCreatePickSet(
     pool: Doc<"pools">;
     sheet: Doc<"confidencePickSheets">;
     participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     week: number;
     nowMs: number;
   },
@@ -167,10 +174,10 @@ async function loadOrCreatePickSet(
 }> {
   const existing = await ctx.db
     .query("confidencePickSets")
-    .withIndex("by_poolId_and_participantId_and_week", (q) =>
+    .withIndex("by_poolId_and_entryId_and_week", (q) =>
       q
         .eq("poolId", args.pool._id)
-        .eq("participantId", args.participantId)
+        .eq("entryId", args.entryId)
         .eq("week", args.week),
     )
     .unique();
@@ -190,6 +197,7 @@ async function loadOrCreatePickSet(
   const pickSetId = await ctx.db.insert("confidencePickSets", {
     poolId: args.pool._id,
     participantId: args.participantId,
+    entryId: args.entryId,
     week: args.week,
     origin: "untouched",
     tiebreakerLocked: false,
@@ -203,6 +211,7 @@ async function loadOrCreatePickSet(
     const pickId = await ctx.db.insert("confidencePicks", {
       poolId: args.pool._id,
       participantId: args.participantId,
+      entryId: args.entryId,
       week: args.week,
       pickSetId,
       gameId,
@@ -253,6 +262,7 @@ export const ensurePickSheet = mutation({
   args: {
     poolId: v.id("pools"),
     week: v.number(),
+    entryId: v.optional(v.id("poolEntries")),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -265,13 +275,29 @@ export const ensurePickSheet = mutation({
         "Pick Sheets only apply to Confidence Pools",
       );
     }
-    await requirePoolMembership(ctx, pool._id, participant._id);
+    const membership = await requirePoolMembership(
+      ctx,
+      pool._id,
+      participant._id,
+    );
 
     if (args.week < pool.startWeek || args.week > 18) {
       throw new ConfidencePickError("Week is outside this Pool's included weeks");
     }
 
     const nowMs = Date.now();
+    await ensurePrimaryEntryIfMissing(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      membershipId: membership._id,
+      nowMs,
+    });
+    const entry = await requireOwnedActiveEntry(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      entryId: args.entryId,
+    });
+
     const sheet = await ensurePickSheetDoc(ctx, pool, args.week, nowMs);
     const ranking = defaultConfidenceRanking(
       sheet.gameIds.length,
@@ -283,6 +309,7 @@ export const ensurePickSheet = mutation({
       pool,
       sheet,
       participantId: participant._id,
+      entryId: entry._id,
       week: args.week,
       nowMs,
     });
@@ -295,6 +322,7 @@ export const ensurePickSheet = mutation({
       defaultRanking: ranking,
       tiebreakerGameId: sheet.tiebreakerGameId,
       frozenAtMs: sheet.frozenAtMs,
+      entryId: entry._id,
     };
   },
 });
@@ -308,6 +336,7 @@ export const autosaveConfidence = mutation({
   args: {
     poolId: v.id("pools"),
     week: v.number(),
+    entryId: v.optional(v.id("poolEntries")),
     predictions: v.optional(
       v.array(
         v.object({
@@ -340,7 +369,11 @@ export const autosaveConfidence = mutation({
         "Confidence picks only apply to Confidence Pools",
       );
     }
-    await requirePoolMembership(ctx, pool._id, participant._id);
+    const membership = await requirePoolMembership(
+      ctx,
+      pool._id,
+      participant._id,
+    );
     if (isPoolArchived(pool)) {
       throw new ConfidencePickError(
         "Archived Pools are read-only for picks — restore to edit",
@@ -352,6 +385,18 @@ export const autosaveConfidence = mutation({
     }
 
     const nowMs = Date.now();
+    await ensurePrimaryEntryIfMissing(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      membershipId: membership._id,
+      nowMs,
+    });
+    const entry = await requireOwnedActiveEntry(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      entryId: args.entryId,
+    });
+
     const sheet = await ensurePickSheetDoc(ctx, pool, args.week, nowMs);
     const games = await loadWeekGames(ctx, pool.seasonId, args.week);
     const gameById = new Map(games.map((g) => [g._id, g] as const));
@@ -361,6 +406,7 @@ export const autosaveConfidence = mutation({
       pool,
       sheet,
       participantId: participant._id,
+      entryId: entry._id,
       week: args.week,
       nowMs,
     });
@@ -593,6 +639,7 @@ export const autosaveConfidence = mutation({
       args.tiebreakerPrediction !== undefined;
 
     return {
+      entryId: entry._id,
       units: {
         predictions: predictionResults,
         confidenceReorder: confidenceReorderResult,
@@ -658,22 +705,34 @@ export const materializeConfidenceLocks = mutation({
         nowMs,
       });
 
-    const memberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-      .take(120);
+    const memberships = (
+      await ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+        .take(MAX_POOL_ENTRIES)
+    ).filter((m) => m.status === "active");
+
+    for (const m of memberships) {
+      await ensurePrimaryEntryIfMissing(ctx, {
+        poolId: pool._id,
+        participantId: m.participantId,
+        membershipId: m._id,
+        nowMs,
+      });
+    }
+
+    const entries = await listActivePoolEntries(ctx, pool._id);
 
     let lockedPickCount = 0;
     let automaticSetCount = 0;
     let tiebreakerLockedCount = 0;
 
-    for (const m of memberships) {
-      if (m.status !== "active") continue;
-
+    for (const entry of entries) {
       let { pickSet, picks } = await loadOrCreatePickSet(ctx, {
         pool,
         sheet,
-        participantId: m.participantId,
+        participantId: entry.participantId,
+        entryId: entry._id,
         week: args.week,
         nowMs,
       });
@@ -775,6 +834,7 @@ export const getMyConfidencePickSet = query({
   args: {
     poolId: v.id("pools"),
     week: v.number(),
+    entryId: v.optional(v.id("poolEntries")),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -783,6 +843,12 @@ export const getMyConfidencePickSet = query({
       throw new ConfidencePickError("Pool not found");
     }
     await requirePoolMembership(ctx, pool._id, participant._id);
+
+    const entry = await requireOwnedActiveEntry(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      entryId: args.entryId,
+    });
 
     const sheet = await ctx.db
       .query("confidencePickSheets")
@@ -796,15 +862,16 @@ export const getMyConfidencePickSet = query({
 
     const pickSet = await ctx.db
       .query("confidencePickSets")
-      .withIndex("by_poolId_and_participantId_and_week", (q) =>
+      .withIndex("by_poolId_and_entryId_and_week", (q) =>
         q
           .eq("poolId", pool._id)
-          .eq("participantId", participant._id)
+          .eq("entryId", entry._id)
           .eq("week", args.week),
       )
       .unique();
     if (!pickSet) {
       return {
+        entryId: entry._id,
         sheet: {
           gameIds: sheet.gameIds,
           scaleMax: sheet.scaleMax,
@@ -833,6 +900,7 @@ export const getMyConfidencePickSet = query({
       .take(64);
 
     return {
+      entryId: entry._id,
       sheet: {
         gameIds: sheet.gameIds,
         scaleMax: sheet.scaleMax,
