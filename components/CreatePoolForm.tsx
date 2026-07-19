@@ -52,6 +52,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
   const [startWeek, setStartWeek] = useState<number | null>(null);
   const [pickLockMode, setPickLockMode] =
     useState<PickLockMode>("gameKickoff");
+  const [maxEntriesPerUser, setMaxEntriesPerUser] = useState(1);
   const [inviteSelections, setInviteSelections] = useState<
     Record<string, ProposedRole | "skip">
   >({});
@@ -71,6 +72,9 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
     setName(selectedTemplate.name);
     setType(selectedTemplate.type);
     setPickLockMode(selectedTemplate.pickLockMode);
+    if (selectedTemplate.maxEntriesPerUser != null) {
+      setMaxEntriesPerUser(selectedTemplate.maxEntriesPerUser);
+    }
     const preferred = selectedTemplate.startWeek;
     const availableWeeks = weeksKey
       ? weeksKey.split(",").map(Number)
@@ -139,6 +143,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           name,
           startWeek: effectiveStartWeek,
           pickLockMode,
+          maxEntriesPerUser,
           returningInvites,
         });
 
@@ -172,6 +177,7 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
         type,
         startWeek: effectiveStartWeek,
         pickLockMode,
+        maxEntriesPerUser,
       });
       setCreated({
         poolId: result.poolId,
@@ -487,6 +493,33 @@ export function CreatePoolForm({ onCancel }: { onCancel: () => void }) {
           Weekly Cutoff Lock
         </label>
       </fieldset>
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="inline-flex items-center gap-1.5 font-medium text-op-text">
+          Max entries per person
+          <FieldInfo
+            label="Max entries per person"
+            title="Max entries per person"
+          >
+            <p>
+              How many separate competitive entries each member may hold in
+              this Pool (1–10). Each entry has its own picks and standings
+              row.
+            </p>
+          </FieldInfo>
+        </span>
+        <select
+          value={maxEntriesPerUser}
+          onChange={(e) => setMaxEntriesPerUser(Number(e.target.value))}
+          className="rounded-md border border-op-border bg-op-surface"
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {mode === "template" && selectedTemplate ? (
         <fieldset className="flex flex-col gap-3 text-sm">

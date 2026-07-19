@@ -50,9 +50,16 @@ export function WeekBoardView({
   const [selectedWeek, setSelectedWeek] = useState<number | undefined>(
     weekProp,
   );
+  const [activeEntryId, setActiveEntryId] = useState<Id<"poolEntries"> | null>(
+    null,
+  );
   const boardResult = useQuery(
     api.pools.getWeekBoard,
     isAuthenticated ? { poolId, week: selectedWeek } : "skip",
+  );
+  const myEntries = useQuery(
+    api.pools.listMyPoolEntries,
+    isAuthenticated ? { poolId } : "skip",
   );
   // Keep last successful board so week switches don't tear down the shell.
   const [cachedBoard, setCachedBoard] = useState<WeekBoard | null>(null);
@@ -72,6 +79,25 @@ export function WeekBoardView({
     shellBoard !== null &&
     boardResult !== null;
 
+  const entrySurvivorPick = useQuery(
+    api.survivorPicks.getMySurvivorPick,
+    isAuthenticated &&
+      activeEntryId &&
+      board?.pool.type === "survivor" &&
+      board.week !== undefined
+      ? { poolId, week: board.week, entryId: activeEntryId }
+      : "skip",
+  );
+  const entryConfidencePickSet = useQuery(
+    api.confidencePicks.getMyConfidencePickSet,
+    isAuthenticated &&
+      activeEntryId &&
+      board?.pool.type === "confidence" &&
+      board.week !== undefined
+      ? { poolId, week: board.week, entryId: activeEntryId }
+      : "skip",
+  );
+
   const autosaveSurvivor = useMutation(api.survivorPicks.autosaveSurvivorPick);
   const materializeSurvivor = useMutation(
     api.survivorPicks.materializeSurvivorLocks,
@@ -81,6 +107,7 @@ export function WeekBoardView({
   const materializeConfidence = useMutation(
     api.confidencePicks.materializeConfidenceLocks,
   );
+  const addPoolEntry = useMutation(api.pools.addPoolEntry);
 
   const [trust, setTrust] = useState<{
     status: TrustStatus;
@@ -91,7 +118,7 @@ export function WeekBoardView({
     null,
   );
   const [materializedWeek, setMaterializedWeek] = useState<number | null>(null);
-  const [sheetEnsuredWeek, setSheetEnsuredWeek] = useState<number | null>(null);
+  const [sheetEnsuredKey, setSheetEnsuredKey] = useState<string | null>(null);
   const [localConfidence, setLocalConfidence] = useState<
     Record<string, number>
   >({});
@@ -99,6 +126,20 @@ export function WeekBoardView({
   const [confidenceConflict, setConfidenceConflict] = useState<string | null>(
     null,
   );
+  const [addingEntry, setAddingEntry] = useState(false);
+
+  useEffect(() => {
+    if (!myEntries?.entries.length) return;
+    setActiveEntryId((current) => {
+      if (
+        current &&
+        myEntries.entries.some((entry) => entry.entryId === current)
+      ) {
+        return current;
+      }
+      return myEntries.entries[0]!.entryId;
+    });
+  }, [myEntries]);
 
   const { setContextRail } = usePoolChrome();
   usePoolChromeName(shellBoard?.pool.name);
@@ -129,15 +170,45 @@ export function WeekBoardView({
     setConfidenceConflict(null);
   }
 
-  // Confidence: open Pick Window / freeze sheet on first board visit per week.
+  function selectEntry(nextEntryId: Id<"poolEntries">) {
+    if (nextEntryId === activeEntryId) return;
+    setActiveEntryId(nextEntryId);
+    setTrust({ status: "idle" });
+    setToastMessage(null);
+    setPendingTeamId(null);
+    setLocalConfidence({});
+    setTiebreakerDraft("");
+    setConfidenceConflict(null);
+  }
+
+  async function onAddEntry() {
+    if (addingEntry) return;
+    setAddingEntry(true);
+    try {
+      const result = await addPoolEntry({ poolId });
+      selectEntry(result.entryId);
+    } catch (err) {
+      setToastMessage(convexErrorMessage(err, "Could not add entry"));
+    } finally {
+      setAddingEntry(false);
+    }
+  }
+
+  // Confidence: open Pick Window / freeze sheet on first board visit per week/entry.
   useEffect(() => {
     if (!board || board.pool.type !== "confidence") return;
-    if (sheetEnsuredWeek === board.week) return;
-    setSheetEnsuredWeek(board.week);
-    void ensurePickSheet({ poolId, week: board.week }).catch(() => {
-      setSheetEnsuredWeek(null);
+    if (!activeEntryId) return;
+    const key = `${board.week}:${activeEntryId}`;
+    if (sheetEnsuredKey === key) return;
+    setSheetEnsuredKey(key);
+    void ensurePickSheet({
+      poolId,
+      week: board.week,
+      entryId: activeEntryId,
+    }).catch(() => {
+      setSheetEnsuredKey(null);
     });
-  }, [board, ensurePickSheet, poolId, sheetEnsuredWeek]);
+  }, [activeEntryId, board, ensurePickSheet, poolId, sheetEnsuredKey]);
 
   // Materialize locks once when any slate game has reached kickoff/cutoff.
   useEffect(() => {
@@ -160,23 +231,27 @@ export function WeekBoardView({
     poolId,
   ]);
 
-  // Sync local confidence map from server set.
+  // Sync local confidence map from server set (entry-scoped when available).
   useEffect(() => {
-    if (!board?.myConfidencePickSet) return;
+    const source =
+      activeEntryId && entryConfidencePickSet !== undefined
+        ? entryConfidencePickSet
+        : board?.myConfidencePickSet;
+    if (!source) return;
     const next: Record<string, number> = {};
-    for (const p of board.myConfidencePickSet.picks) {
+    for (const p of source.picks) {
       next[p.gameId] = p.confidenceValue;
     }
     setLocalConfidence(next);
-    if (
-      board.myConfidencePickSet.tiebreakerPrediction !== null &&
-      tiebreakerDraft === ""
-    ) {
-      setTiebreakerDraft(
-        String(board.myConfidencePickSet.tiebreakerPrediction),
-      );
+    if (source.tiebreakerPrediction !== null && tiebreakerDraft === "") {
+      setTiebreakerDraft(String(source.tiebreakerPrediction));
     }
-  }, [board?.myConfidencePickSet, tiebreakerDraft]);
+  }, [
+    activeEntryId,
+    board?.myConfidencePickSet,
+    entryConfidencePickSet,
+    tiebreakerDraft,
+  ]);
 
   if (!isAuthenticated && !isLoading) {
     return (
@@ -257,11 +332,47 @@ export function WeekBoardView({
 
   const isSurvivor = board.pool.type === "survivor";
   const isConfidence = board.pool.type === "confidence";
-  const selectedTeamId = pendingTeamId ?? board.mySurvivorPick?.nflTeamId ?? null;
-  const myPickLocked = board.mySurvivorPick?.locked === true;
-  const mySet = board.myConfidencePickSet;
+  const entries = myEntries?.entries ?? [];
+  const maxEntriesPerUser = myEntries?.maxEntriesPerUser ?? 1;
+  const admissionClosed = myEntries?.admissionClosed ?? true;
+  const showEntrySwitcher = maxEntriesPerUser > 1 || entries.length > 1;
+  const canAddEntry =
+    !admissionClosed && entries.length < maxEntriesPerUser;
+
+  // Prefer entry-scoped pick queries when activeEntryId is set (board is still
+  // participant-scoped for mySurvivorPick / myConfidencePickSet).
+  const mySurvivorPick =
+    activeEntryId && entrySurvivorPick !== undefined
+      ? entrySurvivorPick === null
+        ? null
+        : {
+            nflTeamId: entrySurvivorPick.nflTeamId,
+            locked: entrySurvivorPick.locked,
+            provenance: entrySurvivorPick.provenance,
+            provisional: entrySurvivorPick.provisional ?? false,
+            updatedAtMs: entrySurvivorPick.updatedAtMs ?? 0,
+          }
+      : board.mySurvivorPick;
+  const mySet =
+    activeEntryId && entryConfidencePickSet !== undefined
+      ? entryConfidencePickSet === null
+        ? null
+        : {
+            origin: entryConfidencePickSet.origin,
+            tiebreakerPrediction: entryConfidencePickSet.tiebreakerPrediction,
+            tiebreakerLocked: entryConfidencePickSet.tiebreakerLocked,
+            tiebreakerGameId:
+              entryConfidencePickSet.sheet.tiebreakerGameId ?? null,
+            defaultRanking: entryConfidencePickSet.sheet.defaultRanking,
+            picks: entryConfidencePickSet.picks,
+          }
+      : board.myConfidencePickSet;
+
+  const selectedTeamId = pendingTeamId ?? mySurvivorPick?.nflTeamId ?? null;
+  const myPickLocked = mySurvivorPick?.locked === true;
+  // Board reservations are participant-scoped; only use for single-entry UX.
   const reservedOtherWeek = new Map(
-    board.myReservedTeams
+    (entries.length <= 1 ? board.myReservedTeams : [])
       .filter((r) => r.week !== board.week)
       .map((r) => [r.nflTeamId, r] as const),
   );
@@ -282,7 +393,12 @@ export function WeekBoardView({
     setPendingTeamId(nflTeamId);
     setTrust({ status: "saving" });
     try {
-      await autosaveSurvivor({ poolId, week: board!.week, nflTeamId });
+      await autosaveSurvivor({
+        poolId,
+        week: board!.week,
+        nflTeamId,
+        ...(activeEntryId ? { entryId: activeEntryId } : {}),
+      });
       setTrust({ status: "saved" });
       setPendingTeamId(null);
       posthog.capture("survivor_pick_saved", {
@@ -311,6 +427,7 @@ export function WeekBoardView({
       const result = await autosaveConfidence({
         poolId,
         week: board!.week,
+        ...(activeEntryId ? { entryId: activeEntryId } : {}),
         predictions: [{ gameId, pickedTeamId }],
       });
       if (result.saveTrust.status === "error") {
@@ -399,6 +516,7 @@ export function WeekBoardView({
       const result = await autosaveConfidence({
         poolId,
         week: board!.week,
+        ...(activeEntryId ? { entryId: activeEntryId } : {}),
         confidenceReorder: reorder,
       });
       if (result.units.confidenceReorder?.ok === false) {
@@ -449,6 +567,7 @@ export function WeekBoardView({
       const result = await autosaveConfidence({
         poolId,
         week: board!.week,
+        ...(activeEntryId ? { entryId: activeEntryId } : {}),
         tiebreakerPrediction: parsed,
       });
       if (result.units.tiebreaker?.ok === false) {
@@ -502,20 +621,55 @@ export function WeekBoardView({
           onChange={selectWeek}
           ariaLabel="Board week"
         />
+        {showEntrySwitcher || canAddEntry ? (
+          <div className="flex flex-wrap items-center gap-3">
+            {showEntrySwitcher ? (
+              <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-op-text sm:flex-none">
+                <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-op-muted">
+                  Entry
+                </span>
+                <select
+                  className="h-9 min-w-[8rem] rounded-[8px] border border-op-border bg-op-surface px-3 text-sm font-medium"
+                  value={activeEntryId ?? ""}
+                  onChange={(e) =>
+                    selectEntry(e.target.value as Id<"poolEntries">)
+                  }
+                  aria-label="Active pool entry"
+                >
+                  {entries.map((entry) => (
+                    <option key={entry.entryId} value={entry.entryId}>
+                      Entry {entry.entryNumber}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {canAddEntry ? (
+              <button
+                type="button"
+                disabled={addingEntry}
+                onClick={() => void onAddEntry()}
+                className="op-btn op-btn-secondary h-9 px-3 text-sm"
+              >
+                {addingEntry ? "Adding…" : "Add entry"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       {isSurvivor ? (
         <div className="flex flex-col gap-1">
           <p className="text-sm text-op-secondary">
             {myPickLocked
-              ? board.mySurvivorPick?.provenance === "omission"
+              ? mySurvivorPick?.provenance === "omission"
                 ? "Locked omission — no pick"
-                : `Locked · ${board.mySurvivorPick?.nflTeamId ? "your pick is visible to the pool" : "locked"}`
+                : `Locked · ${mySurvivorPick?.nflTeamId ? "your pick is visible to the pool" : "locked"}`
               : "Tap a team to autosave your Survivor Pick. Hidden from others until Pick Lock."}
           </p>
           <SaveTrust
             status={
-              trust.status === "idle" && board.mySurvivorPick
+              trust.status === "idle" && mySurvivorPick
                 ? "saved"
                 : trust.status
             }

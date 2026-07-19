@@ -47,7 +47,7 @@ export function ConfidenceStandingsPeek({
       <ol className="flex flex-col gap-2.5">
         {peek.top5.map((row) => (
           <li
-            key={row.participantId}
+            key={row.entryId ?? row.participantId}
             className="flex min-w-0 items-center justify-between gap-3"
           >
             <div className="flex min-w-0 items-center gap-2">
