@@ -24,6 +24,11 @@ Sentry.init({
   // 10% of all sessions; 100% of sessions with errors
   replaysSessionSampleRate: 0.1,
   replaysOnErrorSampleRate: 1.0,
+
+  // Clerk telemetry (and similar third-party beacons) can reject as a bare
+  // NetworkError when blocked; those have no actionable stack for us.
+  ignoreErrors: [/^NetworkError: A network error occurred\.?$/i],
+  denyUrls: [/clerk-telemetry\.com/i],
 });
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

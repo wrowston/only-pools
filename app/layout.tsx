@@ -77,6 +77,8 @@ export default function RootLayout({
           appearance={clerkAppearance}
           signInFallbackRedirectUrl={POST_AUTH_HOME}
           signUpFallbackRedirectUrl={POST_AUTH_HOME}
+          // Avoid unhandled NetworkErrors when ad blockers drop clerk-telemetry.com
+          telemetry={false}
         >
           {children}
         </ClerkProvider>
