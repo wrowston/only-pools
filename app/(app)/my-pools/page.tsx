@@ -5,7 +5,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { CreatePoolForm } from "@/components/CreatePoolForm";
+import { CreatePoolDialog } from "@/components/CreatePoolDialog";
 import { EmptyState } from "@/components/EmptyState";
 import {
   StatusChip,
@@ -242,19 +242,6 @@ function MyPoolsHome() {
   );
 
   if (myPools.memberships.length === 0) {
-    if (showCreate && myPools.createPoolEnabled) {
-      return (
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-12">
-          <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-medium tracking-tight text-op-text">
-              My Pools
-            </h1>
-          </header>
-          <CreatePoolForm onCancel={() => setShowCreate(false)} />
-        </div>
-      );
-    }
-
     return (
       <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
         <header className="flex flex-col gap-2">
@@ -284,6 +271,12 @@ function MyPoolsHome() {
             </p>
           ) : null}
         </EmptyState>
+        {myPools.createPoolEnabled ? (
+          <CreatePoolDialog
+            open={showCreate}
+            onClose={() => setShowCreate(false)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -333,25 +326,27 @@ function MyPoolsHome() {
         ) : null}
       </section>
 
-      {showCreate && myPools.createPoolEnabled ? (
-        <CreatePoolForm onCancel={() => setShowCreate(false)} />
-      ) : (
-        <section
-          aria-labelledby="actions-heading"
-          className="flex flex-wrap items-center gap-3"
-        >
-          <h2 id="actions-heading" className="sr-only">
-            Create or join
-          </h2>
-          {createJoinActions}
-          {!myPools.createPoolEnabled ? (
-            <p className="basis-full text-xs text-op-muted">
-              Create Pool stays disabled until Season Bootstrap finishes and an
-              Available Season exists.
-            </p>
-          ) : null}
-        </section>
-      )}
+      <section
+        aria-labelledby="actions-heading"
+        className="flex flex-wrap items-center gap-3"
+      >
+        <h2 id="actions-heading" className="sr-only">
+          Create or join
+        </h2>
+        {createJoinActions}
+        {!myPools.createPoolEnabled ? (
+          <p className="basis-full text-xs text-op-muted">
+            Create Pool stays disabled until Season Bootstrap finishes and an
+            Available Season exists.
+          </p>
+        ) : null}
+      </section>
+      {myPools.createPoolEnabled ? (
+        <CreatePoolDialog
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+        />
+      ) : null}
     </div>
   );
 }
