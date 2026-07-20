@@ -50,12 +50,14 @@ export function SiteHeader({
           </span>
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2">
-          <Link
-            href="/guides"
-            className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-          >
-            Guides
-          </Link>
+          {variant === "marketing" ? (
+            <Link
+              href="/guides"
+              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+            >
+              Guides
+            </Link>
+          ) : null}
           <Show when="signed-out">
             <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
               <button
