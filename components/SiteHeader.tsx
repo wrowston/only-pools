@@ -16,8 +16,9 @@ import { POST_AUTH_HOME } from "@/lib/authRoutes";
  * Global top bar. Hidden on in-pool desktop (≥900px) — brand lives in the
  * sidebar above the pool picker. Still shown on phone and non-pool routes.
  *
- * `variant="marketing"` omits Convex-backed Operator nav so public pages do
- * not need a Convex provider in the tree.
+ * `variant="marketing"` shows Guides and omits Convex-backed Operator nav so
+ * public pages do not need a Convex provider. `variant="app"` (dashboard)
+ * hides Guides — that link lives on the marketing home page instead.
  */
 export function SiteHeader({
   variant = "app",
