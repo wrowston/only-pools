@@ -22,6 +22,9 @@ export function LandingHeader() {
         >
           <BrandMark />
           Only Pools
+          <span className="rounded-[4px] border border-op-border bg-op-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-op-secondary">
+            Beta
+          </span>
         </Link>
 
         <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 md:flex">
