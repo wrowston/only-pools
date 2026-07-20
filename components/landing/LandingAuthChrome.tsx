@@ -40,6 +40,12 @@ export function LandingHeader() {
           >
             How It Works
           </Link>
+          <Link
+            href="/guides"
+            className="rounded-full px-3 py-2 text-[13px] text-op-secondary transition-colors hover:bg-op-control hover:text-op-text"
+          >
+            Guides
+          </Link>
         </div>
 
         <div className="ml-auto hidden items-center gap-1.5 md:flex">
@@ -99,6 +105,12 @@ export function LandingHeader() {
                 className="block rounded-[8px] px-3 py-2 text-[13px] text-op-secondary hover:bg-op-control hover:text-op-text"
               >
                 How It Works
+              </Link>
+              <Link
+                href="/guides"
+                className="block rounded-[8px] px-3 py-2 text-[13px] text-op-secondary hover:bg-op-control hover:text-op-text"
+              >
+                Guides
               </Link>
             </div>
           </details>
