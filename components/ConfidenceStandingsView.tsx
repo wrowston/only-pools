@@ -104,7 +104,7 @@ export function ConfidenceStandingsView({
               <ul className="divide-y divide-op-border">
                 {standings.weekly.rows.map((row) => (
                   <li
-                    key={row.participantId}
+                    key={row.entryId ?? row.participantId}
                     className={[
                       "flex items-center justify-between gap-4 px-4 py-3",
                       row.isViewer ? "bg-op-selected" : "",
@@ -162,7 +162,7 @@ export function ConfidenceStandingsView({
               <ul className="divide-y divide-op-border">
                 {standings.season.rows.map((row) => (
                   <li
-                    key={row.participantId}
+                    key={row.entryId ?? row.participantId}
                     className={[
                       "grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem_4.5rem] items-center gap-2 px-4 py-3",
                       row.isViewer ? "bg-op-selected" : "",

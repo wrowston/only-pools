@@ -44,6 +44,7 @@ function weekContext(row: {
 
 export type SurvivorPickGridRow = {
   participantId: string;
+  entryId?: string;
   displayName: string;
   avatarUrl?: string | null;
   eligibility: string;
@@ -158,7 +159,7 @@ export function SurvivorPickGrid({
                 ? "bg-op-selected"
                 : "bg-op-surface group-hover:bg-op-canvas";
               return (
-                <Fragment key={row.participantId}>
+                <Fragment key={row.entryId ?? row.participantId}>
                   {showEliminatedDivider ? (
                     <tr>
                       <td

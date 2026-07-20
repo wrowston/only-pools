@@ -5,7 +5,12 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
 import { assertAbuseReportPayloadSafe } from "./lib/abuseReportSanitize";
 import { isPoolArchived } from "./lib/poolArchive";
-import { MAX_POOL_MEMBERS, MAX_MEMBERSHIPS_PER_SEASON } from "./lib/quotas";
+import { MAX_POOL_ENTRIES, MAX_MEMBERSHIPS_PER_SEASON } from "./lib/quotas";
+import {
+  countActivePoolEntries,
+  createPrimaryEntry,
+  endActiveEntriesForParticipant,
+} from "./lib/poolEntries";
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 
@@ -472,6 +477,12 @@ export const removeMember = mutation({
       statusChangedAtMs: nowMs,
     });
 
+    await endActiveEntriesForParticipant(ctx, {
+      poolId: pool._id,
+      participantId: args.participantId,
+      nowMs,
+    });
+
     const pending = await loadPendingOwnershipOffer(ctx, pool._id);
     if (pending && pending.toParticipantId === args.participantId) {
       await ctx.db.patch(pending._id, {
@@ -534,14 +545,11 @@ export const reinstateMember = mutation({
       );
     }
 
-    const activeCount = (
-      await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(MAX_POOL_MEMBERS + 1)
-    ).filter((m) => m.status === "active").length;
-    if (activeCount >= MAX_POOL_MEMBERS) {
-      throw new MembershipAdminError("This Pool has reached its participant limit");
+    const activeEntryCount = await countActivePoolEntries(ctx, pool._id);
+    if (activeEntryCount >= MAX_POOL_ENTRIES) {
+      throw new MembershipAdminError(
+        `This Pool has reached its entry limit (${MAX_POOL_ENTRIES})`,
+      );
     }
 
     const seasonMemberships = await ctx.db
@@ -570,6 +578,13 @@ export const reinstateMember = mutation({
       role: "member",
       statusReason: reason,
       statusChangedAtMs: nowMs,
+    });
+
+    await createPrimaryEntry(ctx, {
+      poolId: pool._id,
+      participantId: args.participantId,
+      membershipId: target._id,
+      nowMs,
     });
 
     await writeAudit(ctx, {
@@ -647,6 +662,12 @@ export const leavePool = mutation({
       status: "left",
       role: "member",
       statusChangedAtMs: nowMs,
+    });
+
+    await endActiveEntriesForParticipant(ctx, {
+      poolId: pool._id,
+      participantId: participant._id,
+      nowMs,
     });
 
     const pending = await loadPendingOwnershipOffer(ctx, pool._id);

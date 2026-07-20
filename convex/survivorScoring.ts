@@ -18,6 +18,13 @@ import {
   isSurvivorPickLocked,
 } from "./lib/pickLock";
 import {
+  displayIndexByEntryId,
+  ensurePrimaryEntryIfMissing,
+  entryDisplayName,
+  listActivePoolEntries,
+} from "./lib/poolEntries";
+import { MAX_POOL_ENTRIES } from "./lib/quotas";
+import {
   SURVIVOR_FINAL_WEEK,
   buildSurvivorWeekFingerprint,
   decideSurvivorTerminalOutcome,
@@ -84,18 +91,20 @@ async function loadOrInitStanding(
   ctx: MutationCtx,
   poolId: Id<"pools">,
   participantId: Id<"participants">,
+  entryId: Id<"poolEntries">,
   nowMs: number,
 ): Promise<Doc<"seasonStandings">> {
   const existing = await ctx.db
     .query("seasonStandings")
-    .withIndex("by_poolId_and_participantId", (q) =>
-      q.eq("poolId", poolId).eq("participantId", participantId),
+    .withIndex("by_poolId_and_entryId", (q) =>
+      q.eq("poolId", poolId).eq("entryId", entryId),
     )
     .unique();
   if (existing) return existing;
   const id = await ctx.db.insert("seasonStandings", {
     poolId,
     participantId,
+    entryId,
     eligibility: "alive",
     updatedAtMs: nowMs,
   });
@@ -109,6 +118,7 @@ async function upsertPickOutcome(
   args: {
     poolId: Id<"pools">;
     participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     week: number;
     pickId?: Id<"survivorPicks">;
     outcome: SurvivorPickOutcomeKind;
@@ -118,10 +128,10 @@ async function upsertPickOutcome(
 ) {
   const existing = await ctx.db
     .query("survivorPickOutcomes")
-    .withIndex("by_poolId_and_participantId_and_week", (q) =>
+    .withIndex("by_poolId_and_entryId_and_week", (q) =>
       q
         .eq("poolId", args.poolId)
-        .eq("participantId", args.participantId)
+        .eq("entryId", args.entryId)
         .eq("week", args.week),
     )
     .unique();
@@ -131,11 +141,13 @@ async function upsertPickOutcome(
       outcome: args.outcome,
       revisionId: args.revisionId,
       updatedAtMs: args.nowMs,
+      entryId: args.entryId,
     });
   } else {
     await ctx.db.insert("survivorPickOutcomes", {
       poolId: args.poolId,
       participantId: args.participantId,
+      entryId: args.entryId,
       week: args.week,
       pickId: args.pickId,
       outcome: args.outcome,
@@ -150,15 +162,14 @@ async function invalidateLaterProvisionals(
   args: {
     poolId: Id<"pools">;
     participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     afterWeek: number;
     nowMs: number;
   },
 ) {
   const picks = await ctx.db
     .query("survivorPicks")
-    .withIndex("by_poolId_and_participantId", (q) =>
-      q.eq("poolId", args.poolId).eq("participantId", args.participantId),
-    )
+    .withIndex("by_entryId", (q) => q.eq("entryId", args.entryId))
     .take(32);
 
   for (const pick of picks) {
@@ -172,10 +183,10 @@ async function invalidateLaterProvisionals(
     if (pick.nflTeamId) {
       const reservations = await ctx.db
         .query("survivorTeamReservations")
-        .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+        .withIndex("by_poolId_and_entryId_and_nflTeamId", (q) =>
           q
             .eq("poolId", args.poolId)
-            .eq("participantId", args.participantId)
+            .eq("entryId", args.entryId)
             .eq("nflTeamId", pick.nflTeamId!),
         )
         .take(8);
@@ -206,13 +217,13 @@ async function reinstateProvisionalIfNeeded(
     invalidatedAtMs: undefined,
     updatedAtMs: nowMs,
   });
-  if (pick.nflTeamId) {
+  if (pick.nflTeamId && pick.entryId !== undefined) {
     const reservations = await ctx.db
       .query("survivorTeamReservations")
-      .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+      .withIndex("by_poolId_and_entryId_and_nflTeamId", (q) =>
         q
           .eq("poolId", pick.poolId)
-          .eq("participantId", pick.participantId)
+          .eq("entryId", pick.entryId)
           .eq("nflTeamId", pick.nflTeamId!),
       )
       .take(8);
@@ -230,6 +241,7 @@ async function reinstateProvisionalIfNeeded(
       await ctx.db.insert("survivorTeamReservations", {
         poolId: pick.poolId,
         participantId: pick.participantId,
+        entryId: pick.entryId,
         nflTeamId: pick.nflTeamId,
         week: pick.week,
         released: false,
@@ -281,22 +293,34 @@ export const applySurvivorScoringRevision = internalMutation({
       await ctx.db
         .query("poolMemberships")
         .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120)
+        .take(MAX_POOL_ENTRIES)
     ).filter((m) => m.status === "active");
 
-    // Ensure standing rows exist.
-    const standingsByParticipant = new Map<
-      Id<"participants">,
+    for (const m of memberships) {
+      await ensurePrimaryEntryIfMissing(ctx, {
+        poolId: pool._id,
+        participantId: m.participantId,
+        membershipId: m._id,
+        nowMs,
+      });
+    }
+
+    const entries = await listActivePoolEntries(ctx, pool._id);
+
+    // Ensure standing rows exist (one per competitive entry).
+    const standingsByEntry = new Map<
+      Id<"poolEntries">,
       Doc<"seasonStandings">
     >();
-    for (const m of memberships) {
+    for (const entry of entries) {
       const row = await loadOrInitStanding(
         ctx,
         pool._id,
-        m.participantId,
+        entry.participantId,
+        entry._id,
         nowMs,
       );
-      standingsByParticipant.set(m.participantId, row);
+      standingsByEntry.set(entry._id, row);
     }
 
     // Replay eligibility from startWeek through target week (order matters).
@@ -305,22 +329,22 @@ export const applySurvivorScoringRevision = internalMutation({
       eliminatedWeek?: number;
       eliminationReason?: "loss" | "tie" | "missing_pick";
     };
-    const state = new Map<Id<"participants">, ReplayState>();
-    for (const m of memberships) {
-      state.set(m.participantId, { eligibility: "alive" });
+    const state = new Map<Id<"poolEntries">, ReplayState>();
+    for (const entry of entries) {
+      state.set(entry._id, { eligibility: "alive" });
     }
 
     let targetWeekSettled = false;
     let targetFingerprint = "";
     const targetOutcomes = new Map<
-      Id<"participants">,
+      Id<"poolEntries">,
       {
         outcome: SurvivorPickOutcomeKind;
         pickId?: Id<"survivorPicks">;
         enteredAlive: boolean;
       }
     >();
-    const enteredAliveAtTarget: Id<"participants">[] = [];
+    const enteredAliveAtTarget: Id<"poolEntries">[] = [];
 
     for (let w = pool.startWeek; w <= args.week; w++) {
       const games = await loadWeekGames(ctx, pool.seasonId, w);
@@ -330,41 +354,43 @@ export const applySurvivorScoringRevision = internalMutation({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", w),
         )
-        .take(200);
-      const pickByParticipant = new Map(
-        picks.map((p) => [p.participantId, p] as const),
-      );
+        .take(MAX_POOL_ENTRIES);
+      const pickByEntry = new Map<Id<"poolEntries">, Doc<"survivorPicks">>();
+      for (const p of picks) {
+        if (p.entryId !== undefined) {
+          pickByEntry.set(p.entryId, p);
+        }
+      }
 
-      const priorEligibility = [...state.entries()].map(
-        ([participantId, s]) => ({
-          participantId: participantId as string,
-          eligibility: s.eligibility,
-        }),
-      );
+      const priorEligibility = [...state.entries()].map(([entryId, s]) => ({
+        // Fingerprint field name is participantId; value is competitive entry id.
+        participantId: entryId as string,
+        eligibility: s.eligibility,
+      }));
 
-      const enteredAlive: Id<"participants">[] = [];
-      for (const m of memberships) {
-        const s = state.get(m.participantId)!;
+      const enteredAlive: Id<"poolEntries">[] = [];
+      for (const entry of entries) {
+        const s = state.get(entry._id)!;
         if (s.eligibility === "alive") {
-          enteredAlive.push(m.participantId);
+          enteredAlive.push(entry._id);
         }
       }
 
       const weekOutcomes: Array<{
-        participantId: Id<"participants">;
+        entryId: Id<"poolEntries">;
         outcome: SurvivorPickOutcomeKind;
         pickId?: Id<"survivorPicks">;
         enteredAlive: boolean;
       }> = [];
 
-      for (const m of memberships) {
-        const s = state.get(m.participantId)!;
+      for (const entry of entries) {
+        const s = state.get(entry._id)!;
         const entered = s.eligibility === "alive";
-        let pick = pickByParticipant.get(m.participantId) ?? null;
+        let pick = pickByEntry.get(entry._id) ?? null;
 
         if (!entered) {
           weekOutcomes.push({
-            participantId: m.participantId,
+            entryId: entry._id,
             outcome: pick?.invalidated ? "invalidated" : "pending",
             pickId: pick?._id,
             enteredAlive: false,
@@ -375,7 +401,7 @@ export const applySurvivorScoringRevision = internalMutation({
         // Correction restoring eligibility reinstates later provisionals.
         if (pick?.invalidated) {
           pick = await reinstateProvisionalIfNeeded(ctx, pick, nowMs);
-          pickByParticipant.set(m.participantId, pick);
+          pickByEntry.set(entry._id, pick);
         }
 
         const game =
@@ -387,7 +413,7 @@ export const applySurvivorScoringRevision = internalMutation({
           pick: pick
             ? {
                 pickId: pick._id,
-                participantId: pick.participantId,
+                participantId: entry._id,
                 week: pick.week,
                 nflTeamId: pick.nflTeamId,
                 gameId: pick.gameId,
@@ -414,7 +440,7 @@ export const applySurvivorScoringRevision = internalMutation({
         });
 
         weekOutcomes.push({
-          participantId: m.participantId,
+          entryId: entry._id,
           outcome,
           pickId: pick?._id,
           enteredAlive: true,
@@ -437,7 +463,7 @@ export const applySurvivorScoringRevision = internalMutation({
         week: w,
         priorEligibility,
         picks: picks.map((p) => ({
-          participantId: p.participantId,
+          participantId: (p.entryId ?? p.participantId) as string,
           nflTeamId: p.nflTeamId,
           gameId: p.gameId,
           provenance: p.provenance,
@@ -463,7 +489,7 @@ export const applySurvivorScoringRevision = internalMutation({
             .filter((o) => o.enteredAlive)
             .every((o) => o.outcome !== "pending");
         for (const o of weekOutcomes) {
-          targetOutcomes.set(o.participantId, o);
+          targetOutcomes.set(o.entryId, o);
         }
         enteredAliveAtTarget.push(...enteredAlive);
       }
@@ -547,11 +573,12 @@ export const applySurvivorScoringRevision = internalMutation({
     }
 
     // Publish pick outcomes for the target week.
-    for (const m of memberships) {
-      const o = targetOutcomes.get(m.participantId);
+    for (const entry of entries) {
+      const o = targetOutcomes.get(entry._id);
       await upsertPickOutcome(ctx, {
         poolId: pool._id,
-        participantId: m.participantId,
+        participantId: entry.participantId,
+        entryId: entry._id,
         week: args.week,
         pickId: o?.pickId,
         outcome: o?.outcome ?? "pending",
@@ -562,21 +589,23 @@ export const applySurvivorScoringRevision = internalMutation({
 
     // Apply eligibility from full replay (state map holds final after target week).
     // Corrections may restore Alive / clear winners — always rewrite from replay.
-    for (const m of memberships) {
-      const s = state.get(m.participantId)!;
-      const standing = standingsByParticipant.get(m.participantId)!;
+    for (const entry of entries) {
+      const s = state.get(entry._id)!;
+      const standing = standingsByEntry.get(entry._id)!;
       await ctx.db.patch(standing._id, {
         eligibility: s.eligibility === "eliminated" ? "eliminated" : "alive",
         eliminatedWeek: s.eliminatedWeek,
         eliminationReason: s.eliminationReason,
         wonAtWeek: undefined,
+        entryId: entry._id,
         revisionId,
         updatedAtMs: nowMs,
       });
       if (s.eligibility === "eliminated" && s.eliminatedWeek !== undefined) {
         await invalidateLaterProvisionals(ctx, {
           poolId: pool._id,
-          participantId: m.participantId,
+          participantId: entry.participantId,
+          entryId: entry._id,
           afterWeek: s.eliminatedWeek,
           nowMs,
         });
@@ -584,12 +613,13 @@ export const applySurvivorScoringRevision = internalMutation({
     }
 
     // Terminal winners — only from settled verified weeks.
+    // Competitive ids in terminal helpers are entry ids (stable string keys).
     let poolStatus: "active" | "completed" = pool.status;
     if (targetWeekSettled) {
-      const afterWeek = memberships.map((m) => {
-        const s = state.get(m.participantId)!;
+      const afterWeek = entries.map((entry) => {
+        const s = state.get(entry._id)!;
         return {
-          participantId: m.participantId as string,
+          participantId: entry._id as string,
           eligibility:
             s.eligibility === "eliminated"
               ? ("eliminated" as const)
@@ -605,10 +635,10 @@ export const applySurvivorScoringRevision = internalMutation({
       });
 
       if (terminal.kind === "sole_winner") {
-        const winnerId = terminal.winnerParticipantId as Id<"participants">;
-        for (const m of memberships) {
-          const standing = standingsByParticipant.get(m.participantId)!;
-          if (m.participantId === winnerId) {
+        const winnerEntryId = terminal.winnerParticipantId as Id<"poolEntries">;
+        for (const entry of entries) {
+          const standing = standingsByEntry.get(entry._id)!;
+          if (entry._id === winnerEntryId) {
             await ctx.db.patch(standing._id, {
               eligibility: "winner",
               wonAtWeek: args.week,
@@ -625,9 +655,9 @@ export const applySurvivorScoringRevision = internalMutation({
         poolStatus = "completed";
       } else if (terminal.kind === "joint_winners") {
         const winnerSet = new Set(terminal.winnerParticipantIds);
-        for (const m of memberships) {
-          if (!winnerSet.has(m.participantId)) continue;
-          const standing = standingsByParticipant.get(m.participantId)!;
+        for (const entry of entries) {
+          if (!winnerSet.has(entry._id)) continue;
+          const standing = standingsByEntry.get(entry._id)!;
           await ctx.db.patch(standing._id, {
             eligibility: "winner",
             wonAtWeek: args.week,
@@ -701,7 +731,7 @@ export const handleVerifiedCancellation = internalMutation({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", game.week),
         )
-        .take(120);
+        .take(MAX_POOL_ENTRIES);
 
       for (const pick of picks) {
         if (pick.gameId !== game._id) continue;
@@ -713,13 +743,13 @@ export const handleVerifiedCancellation = internalMutation({
           invalidatedAtMs: nowMs,
           updatedAtMs: nowMs,
         });
-        if (pick.nflTeamId) {
+        if (pick.nflTeamId && pick.entryId !== undefined) {
           const reservations = await ctx.db
             .query("survivorTeamReservations")
-            .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+            .withIndex("by_poolId_and_entryId_and_nflTeamId", (q) =>
               q
                 .eq("poolId", pool._id)
-                .eq("participantId", pick.participantId)
+                .eq("entryId", pick.entryId)
                 .eq("nflTeamId", pick.nflTeamId!),
             )
             .take(8);
@@ -815,31 +845,31 @@ export const getSurvivorStandings = query({
       throw error;
     }
 
-    const memberships = (
-      await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120)
-    ).filter((m) => m.status === "active");
+    const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const rows = [];
-    for (const m of memberships) {
+    for (const entry of entries) {
       const standing = await ctx.db
         .query("seasonStandings")
-        .withIndex("by_poolId_and_participantId", (q) =>
-          q.eq("poolId", pool._id).eq("participantId", m.participantId),
+        .withIndex("by_poolId_and_entryId", (q) =>
+          q.eq("poolId", pool._id).eq("entryId", entry._id),
         )
         .unique();
-      const person = await ctx.db.get(m.participantId);
+      const person = await ctx.db.get(entry.participantId);
       rows.push({
-        participantId: m.participantId,
-        displayName: person?.displayName ?? "Participant",
+        participantId: entry.participantId,
+        entryId: entry._id,
+        displayName: entryDisplayName(
+          person?.displayName ?? "Participant",
+          displayIndexes.get(entry._id) ?? 1,
+        ),
         avatarUrl: person?.avatarUrl ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
         eliminatedWeek: standing?.eliminatedWeek ?? null,
         eliminationReason: standing?.eliminationReason ?? null,
         wonAtWeek: standing?.wonAtWeek ?? null,
-        isViewer: m.participantId === participant._id,
+        isViewer: entry.participantId === participant._id,
       });
     }
 
@@ -911,21 +941,11 @@ export const getSurvivorStandingsGrid = query({
       throw error;
     }
 
-    const memberships = (
-      await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120)
-    ).filter((m) => m.status === "active");
+    const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
-    const pickByParticipantWeek = new Map<
-      string,
-      Doc<"survivorPicks">
-    >();
-    const outcomeByParticipantWeek = new Map<
-      string,
-      Doc<"survivorPickOutcomes">
-    >();
+    const pickByEntryWeek = new Map<string, Doc<"survivorPicks">>();
+    const outcomeByEntryWeek = new Map<string, Doc<"survivorPickOutcomes">>();
     let maxActivityWeek = pool.startWeek;
 
     for (let week = pool.startWeek; week <= SURVIVOR_FINAL_WEEK; week++) {
@@ -934,9 +954,10 @@ export const getSurvivorStandingsGrid = query({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", week),
         )
-        .take(200);
+        .take(MAX_POOL_ENTRIES);
       for (const pick of weekPicks) {
-        pickByParticipantWeek.set(`${pick.participantId}:${week}`, pick);
+        if (pick.entryId === undefined) continue;
+        pickByEntryWeek.set(`${pick.entryId}:${week}`, pick);
         if (week > maxActivityWeek) maxActivityWeek = week;
       }
 
@@ -945,12 +966,10 @@ export const getSurvivorStandingsGrid = query({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", week),
         )
-        .take(200);
+        .take(MAX_POOL_ENTRIES);
       for (const outcome of weekOutcomes) {
-        outcomeByParticipantWeek.set(
-          `${outcome.participantId}:${week}`,
-          outcome,
-        );
+        if (outcome.entryId === undefined) continue;
+        outcomeByEntryWeek.set(`${outcome.entryId}:${week}`, outcome);
         if (week > maxActivityWeek) maxActivityWeek = week;
       }
     }
@@ -994,21 +1013,21 @@ export const getSurvivorStandingsGrid = query({
     }
 
     const rows = [];
-    for (const m of memberships) {
+    for (const entry of entries) {
       const standing = await ctx.db
         .query("seasonStandings")
-        .withIndex("by_poolId_and_participantId", (q) =>
-          q.eq("poolId", pool._id).eq("participantId", m.participantId),
+        .withIndex("by_poolId_and_entryId", (q) =>
+          q.eq("poolId", pool._id).eq("entryId", entry._id),
         )
         .unique();
-      const person = await ctx.db.get(m.participantId);
-      const isViewer = m.participantId === participant._id;
+      const person = await ctx.db.get(entry.participantId);
+      const isViewer = entry.participantId === participant._id;
 
       const cells: SurvivorStandingsGridCell[] = [];
       for (const week of weeks) {
-        const key = `${m.participantId}:${week}`;
-        const pick = pickByParticipantWeek.get(key);
-        const outcomeDoc = outcomeByParticipantWeek.get(key);
+        const key = `${entry._id}:${week}`;
+        const pick = pickByEntryWeek.get(key);
+        const outcomeDoc = outcomeByEntryWeek.get(key);
         const hasPick =
           pick !== undefined &&
           pick.provenance === "authored" &&
@@ -1044,8 +1063,12 @@ export const getSurvivorStandingsGrid = query({
       }
 
       rows.push({
-        participantId: m.participantId,
-        displayName: person?.displayName ?? "Participant",
+        participantId: entry.participantId,
+        entryId: entry._id,
+        displayName: entryDisplayName(
+          person?.displayName ?? "Participant",
+          displayIndexes.get(entry._id) ?? 1,
+        ),
         avatarUrl: person?.avatarUrl ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
         eliminatedWeek: standing?.eliminatedWeek ?? null,

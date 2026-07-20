@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { resolveBoardWeek } from "./myPoolsStatus";
+import { aggregatePickStatuses, resolveBoardWeek } from "./myPoolsStatus";
+
+describe("aggregatePickStatuses", () => {
+  it("needs_pick when any eligible entry still needs a pick", () => {
+    expect(
+      aggregatePickStatuses(["pick_saved", "needs_pick", "pick_locked"]),
+    ).toBe("needs_pick");
+  });
+
+  it("pick_locked only when every eligible entry is locked", () => {
+    expect(aggregatePickStatuses(["pick_locked", "not_eligible"])).toBe(
+      "pick_locked",
+    );
+  });
+
+  it("not_eligible when every entry is done", () => {
+    expect(
+      aggregatePickStatuses(["not_eligible", "not_eligible"]),
+    ).toBe("not_eligible");
+  });
+});
 
 describe("resolveBoardWeek", () => {
   it("returns startWeek when the season has no games", () => {

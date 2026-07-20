@@ -190,13 +190,17 @@ export default defineSchema({
     createdAtMs: v.number(),
     /**
      * Latched when membership admission first closes (Start Week earliest
-     * kickoff reached). A later reschedule never clears this — admission
-     * never reopens.
+     * kickoff reached). A later reschedule never reopens.
      */
     admissionClosedAtMs: v.optional(v.number()),
     /** Set when Survivor (or later Confidence) reaches a terminal outcome. */
     completedAtMs: v.optional(v.number()),
     completedWeek: v.optional(v.number()),
+    /**
+     * Max active competitive entries per participant (1–10).
+     * Absent means 1 (legacy / default single-entry pools).
+     */
+    maxEntriesPerUser: v.optional(v.number()),
   })
     .index("by_ownerParticipantId", ["ownerParticipantId"])
     .index("by_seasonId", ["seasonId"]),
@@ -218,6 +222,26 @@ export default defineSchema({
     .index("by_participantId", ["participantId"])
     .index("by_poolId", ["poolId"])
     .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+
+  /**
+   * Competitive Pool Entry under a membership. Picks/standings key off entryId.
+   * Membership remains the auth/role seat (one per participant per pool).
+   */
+  poolEntries: defineTable({
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+    membershipId: v.id("poolMemberships"),
+    /** 1-based label index for display: Name, Name (2), … */
+    entryNumber: v.number(),
+    status: v.union(v.literal("active"), v.literal("ended")),
+    createdAtMs: v.number(),
+    endedAtMs: v.optional(v.number()),
+  })
+    .index("by_poolId", ["poolId"])
+    .index("by_poolId_and_status", ["poolId", "status"])
+    .index("by_poolId_and_participantId", ["poolId", "participantId"])
+    .index("by_membershipId", ["membershipId"])
+    .index("by_participantId", ["participantId"]),
 
   /**
    * Pending ownership offer — only to a current Pool Admin. Current Owner
@@ -474,12 +498,14 @@ export default defineSchema({
     ]),
 
   /**
-   * Survivor Pick — one team per participant per included week.
+   * Survivor Pick — one team per entry per included week.
    * Unlocked rows are Hidden Picks: never expose nflTeamId to non-authors.
    */
   survivorPicks: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    /** Competitive identity; required on new writes. */
+    entryId: v.optional(v.id("poolEntries")),
     week: v.number(),
     /** Absent for locked omissions (no team was chosen). */
     nflTeamId: v.optional(v.id("nflTeams")),
@@ -502,17 +528,19 @@ export default defineSchema({
       "participantId",
       "week",
     ])
+    .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
     .index("by_poolId_and_week", ["poolId", "week"])
-    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+    .index("by_poolId_and_participantId", ["poolId", "participantId"])
+    .index("by_entryId", ["entryId"]),
 
   /**
-   * One-use team reservation for Survivor. Unlocked pick changes release the
-   * prior reservation and reserve the new team. Locked / still-valid picks
-   * keep released=false.
+   * One-use team reservation for Survivor (per entry). Unlocked pick changes
+   * release the prior reservation and reserve the new team.
    */
   survivorTeamReservations: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     nflTeamId: v.id("nflTeams"),
     week: v.number(),
     released: v.boolean(),
@@ -523,7 +551,13 @@ export default defineSchema({
       "participantId",
       "nflTeamId",
     ])
-    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+    .index("by_poolId_and_entryId_and_nflTeamId", [
+      "poolId",
+      "entryId",
+      "nflTeamId",
+    ])
+    .index("by_poolId_and_participantId", ["poolId", "participantId"])
+    .index("by_entryId", ["entryId"]),
 
   /**
    * Frozen Confidence Pick Sheet for one Pool Week — identical for every
@@ -542,12 +576,13 @@ export default defineSchema({
   }).index("by_poolId_and_week", ["poolId", "week"]),
 
   /**
-   * Per-participant Confidence Pick Set for one Pool Week.
+   * Per-entry Confidence Pick Set for one Pool Week.
    * origin=untouched until first accepted edit or Automatic materialization.
    */
   confidencePickSets: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     week: v.number(),
     origin: v.union(
       v.literal("untouched"),
@@ -564,7 +599,9 @@ export default defineSchema({
       "participantId",
       "week",
     ])
-    .index("by_poolId_and_week", ["poolId", "week"]),
+    .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_entryId", ["entryId"]),
 
   /**
    * One Required Confidence Game row within a Confidence Pick Set.
@@ -573,6 +610,7 @@ export default defineSchema({
   confidencePicks: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     week: v.number(),
     pickSetId: v.id("confidencePickSets"),
     gameId: v.id("nflGames"),
@@ -594,8 +632,10 @@ export default defineSchema({
       "participantId",
       "week",
     ])
+    .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
     .index("by_poolId_and_week_and_gameId", ["poolId", "week", "gameId"])
-    .index("by_poolId_and_week", ["poolId", "week"]),
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_entryId", ["entryId"]),
 
   /**
    * Pool Week lifecycle + current Scoring Revision pointer.
@@ -638,6 +678,7 @@ export default defineSchema({
   survivorPickOutcomes: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     week: v.number(),
     pickId: v.optional(v.id("survivorPicks")),
     outcome: v.union(
@@ -657,15 +698,17 @@ export default defineSchema({
       "poolId",
       "participantId",
       "week",
-    ]),
+    ])
+    .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"]),
 
   /**
    * Confidence pick outcome projection — one row per Required Confidence Game
-   * per participant, published atomically with a Scoring Revision.
+   * per entry, published atomically with a Scoring Revision.
    */
   confidencePickOutcomes: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     week: v.number(),
     gameId: v.id("nflGames"),
     pickId: v.optional(v.id("confidencePicks")),
@@ -693,6 +736,12 @@ export default defineSchema({
       "participantId",
       "week",
       "gameId",
+    ])
+    .index("by_poolId_and_entryId_and_week_and_gameId", [
+      "poolId",
+      "entryId",
+      "week",
+      "gameId",
     ]),
 
   /**
@@ -702,6 +751,7 @@ export default defineSchema({
   weeklyStandings: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     week: v.number(),
     points: v.number(),
     possibleRemainingPoints: v.number(),
@@ -718,16 +768,18 @@ export default defineSchema({
       "poolId",
       "participantId",
       "week",
-    ]),
+    ])
+    .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"]),
 
   /**
-   * Season Standing / Survivor eligibility projection — one row per member.
+   * Season Standing / Survivor eligibility projection — one row per entry.
    * Rebuildable from Verified Results + picks; never an authoritative input.
    * Confidence: seasonPoints/seasonRank advance only from fully resolved weeks.
    */
   seasonStandings: defineTable({
     poolId: v.id("pools"),
     participantId: v.id("participants"),
+    entryId: v.optional(v.id("poolEntries")),
     eligibility: v.union(
       v.literal("alive"),
       v.literal("eliminated"),
@@ -750,5 +802,6 @@ export default defineSchema({
     updatedAtMs: v.number(),
   })
     .index("by_poolId", ["poolId"])
-    .index("by_poolId_and_participantId", ["poolId", "participantId"]),
+    .index("by_poolId_and_participantId", ["poolId", "participantId"])
+    .index("by_poolId_and_entryId", ["poolId", "entryId"]),
 });

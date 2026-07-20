@@ -1,10 +1,17 @@
 /**
  * Compact My Pools membership status — board week, pick readiness, standing.
- * Scoped reads only (one week + season standing row); never entire-season picks.
+ * Scoped reads only (one week + season standing rows); never entire-season picks.
+ * Competitive identity is pool entry — status aggregates across the viewer's
+ * active entries in the pool.
  */
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import {
+  listActiveEntriesForParticipant,
+  listActivePoolEntries,
+} from "./poolEntries";
+import { MAX_ENTRIES_PER_USER, MAX_POOL_ENTRIES } from "./quotas";
 
 export type MyPoolsPickStatus =
   | "needs_pick"
@@ -85,51 +92,93 @@ export async function loadEarliestKickoffByWeek(
   return earliestByWeek;
 }
 
-async function countActiveMembers(
+async function loadEntryStandings(
   ctx: QueryCtx,
   poolId: Id<"pools">,
-): Promise<number> {
-  const rows = await ctx.db
-    .query("poolMemberships")
-    .withIndex("by_poolId", (q) => q.eq("poolId", poolId))
-    .take(120);
-  return rows.filter((m) => m.status === "active").length;
+  entries: Doc<"poolEntries">[],
+): Promise<Map<Id<"poolEntries">, Doc<"seasonStandings">>> {
+  const result = new Map<Id<"poolEntries">, Doc<"seasonStandings">>();
+  for (const entry of entries) {
+    const standing = await ctx.db
+      .query("seasonStandings")
+      .withIndex("by_poolId_and_entryId", (q) =>
+        q.eq("poolId", poolId).eq("entryId", entry._id),
+      )
+      .unique();
+    if (standing) result.set(entry._id, standing);
+  }
+  return result;
 }
 
-async function loadViewerStanding(
-  ctx: QueryCtx,
-  poolId: Id<"pools">,
-  participantId: Id<"participants">,
-): Promise<Doc<"seasonStandings"> | null> {
-  return await ctx.db
-    .query("seasonStandings")
-    .withIndex("by_poolId_and_participantId", (q) =>
-      q.eq("poolId", poolId).eq("participantId", participantId),
-    )
-    .unique();
+function aggregateSurvivorEligibility(
+  standings: Doc<"seasonStandings">[],
+): {
+  eligibility: "alive" | "eliminated" | "winner";
+  eliminatedWeek: number | null;
+} {
+  if (standings.length === 0) {
+    return { eligibility: "alive", eliminatedWeek: null };
+  }
+  if (standings.some((s) => s.eligibility === "alive")) {
+    return { eligibility: "alive", eliminatedWeek: null };
+  }
+  if (standings.some((s) => s.eligibility === "winner")) {
+    return { eligibility: "winner", eliminatedWeek: null };
+  }
+  let earliest: number | null = null;
+  for (const s of standings) {
+    if (s.eliminatedWeek === undefined) continue;
+    if (earliest === null || s.eliminatedWeek < earliest) {
+      earliest = s.eliminatedWeek;
+    }
+  }
+  return { eligibility: "eliminated", eliminatedWeek: earliest };
 }
 
-async function countAliveMembers(
+async function countAliveEntries(
   ctx: QueryCtx,
   poolId: Id<"pools">,
-  memberCount: number,
-): Promise<number> {
+): Promise<{ aliveCount: number; entryCount: number }> {
+  const entries = await listActivePoolEntries(ctx, poolId);
   const standings = await ctx.db
     .query("seasonStandings")
     .withIndex("by_poolId", (q) => q.eq("poolId", poolId))
-    .take(120);
-  const eliminated = standings.filter(
-    (s) => s.eligibility === "eliminated",
-  ).length;
-  // Members without a standing row are treated as Alive.
-  return Math.max(0, memberCount - eliminated);
+    .take(MAX_POOL_ENTRIES);
+  const standingByEntry = new Map(
+    standings
+      .filter((s) => s.entryId !== undefined)
+      .map((s) => [s.entryId!, s] as const),
+  );
+  let aliveCount = 0;
+  for (const entry of entries) {
+    const standing = standingByEntry.get(entry._id);
+    if (!standing || standing.eligibility !== "eliminated") {
+      aliveCount += 1;
+    }
+  }
+  return { aliveCount, entryCount: entries.length };
 }
 
-async function survivorPickStatus(
+/**
+ * Aggregate pick readiness across active entries.
+ * needs_pick if any eligible entry still needs a pick for the board week.
+ */
+export function aggregatePickStatuses(
+  statuses: MyPoolsPickStatus[],
+): MyPoolsPickStatus {
+  if (statuses.length === 0) return "needs_pick";
+  if (statuses.every((s) => s === "not_eligible")) return "not_eligible";
+  const eligible = statuses.filter((s) => s !== "not_eligible");
+  if (eligible.some((s) => s === "needs_pick")) return "needs_pick";
+  if (eligible.every((s) => s === "pick_locked")) return "pick_locked";
+  return "pick_saved";
+}
+
+async function survivorPickStatusForEntry(
   ctx: QueryCtx,
   args: {
     poolId: Id<"pools">;
-    participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     boardWeek: number;
     eligibility: "alive" | "eliminated" | "winner";
   },
@@ -139,10 +188,10 @@ async function survivorPickStatus(
   }
   const pick = await ctx.db
     .query("survivorPicks")
-    .withIndex("by_poolId_and_participantId_and_week", (q) =>
+    .withIndex("by_poolId_and_entryId_and_week", (q) =>
       q
         .eq("poolId", args.poolId)
-        .eq("participantId", args.participantId)
+        .eq("entryId", args.entryId)
         .eq("week", args.boardWeek),
     )
     .unique();
@@ -152,20 +201,20 @@ async function survivorPickStatus(
   return pick.locked ? "pick_locked" : "pick_saved";
 }
 
-async function confidencePickStatus(
+async function confidencePickStatusForEntry(
   ctx: QueryCtx,
   args: {
     poolId: Id<"pools">;
-    participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     boardWeek: number;
   },
 ): Promise<MyPoolsPickStatus> {
   const set = await ctx.db
     .query("confidencePickSets")
-    .withIndex("by_poolId_and_participantId_and_week", (q) =>
+    .withIndex("by_poolId_and_entryId_and_week", (q) =>
       q
         .eq("poolId", args.poolId)
-        .eq("participantId", args.participantId)
+        .eq("entryId", args.entryId)
         .eq("week", args.boardWeek),
     )
     .unique();
@@ -206,48 +255,90 @@ export async function buildMembershipStatus(
     boardWeek: number;
   },
 ): Promise<MyPoolsMembershipStatus> {
-  const memberCount = await countActiveMembers(ctx, args.pool._id);
-  const standingRow = await loadViewerStanding(
+  const entries = await listActiveEntriesForParticipant(
     ctx,
     args.pool._id,
     args.participantId,
+  );
+  // Legacy memberships without entries yet: treat as needing a pick / alive.
+  const entryStandings = await loadEntryStandings(
+    ctx,
+    args.pool._id,
+    entries,
   );
 
   let standing: MyPoolsStanding;
   let pickStatus: MyPoolsPickStatus;
 
   if (args.pool.type === "survivor") {
-    const eligibility = standingRow?.eligibility ?? "alive";
-    const aliveCount = await countAliveMembers(
+    const { aliveCount, entryCount } = await countAliveEntries(
       ctx,
       args.pool._id,
-      memberCount,
     );
+    const aggregated = aggregateSurvivorEligibility([
+      ...entryStandings.values(),
+    ]);
     standing = {
       kind: "survivor",
-      eligibility,
-      eliminatedWeek: standingRow?.eliminatedWeek ?? null,
+      eligibility: aggregated.eligibility,
+      eliminatedWeek: aggregated.eliminatedWeek,
       aliveCount,
-      memberCount,
+      memberCount: entryCount,
     };
-    pickStatus = await survivorPickStatus(ctx, {
-      poolId: args.pool._id,
-      participantId: args.participantId,
-      boardWeek: args.boardWeek,
-      eligibility,
-    });
+
+    if (entries.length === 0) {
+      pickStatus = "needs_pick";
+    } else {
+      const perEntry: MyPoolsPickStatus[] = [];
+      for (const entry of entries) {
+        const row = entryStandings.get(entry._id);
+        const eligibility = row?.eligibility ?? "alive";
+        perEntry.push(
+          await survivorPickStatusForEntry(ctx, {
+            poolId: args.pool._id,
+            entryId: entry._id,
+            boardWeek: args.boardWeek,
+            eligibility,
+          }),
+        );
+      }
+      pickStatus = aggregatePickStatuses(perEntry);
+    }
   } else {
+    const poolEntries = await listActivePoolEntries(ctx, args.pool._id);
+    let bestRank: number | null = null;
+    let bestPoints = 0;
+    for (const row of entryStandings.values()) {
+      const points = row.seasonPoints ?? 0;
+      if (points > bestPoints) bestPoints = points;
+      if (row.seasonRank !== undefined) {
+        if (bestRank === null || row.seasonRank < bestRank) {
+          bestRank = row.seasonRank;
+        }
+      }
+    }
     standing = {
       kind: "confidence",
-      seasonRank: standingRow?.seasonRank ?? null,
-      seasonPoints: standingRow?.seasonPoints ?? 0,
-      memberCount,
+      seasonRank: bestRank,
+      seasonPoints: bestPoints,
+      memberCount: poolEntries.length,
     };
-    pickStatus = await confidencePickStatus(ctx, {
-      poolId: args.pool._id,
-      participantId: args.participantId,
-      boardWeek: args.boardWeek,
-    });
+
+    if (entries.length === 0) {
+      pickStatus = "needs_pick";
+    } else {
+      const perEntry: MyPoolsPickStatus[] = [];
+      for (const entry of entries.slice(0, MAX_ENTRIES_PER_USER)) {
+        perEntry.push(
+          await confidencePickStatusForEntry(ctx, {
+            poolId: args.pool._id,
+            entryId: entry._id,
+            boardWeek: args.boardWeek,
+          }),
+        );
+      }
+      pickStatus = aggregatePickStatuses(perEntry);
+    }
   }
 
   return {

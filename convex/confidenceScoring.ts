@@ -19,6 +19,13 @@ import {
   isConfidenceGameLocked,
 } from "./lib/pickLock";
 import {
+  displayIndexByEntryId,
+  ensurePrimaryEntryIfMissing,
+  entryDisplayName,
+  listActivePoolEntries,
+} from "./lib/poolEntries";
+import { MAX_POOL_ENTRIES } from "./lib/quotas";
+import {
   CONFIDENCE_FINAL_WEEK,
   buildConfidenceWeekFingerprint,
   computePossibleRemainingPoints,
@@ -108,18 +115,20 @@ async function loadOrInitSeasonStanding(
   ctx: MutationCtx,
   poolId: Id<"pools">,
   participantId: Id<"participants">,
+  entryId: Id<"poolEntries">,
   nowMs: number,
 ): Promise<Doc<"seasonStandings">> {
   const existing = await ctx.db
     .query("seasonStandings")
-    .withIndex("by_poolId_and_participantId", (q) =>
-      q.eq("poolId", poolId).eq("participantId", participantId),
+    .withIndex("by_poolId_and_entryId", (q) =>
+      q.eq("poolId", poolId).eq("entryId", entryId),
     )
     .unique();
   if (existing) return existing;
   const id = await ctx.db.insert("seasonStandings", {
     poolId,
     participantId,
+    entryId,
     eligibility: "alive",
     seasonPoints: 0,
     seasonRank: 1,
@@ -135,6 +144,7 @@ async function upsertPickOutcome(
   args: {
     poolId: Id<"pools">;
     participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     week: number;
     gameId: Id<"nflGames">;
     pickId?: Id<"confidencePicks">;
@@ -147,10 +157,10 @@ async function upsertPickOutcome(
 ) {
   const existing = await ctx.db
     .query("confidencePickOutcomes")
-    .withIndex("by_poolId_and_participantId_and_week_and_gameId", (q) =>
+    .withIndex("by_poolId_and_entryId_and_week_and_gameId", (q) =>
       q
         .eq("poolId", args.poolId)
-        .eq("participantId", args.participantId)
+        .eq("entryId", args.entryId)
         .eq("week", args.week)
         .eq("gameId", args.gameId),
     )
@@ -162,6 +172,7 @@ async function upsertPickOutcome(
     confidenceValue: args.confidenceValue,
     revisionId: args.revisionId,
     updatedAtMs: args.nowMs,
+    entryId: args.entryId,
   };
   if (existing) {
     await ctx.db.patch(existing._id, patch);
@@ -181,6 +192,7 @@ async function upsertWeeklyStanding(
   args: {
     poolId: Id<"pools">;
     participantId: Id<"participants">;
+    entryId: Id<"poolEntries">;
     week: number;
     points: number;
     possibleRemainingPoints: number;
@@ -195,10 +207,10 @@ async function upsertWeeklyStanding(
 ) {
   const existing = await ctx.db
     .query("weeklyStandings")
-    .withIndex("by_poolId_and_participantId_and_week", (q) =>
+    .withIndex("by_poolId_and_entryId_and_week", (q) =>
       q
         .eq("poolId", args.poolId)
-        .eq("participantId", args.participantId)
+        .eq("entryId", args.entryId)
         .eq("week", args.week),
     )
     .unique();
@@ -212,6 +224,7 @@ async function upsertWeeklyStanding(
     tiebreakerUsable: args.tiebreakerUsable,
     revisionId: args.revisionId,
     updatedAtMs: args.nowMs,
+    entryId: args.entryId,
   };
   if (existing) {
     await ctx.db.patch(existing._id, fields);
@@ -262,11 +275,28 @@ export const applyConfidenceScoringRevision = internalMutation({
       await ctx.db
         .query("poolMemberships")
         .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120)
+        .take(MAX_POOL_ENTRIES)
     ).filter((m) => m.status === "active");
 
     for (const m of memberships) {
-      await loadOrInitSeasonStanding(ctx, pool._id, m.participantId, nowMs);
+      await ensurePrimaryEntryIfMissing(ctx, {
+        poolId: pool._id,
+        participantId: m.participantId,
+        membershipId: m._id,
+        nowMs,
+      });
+    }
+
+    const entries = await listActivePoolEntries(ctx, pool._id);
+
+    for (const entry of entries) {
+      await loadOrInitSeasonStanding(
+        ctx,
+        pool._id,
+        entry.participantId,
+        entry._id,
+        nowMs,
+      );
     }
 
     const games = await loadWeekGames(ctx, pool.seasonId, args.week);
@@ -285,24 +315,27 @@ export const applyConfidenceScoringRevision = internalMutation({
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", args.week),
       )
-      .take(2000);
+      .take(MAX_POOL_ENTRIES * 64);
 
     const allSets = await ctx.db
       .query("confidencePickSets")
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", args.week),
       )
-      .take(200);
+      .take(MAX_POOL_ENTRIES);
 
-    const setByParticipant = new Map(
-      allSets.map((s) => [s.participantId, s] as const),
-    );
+    const setByEntry = new Map<Id<"poolEntries">, Doc<"confidencePickSets">>();
+    for (const s of allSets) {
+      if (s.entryId !== undefined) {
+        setByEntry.set(s.entryId, s);
+      }
+    }
 
     const fingerprint = buildConfidenceWeekFingerprint({
       poolId: pool._id,
       week: args.week,
       picks: allPicks.map((p) => ({
-        participantId: p.participantId,
+        participantId: (p.entryId ?? p.participantId) as string,
         gameId: p.gameId,
         pickedTeamId: p.pickedTeamId,
         confidenceValue: p.confidenceValue,
@@ -310,7 +343,7 @@ export const applyConfidenceScoringRevision = internalMutation({
         locked: locks.get(p.gameId) ?? p.locked,
       })),
       pickSets: allSets.map((s) => ({
-        participantId: s.participantId,
+        participantId: (s.entryId ?? s.participantId) as string,
         tiebreakerPrediction: s.tiebreakerPrediction,
       })),
       verifiedGames: games
@@ -412,7 +445,8 @@ export const applyConfidenceScoringRevision = internalMutation({
     const tbActual = tbGame ? tiebreakerActualTotal(toVerifiedInput(tbGame)) : null;
     const tbUsable = tbActual !== null;
 
-    type ParticipantWeek = {
+    type EntryWeek = {
+      entryId: Id<"poolEntries">;
       participantId: Id<"participants">;
       points: number;
       possibleRemaining: number;
@@ -427,12 +461,12 @@ export const applyConfidenceScoringRevision = internalMutation({
       }>;
     };
 
-    const participantWeeks: ParticipantWeek[] = [];
+    const entryWeeks: EntryWeek[] = [];
 
-    for (const m of memberships) {
-      const picks = allPicks.filter((p) => p.participantId === m.participantId);
-      const pickSet = setByParticipant.get(m.participantId);
-      const outcomes: ParticipantWeek["outcomes"] = [];
+    for (const entry of entries) {
+      const picks = allPicks.filter((p) => p.entryId === entry._id);
+      const pickSet = setByEntry.get(entry._id);
+      const outcomes: EntryWeek["outcomes"] = [];
       const remainingRows: Array<{
         pick: {
           gameId: string;
@@ -488,8 +522,9 @@ export const applyConfidenceScoringRevision = internalMutation({
         remainingRows.push({ pick: pickInput, game: gameInput });
       }
 
-      participantWeeks.push({
-        participantId: m.participantId,
+      entryWeeks.push({
+        entryId: entry._id,
+        participantId: entry.participantId,
         points: computeWeeklyPoints(outcomes),
         possibleRemaining: computePossibleRemainingPoints(remainingRows),
         correctPickCount: outcomes.filter((o) => o.outcome === "correct")
@@ -500,22 +535,23 @@ export const applyConfidenceScoringRevision = internalMutation({
     }
 
     const ranked = rankWeeklyStandings(
-      participantWeeks.map((pw) => ({
-        participantId: pw.participantId as string,
-        points: pw.points,
-        tiebreakerPrediction: pw.tiebreakerPrediction,
+      entryWeeks.map((ew) => ({
+        participantId: ew.entryId as string,
+        points: ew.points,
+        tiebreakerPrediction: ew.tiebreakerPrediction,
       })),
       { actualTotal: tbActual, usable: tbUsable },
     );
-    const rankById = new Map(
-      ranked.map((r) => [r.participantId as Id<"participants">, r.rank]),
+    const rankByEntry = new Map(
+      ranked.map((r) => [r.participantId as Id<"poolEntries">, r.rank]),
     );
 
-    for (const pw of participantWeeks) {
-      for (const o of pw.outcomes) {
+    for (const ew of entryWeeks) {
+      for (const o of ew.outcomes) {
         await upsertPickOutcome(ctx, {
           poolId: pool._id,
-          participantId: pw.participantId,
+          participantId: ew.participantId,
+          entryId: ew.entryId,
           week: args.week,
           gameId: o.gameId,
           pickId: o.pickId,
@@ -530,19 +566,20 @@ export const applyConfidenceScoringRevision = internalMutation({
       const absError =
         tbUsable &&
         tbActual !== null &&
-        pw.tiebreakerPrediction !== null
-          ? Math.abs(pw.tiebreakerPrediction - tbActual)
+        ew.tiebreakerPrediction !== null
+          ? Math.abs(ew.tiebreakerPrediction - tbActual)
           : undefined;
 
       await upsertWeeklyStanding(ctx, {
         poolId: pool._id,
-        participantId: pw.participantId,
+        participantId: ew.participantId,
+        entryId: ew.entryId,
         week: args.week,
-        points: pw.points,
-        possibleRemainingPoints: pw.possibleRemaining,
-        rank: rankById.get(pw.participantId) ?? 1,
-        correctPickCount: pw.correctPickCount,
-        tiebreakerPrediction: pw.tiebreakerPrediction ?? undefined,
+        points: ew.points,
+        possibleRemainingPoints: ew.possibleRemaining,
+        rank: rankByEntry.get(ew.entryId) ?? 1,
+        correctPickCount: ew.correctPickCount,
+        tiebreakerPrediction: ew.tiebreakerPrediction ?? undefined,
         tiebreakerAbsError: absError,
         tiebreakerUsable: tbUsable,
         revisionId,
@@ -551,9 +588,9 @@ export const applyConfidenceScoringRevision = internalMutation({
     }
 
     // Rebuild Season Standing from all fully settled weeks through this week.
-    const settledWeekPoints = new Map<Id<"participants">, number>();
-    for (const m of memberships) {
-      settledWeekPoints.set(m.participantId, 0);
+    const settledWeekPoints = new Map<Id<"poolEntries">, number>();
+    for (const entry of entries) {
+      settledWeekPoints.set(entry._id, 0);
     }
 
     for (let w = pool.startWeek; w <= CONFIDENCE_FINAL_WEEK; w++) {
@@ -569,10 +606,10 @@ export const applyConfidenceScoringRevision = internalMutation({
       if (!settled) continue;
 
       if (w === args.week) {
-        for (const row of participantWeeks) {
+        for (const row of entryWeeks) {
           settledWeekPoints.set(
-            row.participantId,
-            (settledWeekPoints.get(row.participantId) ?? 0) + row.points,
+            row.entryId,
+            (settledWeekPoints.get(row.entryId) ?? 0) + row.points,
           );
         }
       } else {
@@ -581,27 +618,25 @@ export const applyConfidenceScoringRevision = internalMutation({
           .withIndex("by_poolId_and_week", (q) =>
             q.eq("poolId", pool._id).eq("week", w),
           )
-          .take(200);
+          .take(MAX_POOL_ENTRIES);
         for (const row of weekRows) {
+          if (row.entryId === undefined) continue;
           settledWeekPoints.set(
-            row.participantId,
-            (settledWeekPoints.get(row.participantId) ?? 0) + row.points,
+            row.entryId,
+            (settledWeekPoints.get(row.entryId) ?? 0) + row.points,
           );
         }
       }
     }
 
     const seasonRanked = rankSeasonStandings(
-      [...settledWeekPoints.entries()].map(([participantId, seasonPoints]) => ({
-        participantId: participantId as string,
+      [...settledWeekPoints.entries()].map(([entryId, seasonPoints]) => ({
+        participantId: entryId as string,
         seasonPoints,
       })),
     );
-    const seasonRankById = new Map(
-      seasonRanked.map((r) => [
-        r.participantId as Id<"participants">,
-        r,
-      ]),
+    const seasonRankByEntry = new Map(
+      seasonRanked.map((r) => [r.participantId as Id<"poolEntries">, r]),
     );
 
     let poolStatus: "active" | "completed" = pool.status;
@@ -622,15 +657,15 @@ export const applyConfidenceScoringRevision = internalMutation({
 
     const topSeasonPoints = seasonRanked[0]?.seasonPoints ?? 0;
 
-    for (const m of memberships) {
+    for (const entry of entries) {
       const standing = await ctx.db
         .query("seasonStandings")
-        .withIndex("by_poolId_and_participantId", (q) =>
-          q.eq("poolId", pool._id).eq("participantId", m.participantId),
+        .withIndex("by_poolId_and_entryId", (q) =>
+          q.eq("poolId", pool._id).eq("entryId", entry._id),
         )
         .unique();
       if (!standing) continue;
-      const sr = seasonRankById.get(m.participantId);
+      const sr = seasonRankByEntry.get(entry._id);
       const seasonPoints = sr?.seasonPoints ?? 0;
       const seasonRank = sr?.rank ?? 1;
       const isWinner =
@@ -641,6 +676,7 @@ export const applyConfidenceScoringRevision = internalMutation({
         seasonRank,
         eligibility: isWinner ? "winner" : "alive",
         wonAtWeek: isWinner ? CONFIDENCE_FINAL_WEEK : undefined,
+        entryId: entry._id,
         revisionId,
         updatedAtMs: nowMs,
       });
@@ -734,12 +770,8 @@ export const getConfidenceStandings = query({
     }
 
     const week = args.week ?? pool.startWeek;
-    const memberships = (
-      await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120)
-    ).filter((m) => m.status === "active");
+    const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const poolWeek = await ctx.db
       .query("poolWeeks")
@@ -753,21 +785,25 @@ export const getConfidenceStandings = query({
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", week),
       )
-      .take(200);
+      .take(MAX_POOL_ENTRIES);
 
     const weekly = [];
-    for (const m of memberships) {
-      const row = weeklyRows.find((r) => r.participantId === m.participantId);
-      const person = await ctx.db.get(m.participantId);
+    for (const entry of entries) {
+      const row = weeklyRows.find((r) => r.entryId === entry._id);
+      const person = await ctx.db.get(entry.participantId);
       weekly.push({
-        participantId: m.participantId,
-        displayName: person?.displayName ?? "Participant",
+        participantId: entry.participantId,
+        entryId: entry._id,
+        displayName: entryDisplayName(
+          person?.displayName ?? "Participant",
+          displayIndexes.get(entry._id) ?? 1,
+        ),
         avatarUrl: person?.avatarUrl ?? null,
         points: row?.points ?? 0,
         possibleRemainingPoints: row?.possibleRemainingPoints ?? 0,
         rank: row?.rank ?? null,
         correctPickCount: row?.correctPickCount ?? 0,
-        isViewer: m.participantId === participant._id,
+        isViewer: entry.participantId === participant._id,
       });
     }
     weekly.sort((a, b) => {
@@ -778,11 +814,11 @@ export const getConfidenceStandings = query({
       return a.displayName.localeCompare(b.displayName);
     });
 
-    const seasonWins = new Map<Id<"participants">, number>();
-    const seasonLosses = new Map<Id<"participants">, number>();
-    for (const m of memberships) {
-      seasonWins.set(m.participantId, 0);
-      seasonLosses.set(m.participantId, 0);
+    const seasonWins = new Map<Id<"poolEntries">, number>();
+    const seasonLosses = new Map<Id<"poolEntries">, number>();
+    for (const entry of entries) {
+      seasonWins.set(entry._id, 0);
+      seasonLosses.set(entry._id, 0);
     }
     for (let w = pool.startWeek; w <= 18; w++) {
       const weekOutcomes = await ctx.db
@@ -790,44 +826,49 @@ export const getConfidenceStandings = query({
         .withIndex("by_poolId_and_week", (q) =>
           q.eq("poolId", pool._id).eq("week", w),
         )
-        .take(4096);
+        .take(MAX_POOL_ENTRIES * 64);
       for (const outcome of weekOutcomes) {
+        if (outcome.entryId === undefined) continue;
         if (outcome.outcome === "correct") {
           seasonWins.set(
-            outcome.participantId,
-            (seasonWins.get(outcome.participantId) ?? 0) + 1,
+            outcome.entryId,
+            (seasonWins.get(outcome.entryId) ?? 0) + 1,
           );
         } else if (
           outcome.outcome === "incorrect" ||
           outcome.outcome === "omission_zero"
         ) {
           seasonLosses.set(
-            outcome.participantId,
-            (seasonLosses.get(outcome.participantId) ?? 0) + 1,
+            outcome.entryId,
+            (seasonLosses.get(outcome.entryId) ?? 0) + 1,
           );
         }
       }
     }
 
     const season = [];
-    for (const m of memberships) {
+    for (const entry of entries) {
       const standing = await ctx.db
         .query("seasonStandings")
-        .withIndex("by_poolId_and_participantId", (q) =>
-          q.eq("poolId", pool._id).eq("participantId", m.participantId),
+        .withIndex("by_poolId_and_entryId", (q) =>
+          q.eq("poolId", pool._id).eq("entryId", entry._id),
         )
         .unique();
-      const person = await ctx.db.get(m.participantId);
+      const person = await ctx.db.get(entry.participantId);
       season.push({
-        participantId: m.participantId,
-        displayName: person?.displayName ?? "Participant",
+        participantId: entry.participantId,
+        entryId: entry._id,
+        displayName: entryDisplayName(
+          person?.displayName ?? "Participant",
+          displayIndexes.get(entry._id) ?? 1,
+        ),
         avatarUrl: person?.avatarUrl ?? null,
         seasonPoints: standing?.seasonPoints ?? 0,
         seasonRank: standing?.seasonRank ?? null,
         eligibility: standing?.eligibility ?? ("alive" as const),
-        wins: seasonWins.get(m.participantId) ?? 0,
-        losses: seasonLosses.get(m.participantId) ?? 0,
-        isViewer: m.participantId === participant._id,
+        wins: seasonWins.get(entry._id) ?? 0,
+        losses: seasonLosses.get(entry._id) ?? 0,
+        isViewer: entry.participantId === participant._id,
       });
     }
     season.sort((a, b) => {
@@ -912,26 +953,26 @@ export const getConfidenceStandingsPeek = query({
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", week),
       )
-      .take(200);
+      .take(MAX_POOL_ENTRIES);
 
-    const memberships = (
-      await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(120)
-    ).filter((m) => m.status === "active");
+    const entries = await listActivePoolEntries(ctx, pool._id);
+    const displayIndexes = displayIndexByEntryId(entries);
 
     const rows = [];
-    for (const m of memberships) {
-      const row = weeklyRows.find((r) => r.participantId === m.participantId);
-      const person = await ctx.db.get(m.participantId);
+    for (const entry of entries) {
+      const row = weeklyRows.find((r) => r.entryId === entry._id);
+      const person = await ctx.db.get(entry.participantId);
       rows.push({
-        participantId: m.participantId,
-        displayName: person?.displayName ?? "Participant",
+        participantId: entry.participantId,
+        entryId: entry._id,
+        displayName: entryDisplayName(
+          person?.displayName ?? "Participant",
+          displayIndexes.get(entry._id) ?? 1,
+        ),
         avatarUrl: person?.avatarUrl ?? null,
         points: row?.points ?? 0,
         rank: row?.rank ?? null,
-        isViewer: m.participantId === participant._id,
+        isViewer: entry.participantId === participant._id,
       });
     }
     rows.sort((a, b) => {
@@ -945,7 +986,7 @@ export const getConfidenceStandingsPeek = query({
     const top5 = rows.slice(0, 5);
     const viewer = rows.find((r) => r.isViewer) ?? null;
     const viewerInTop = viewer
-      ? top5.some((r) => r.participantId === viewer.participantId)
+      ? top5.some((r) => r.entryId === viewer.entryId)
       : true;
 
     return {
