@@ -165,6 +165,9 @@ function CreatePoolWizard({
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedPoolSuccess | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedReturningUrl, setCopiedReturningUrl] = useState<string | null>(
+    null,
+  );
 
   const weeks = startWeeks?.weeks ?? [];
   const templateOptions = (templates ?? []) as PoolTemplate[];
@@ -231,7 +234,21 @@ function CreatePoolWizard({
     try {
       await navigator.clipboard.writeText(created.inviteUrl);
       setCopied(true);
+      setCopiedReturningUrl(null);
       posthog.capture("invite_link_copied", { pool_id: created.poolId });
+    } catch {
+      setError("Could not copy link");
+    }
+  }
+
+  async function copyReturningLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedReturningUrl(url);
+      setCopied(false);
+      if (created) {
+        posthog.capture("invite_link_copied", { pool_id: created.poolId });
+      }
     } catch {
       setError("Could not copy link");
     }
@@ -354,28 +371,16 @@ function CreatePoolWizard({
       {created ? (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-op-secondary">
-            Share this link so others can join. Opening the link alone does not
+            Share an invite so others can join. Opening the link alone does not
             enroll anyone — they must accept.
           </p>
-          <div className="flex flex-col gap-2 rounded-[10px] border border-op-border bg-op-canvas p-3">
-            <code className="break-all text-xs text-op-text">
-              {created.inviteUrl}
-            </code>
-            <p className="text-xs text-op-muted">
-              Expires{" "}
-              {new Intl.DateTimeFormat(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }).format(new Date(created.expiresAtMs))}
-            </p>
-            <button
-              type="button"
-              onClick={() => void copyShareLink()}
-              className="self-start text-sm font-medium text-op-text underline"
-            >
-              {copied ? "Copied" : "Copy link"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void copyShareLink()}
+            className="op-btn op-btn-primary self-start"
+          >
+            {copied ? "Copied" : "Copy link"}
+          </button>
           {created.returningInvites.length > 0 ? (
             <>
               <h3 className="text-sm font-semibold text-op-text">
@@ -385,11 +390,11 @@ function CreatePoolWizard({
                 Person-specific links. Nobody was enrolled automatically; each
                 person must accept their own invite.
               </p>
-              <ul className="flex flex-col gap-3 text-sm">
+              <ul className="flex flex-col gap-2 text-sm">
                 {created.returningInvites.map((row) => (
                   <li
                     key={row.url}
-                    className="rounded-[10px] border border-op-border bg-op-canvas p-3"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-op-border bg-op-canvas px-3 py-2.5"
                   >
                     <p className="font-medium text-op-text">
                       {row.displayName}{" "}
@@ -397,9 +402,13 @@ function CreatePoolWizard({
                         ({row.role === "admin" ? "proposed Admin" : "Member"})
                       </span>
                     </p>
-                    <code className="mt-1 block break-all text-xs text-op-secondary">
-                      {row.url}
-                    </code>
+                    <button
+                      type="button"
+                      onClick={() => void copyReturningLink(row.url)}
+                      className="op-btn op-btn-secondary h-8 px-3 text-xs"
+                    >
+                      {copiedReturningUrl === row.url ? "Copied" : "Copy link"}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -416,7 +425,7 @@ function CreatePoolWizard({
               onClose();
               router.push(`/pools/${created.poolId}`);
             }}
-            className="op-btn op-btn-primary"
+            className="op-btn op-btn-secondary"
           >
             View pool / Make picks
           </button>
@@ -460,6 +469,7 @@ function CreatePoolWizard({
                 <input
                   type="radio"
                   name="createMode"
+                  className="op-radio"
                   checked={mode === "scratch"}
                   onChange={() => {
                     setMode("scratch");
@@ -473,6 +483,7 @@ function CreatePoolWizard({
                 <input
                   type="radio"
                   name="createMode"
+                  className="op-radio"
                   checked={mode === "template"}
                   onChange={() => setMode("template")}
                   disabled={templateOptions.length === 0}
@@ -519,7 +530,7 @@ function CreatePoolWizard({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="rounded-md border border-op-border bg-op-surface"
+                className="op-input op-input-lg"
                 placeholder="Name your pool"
                 autoFocus
               />
@@ -555,6 +566,7 @@ function CreatePoolWizard({
                 <input
                   type="radio"
                   name="type"
+                  className="op-radio"
                   checked={type === "survivor"}
                   onChange={() => setType("survivor")}
                   disabled={mode === "template"}
@@ -565,6 +577,7 @@ function CreatePoolWizard({
                 <input
                   type="radio"
                   name="type"
+                  className="op-radio"
                   checked={type === "confidence"}
                   onChange={() => setType("confidence")}
                   disabled={mode === "template"}
@@ -640,6 +653,7 @@ function CreatePoolWizard({
                 <input
                   type="radio"
                   name="pickLockMode"
+                  className="op-radio"
                   checked={pickLockMode === "gameKickoff"}
                   onChange={() => setPickLockMode("gameKickoff")}
                 />
@@ -649,6 +663,7 @@ function CreatePoolWizard({
                 <input
                   type="radio"
                   name="pickLockMode"
+                  className="op-radio"
                   checked={pickLockMode === "weeklyCutoff"}
                   onChange={() => setPickLockMode("weeklyCutoff")}
                 />

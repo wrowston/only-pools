@@ -201,6 +201,13 @@ body {
   transition: border-color 80ms ease;
 }
 
+.op-input-lg {
+  padding: 0.875rem 1rem;
+  font-size: 1rem;
+  line-height: 1.4;
+  border-radius: var(--op-radius);
+}
+
 .op-input:focus {
   border-color: var(--op-heat-40);
   box-shadow: 0 0 0 3px var(--op-heat-8);
@@ -208,6 +215,14 @@ body {
 
 .op-input::placeholder {
   color: var(--op-muted);
+}
+
+/* Native radios/checkboxes use heat accent instead of browser blue. */
+.op-radio {
+  accent-color: var(--op-ink);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
 }
 
 .op-panel {
