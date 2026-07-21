@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
 import { usePoolChromeName } from "./PoolChrome";
+import { StandingsSkeleton } from "./StandingsSkeleton";
 import {
   SurvivorPickGrid,
   SurvivorWeekBreakdown,
@@ -42,12 +43,7 @@ export function SurvivorStandingsView({
   usePoolChromeName(standings?.poolName);
 
   if (isLoading || standings === undefined) {
-    return (
-      <EmptyState
-        title="Loading standings"
-        description="Fetching Survivor standings…"
-      />
-    );
+    return <StandingsSkeleton />;
   }
 
   if (standings === null) {

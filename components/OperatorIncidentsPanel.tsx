@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { EmptyState } from "./EmptyState";
+import { OperatorIncidentsListSkeleton } from "./OperatorSkeleton";
 
 type IncidentRow = {
   _id: Id<"operatorIncidents">;
@@ -77,7 +78,7 @@ export function OperatorIncidentsPanel() {
         </p>
       ) : null}
       {incidents === undefined ? (
-        <p className="mt-4 text-sm text-op-muted">Loading…</p>
+        <OperatorIncidentsListSkeleton />
       ) : rows.length === 0 ? (
         <EmptyState
           title="No open incidents"
