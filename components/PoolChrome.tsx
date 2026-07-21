@@ -60,6 +60,9 @@ export function usePoolChrome(): PoolChromeContextValue {
 export function usePoolChromeName(poolName: string | undefined) {
   const { setPoolName } = usePoolChrome();
   useEffect(() => {
+    // Keep the prior name while a route's query is still loading so the
+    // persistent shell does not clear/re-render on every Board ↔ Standings switch.
+    if (poolName === undefined) return;
     setPoolName(poolName);
   }, [poolName, setPoolName]);
 }

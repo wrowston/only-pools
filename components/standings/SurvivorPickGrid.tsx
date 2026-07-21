@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef } from "react";
+import { centeredHorizontalScrollLeft } from "@/lib/horizontalScroll";
 import { uiType } from "@/lib/uiType";
 import { ParticipantAvatar } from "./ParticipantAvatar";
 import { StatusChip, eligibilityTone } from "./StatusChip";
@@ -81,13 +82,30 @@ export function SurvivorPickGrid({
   const didInitScrollRef = useRef(false);
 
   useEffect(() => {
+    const container = scrollRef.current;
     const el = headerRefs.current.get(focusWeek);
-    if (!el) return;
-    // Instant align on first paint; smooth only for subsequent week picks.
-    el.scrollIntoView({
+    if (!container || !el) return;
+
+    // Scroll only the overflow-x container. scrollIntoView also adjusts the
+    // document's vertical scroll and hides the persistent Board/Standings chips.
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const nextLeft = centeredHorizontalScrollLeft({
+      containerScrollLeft: container.scrollLeft,
+      containerLeft: containerRect.left,
+      containerWidth: containerRect.width,
+      containerScrollWidth: container.scrollWidth,
+      targetLeft: elRect.left,
+      targetWidth: elRect.width,
+    });
+    if (Math.abs(nextLeft - container.scrollLeft) < 1) {
+      didInitScrollRef.current = true;
+      return;
+    }
+    container.scrollTo({
+      left: nextLeft,
+      // Instant align on first paint; smooth only for subsequent week picks.
       behavior: didInitScrollRef.current ? "smooth" : "auto",
-      inline: "center",
-      block: "nearest",
     });
     didInitScrollRef.current = true;
   }, [focusWeek]);
