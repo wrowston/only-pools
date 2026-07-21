@@ -111,13 +111,13 @@ export default function ShadcnPoolsDemoPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="op-eyebrow">Membership list (Item + Badge)</h2>
-        <ItemGroup className="op-panel gap-0 divide-y divide-op-border px-4">
+        <ItemGroup className="op-panel gap-0 divide-y divide-op-border overflow-hidden p-0">
           {DEMO_MEMBERSHIPS.map((m) => (
             <Item
               key={m.id}
               variant="default"
               size="sm"
-              className="rounded-none border-0 px-0 py-3.5"
+              className="rounded-none border-0 px-4 py-3.5"
             >
               <ItemContent className="gap-1.5">
                 <ItemTitle className="text-op-text">{m.name}</ItemTitle>

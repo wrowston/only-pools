@@ -94,7 +94,7 @@ function MembershipRow({ m }: { m: Membership }) {
     <Item
       variant="default"
       size="sm"
-      className="rounded-none border-0 px-0 py-3.5"
+      className="rounded-none border-0 px-4 py-3.5"
       render={<Link href={`/pools/${m.poolId}`} />}
     >
       <ItemContent className="gap-1.5">
@@ -319,7 +319,7 @@ function MyPoolsHome() {
         <h2 id="memberships-heading" className="op-eyebrow">
           Memberships
         </h2>
-        <ItemGroup className="op-panel gap-0 divide-y divide-op-border px-4">
+        <ItemGroup className="op-panel gap-0 divide-y divide-op-border overflow-hidden p-0">
           {myPools.memberships.map((m) => (
             <MembershipRow key={m.poolId} m={m} />
           ))}
