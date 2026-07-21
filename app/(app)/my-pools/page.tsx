@@ -2,6 +2,7 @@
 
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ArrowUpRightIcon, LayersIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -12,6 +13,14 @@ import {
   eligibilityTone,
   type StatusChipTone,
 } from "@/components/standings";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
@@ -243,21 +252,22 @@ function MyPoolsHome() {
 
   if (myPools.memberships.length === 0) {
     return (
-      <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-medium tracking-tight text-op-text">
-            My Pools
-          </h1>
-        </header>
-        <EmptyState
-          title="No Pools yet"
-          description={
-            myPools.createPoolEnabled
-              ? "Create a Pool for the Available Season, or join one with an invite link."
-              : "You are not in any Pools yet. Create Pool stays disabled until Season Bootstrap finishes and an Available Season exists. You can still join with an invite link."
-          }
-          action={createJoinActions}
-        >
+      <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-12">
+        <Empty className="border border-dashed border-op-border bg-op-surface/60">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <LayersIcon />
+            </EmptyMedia>
+            <EmptyTitle>No Pools yet</EmptyTitle>
+            <EmptyDescription>
+              {myPools.createPoolEnabled
+                ? "Create a Pool for the Available Season, or join one with an invite link."
+                : "You are not in any Pools yet. Create Pool stays disabled until Season Bootstrap finishes and an Available Season exists. You can still join with an invite link."}
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+            {createJoinActions}
+          </EmptyContent>
           {myPools.archivedCount > 0 ? (
             <p className="text-xs text-op-muted">
               {myPools.archivedCount} archived{" "}
@@ -269,8 +279,16 @@ function MyPoolsHome() {
                 Show archived
               </Link>
             </p>
-          ) : null}
-        </EmptyState>
+          ) : (
+            <Link
+              href="/guides/create-a-pool"
+              className="inline-flex items-center gap-1 text-sm text-op-muted transition-colors hover:text-op-text"
+            >
+              Learn how to create a Pool
+              <ArrowUpRightIcon className="size-3.5" aria-hidden />
+            </Link>
+          )}
+        </Empty>
         {myPools.createPoolEnabled ? (
           <CreatePoolDialog
             open={showCreate}
