@@ -202,8 +202,9 @@ body {
 }
 
 .op-input-lg {
-  padding: 0.875rem 1rem;
-  font-size: 1rem;
+  min-height: 3rem;
+  padding: 0.9rem 1rem;
+  font-size: 1.0625rem;
   line-height: 1.4;
   border-radius: var(--op-radius);
 }
