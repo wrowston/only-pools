@@ -45,6 +45,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { EmptyState } from "./EmptyState";
+import {
+  PoolAuditSkeleton,
+  PoolPanelSkeleton,
+} from "./PoolPanelSkeleton";
 import { usePoolChromeName } from "./PoolChrome";
 
 function absoluteInviteUrl(path: string): string {
@@ -275,9 +279,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   usePoolChromeName(members?.poolName);
 
   if (isLoading || (isAuthenticated && members === undefined)) {
-    return (
-      <EmptyState title="Loading Pool" description="Loading members…" />
-    );
+    return <PoolPanelSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -809,7 +811,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                 Sanitized role, membership, invite, and archive events.
               </p>
               {audit === undefined ? (
-                <p className="text-sm text-op-muted">Loading audit…</p>
+                <PoolAuditSkeleton />
               ) : audit.events.length === 0 ? (
                 <EmptyState
                   title="No audit events yet"

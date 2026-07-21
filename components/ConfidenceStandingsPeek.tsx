@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uiType } from "@/lib/uiType";
+import { StandingsPeekSkeleton } from "./StandingsSkeleton";
 import {
   ParticipantAvatar,
   TextLink,
@@ -39,6 +40,9 @@ export function ConfidenceStandingsPeek({
   const peek =
     peekResult === null ? null : (peekResult ?? cachedPeek);
 
+  if (peekResult === undefined && cachedPeek === null) {
+    return <StandingsPeekSkeleton label="Loading Confidence standings peek" />;
+  }
   if (peek === null) return null;
 
   return (

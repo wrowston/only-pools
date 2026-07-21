@@ -23,6 +23,10 @@ import { SaveTrust } from "./SaveTrust";
 import { SurvivorStandingsPeek } from "./SurvivorStandingsPeek";
 import { TeamLogo } from "./TeamLogo";
 import { Toast } from "./Toast";
+import {
+  WeekBoardSkeleton,
+  WeekBoardSlateSkeleton,
+} from "./WeekBoardSkeleton";
 import { WeekChips } from "./standings";
 
 type WeekBoard = NonNullable<FunctionReturnType<typeof api.pools.getWeekBoard>>;
@@ -294,12 +298,7 @@ export function WeekBoardView({
 
   // Initial load only — never replace the shell on week switches.
   if (isLoading || (isAuthenticated && shellBoard === null && boardResult === undefined)) {
-    return (
-      <EmptyState
-        title="Loading Week Board"
-        description="Loading this week’s slate…"
-      />
-    );
+    return <WeekBoardSkeleton />;
   }
 
   if (boardResult === null || shellBoard === null) {
@@ -345,9 +344,7 @@ export function WeekBoardView({
             ariaLabel="Board week"
           />
         </header>
-        <p className="text-sm text-op-secondary" aria-busy="true" aria-live="polite">
-          Loading week {chipWeek}…
-        </p>
+        <WeekBoardSlateSkeleton label={`Loading week ${chipWeek}`} />
       </div>
     );
   }

@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uiType } from "@/lib/uiType";
+import { StandingsPeekSkeleton } from "./StandingsSkeleton";
 import {
   ParticipantAvatar,
   SummaryStat,
@@ -26,7 +27,10 @@ export function SurvivorStandingsPeek({
     poolId,
   });
 
-  if (standings === undefined || standings === null) return null;
+  if (standings === undefined) {
+    return <StandingsPeekSkeleton label="Loading Survivor standings peek" />;
+  }
+  if (standings === null) return null;
 
   const alive = standings.rows.filter(
     (r) => r.eligibility === "alive" || r.eligibility === "winner",

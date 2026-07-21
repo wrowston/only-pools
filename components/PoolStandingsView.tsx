@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ConfidenceStandingsView } from "./ConfidenceStandingsView";
+import { StandingsSkeleton } from "./StandingsSkeleton";
 import { SurvivorStandingsView } from "./SurvivorStandingsView";
 
 /**
@@ -18,11 +19,7 @@ export function PoolStandingsView({ poolId }: { poolId: Id<"pools"> }) {
   );
 
   if (isLoading || board === undefined) {
-    return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10">
-        <p className="text-sm text-zinc-500">Loading standings…</p>
-      </div>
-    );
+    return <StandingsSkeleton />;
   }
 
   if (board === null) {

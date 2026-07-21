@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { InviteSkeleton } from "./InviteSkeleton";
 
 export function JoinReturningInviteView({ token }: { token: string }) {
   const router = useRouter();
@@ -91,11 +92,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
   }
 
   if (isLoading || preview === undefined) {
-    return (
-      <div className="px-6 py-16 text-sm text-op-secondary">
-        Loading invite…
-      </div>
-    );
+    return <InviteSkeleton label="Loading returning invite" />;
   }
 
   if (preview === null) {

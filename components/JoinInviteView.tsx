@@ -9,6 +9,7 @@ import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { EmptyState } from "./EmptyState";
+import { InviteSkeleton } from "./InviteSkeleton";
 
 export function JoinInviteView({ token }: { token: string }) {
   const router = useRouter();
@@ -75,9 +76,7 @@ export function JoinInviteView({ token }: { token: string }) {
   }
 
   if (isLoading || preview === undefined) {
-    return (
-      <EmptyState title="Loading invite" description="Checking this invite…" />
-    );
+    return <InviteSkeleton />;
   }
 
   if (preview === null) {
