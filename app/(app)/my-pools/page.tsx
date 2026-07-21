@@ -8,11 +8,10 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { CreatePoolDialog } from "@/components/CreatePoolDialog";
 import { EmptyState } from "@/components/EmptyState";
-import {
-  StatusChip,
-  eligibilityTone,
-  type StatusChipTone,
-} from "@/components/standings";
+import { MyPoolsSkeleton } from "@/components/MyPoolsSkeleton";
+import { eligibilityTone, type StatusChipTone } from "@/components/standings";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -21,6 +20,14 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
@@ -84,27 +91,27 @@ function actionChip(m: Membership): { tone: StatusChipTone; label: string } {
 function MembershipRow({ m }: { m: Membership }) {
   const action = actionChip(m);
   return (
-    <li className="py-3.5">
-      <Link
-        href={`/pools/${m.poolId}`}
-        className="flex items-start justify-between gap-3 text-sm transition-opacity hover:opacity-80"
-      >
-        <span className="flex min-w-0 flex-col gap-1">
-          <span className="font-medium text-op-text">{m.name}</span>
-          <span className="text-xs text-op-muted">
-            {poolTypeLabel(m.type)} · Week {m.boardWeek}
-            {m.role === "owner" ? " · Owner" : ""}
-            {m.archived ? " · Archived" : ""}
-          </span>
-          <span className="flex flex-wrap items-center gap-1.5">
-            <StatusChip tone={standingChipTone(m.standing)}>
-              {standingLabel(m.standing)}
-            </StatusChip>
-          </span>
-        </span>
-        <StatusChip tone={action.tone}>{action.label}</StatusChip>
-      </Link>
-    </li>
+    <Item
+      variant="default"
+      size="sm"
+      className="rounded-none border-0 px-0 py-3.5"
+      render={<Link href={`/pools/${m.poolId}`} />}
+    >
+      <ItemContent className="gap-1.5">
+        <ItemTitle className="text-op-text">{m.name}</ItemTitle>
+        <ItemDescription className="text-xs text-op-muted">
+          {poolTypeLabel(m.type)} · Week {m.boardWeek}
+          {m.role === "owner" ? " · Owner" : ""}
+          {m.archived ? " · Archived" : ""}
+        </ItemDescription>
+        <Badge variant={standingChipTone(m.standing)}>
+          {standingLabel(m.standing)}
+        </Badge>
+      </ItemContent>
+      <ItemActions>
+        <Badge variant={action.tone}>{action.label}</Badge>
+      </ItemActions>
+    </Item>
   );
 }
 
@@ -168,12 +175,7 @@ function MyPoolsHome() {
   ]);
 
   if (isLoading || (isAuthenticated && myPools === undefined && !ensureError)) {
-    return (
-      <EmptyState
-        title="Loading My Pools"
-        description="Connecting your account…"
-      />
-    );
+    return <MyPoolsSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -182,13 +184,9 @@ function MyPoolsHome() {
         title="Still connecting"
         description="You are signed in with Clerk, but Convex has not accepted the session yet. Sign out completely, sign back in, then open My Pools again (an old session token will keep failing)."
         action={
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="op-btn op-btn-primary"
-          >
+          <Button type="button" onClick={() => window.location.reload()}>
             Refresh
-          </button>
+          </Button>
         }
       />
     );
@@ -206,13 +204,9 @@ function MyPoolsHome() {
         title="My Pools unavailable"
         description="Your memberships could not be loaded. Refresh and try again."
         action={
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="op-btn op-btn-primary"
-          >
+          <Button type="button" onClick={() => window.location.reload()}>
             Refresh
-          </button>
+          </Button>
         }
       />
     );
@@ -231,7 +225,7 @@ function MyPoolsHome() {
 
   const createJoinActions = (
     <>
-      <button
+      <Button
         type="button"
         disabled={!myPools.createPoolEnabled}
         onClick={() => setShowCreate(true)}
@@ -240,15 +234,21 @@ function MyPoolsHome() {
             ? "Create a Pool"
             : "Create Pool is disabled until an Available Season exists"
         }
-        className="op-btn op-btn-primary disabled:cursor-not-allowed disabled:opacity-40"
       >
         Create Pool
-      </button>
-      <Link href="/join" className="op-btn op-btn-secondary">
+      </Button>
+      <Button variant="secondary" render={<Link href="/join" />}>
         Join a Pool
-      </Link>
+      </Button>
     </>
   );
+
+  const createDialog = myPools.createPoolEnabled ? (
+    <CreatePoolDialog
+      open={showCreate}
+      onClose={() => setShowCreate(false)}
+    />
+  ) : null;
 
   if (myPools.memberships.length === 0) {
     return (
@@ -289,12 +289,7 @@ function MyPoolsHome() {
             </Link>
           )}
         </Empty>
-        {myPools.createPoolEnabled ? (
-          <CreatePoolDialog
-            open={showCreate}
-            onClose={() => setShowCreate(false)}
-          />
-        ) : null}
+        {createDialog}
       </div>
     );
   }
@@ -324,11 +319,11 @@ function MyPoolsHome() {
         <h2 id="memberships-heading" className="op-eyebrow">
           Memberships
         </h2>
-        <ul className="op-panel divide-y divide-op-border px-4">
+        <ItemGroup className="op-panel gap-0 divide-y divide-op-border px-4">
           {myPools.memberships.map((m) => (
             <MembershipRow key={m.poolId} m={m} />
           ))}
-        </ul>
+        </ItemGroup>
         {myPools.archivedCount > 0 ? (
           <p className="text-xs text-op-muted">
             {myPools.archivedCount} archived{" "}
@@ -359,25 +354,14 @@ function MyPoolsHome() {
           </p>
         ) : null}
       </section>
-      {myPools.createPoolEnabled ? (
-        <CreatePoolDialog
-          open={showCreate}
-          onClose={() => setShowCreate(false)}
-        />
-      ) : null}
+      {createDialog}
     </div>
   );
 }
 
 export default function MyPoolsPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="px-6 py-16 text-sm text-op-secondary">
-          Loading My Pools…
-        </div>
-      }
-    >
+    <Suspense fallback={<MyPoolsSkeleton />}>
       <MyPoolsGate />
     </Suspense>
   );
@@ -388,9 +372,7 @@ function MyPoolsGate() {
   const { isLoaded: userLoaded } = useUser();
 
   if (!isLoaded || !userLoaded) {
-    return (
-      <EmptyState title="Loading…" description="Checking your session…" />
-    );
+    return <MyPoolsSkeleton />;
   }
 
   if (!isSignedIn) {
@@ -399,12 +381,7 @@ function MyPoolsGate() {
         title="Sign in to open My Pools"
         description="Your Pool memberships live here after you sign in."
         action={
-          <Link
-            href="/sign-in"
-            className="op-btn op-btn-primary"
-          >
-            Sign in
-          </Link>
+          <Button render={<Link href="/sign-in" />}>Sign in</Button>
         }
       />
     );

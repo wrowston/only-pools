@@ -7,8 +7,16 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Dialog } from "@/components/Dialog";
 import { FieldInfo, FieldInfoTerm } from "@/components/FieldInfo";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 
 type PoolType = "survivor" | "confidence";
@@ -352,35 +360,45 @@ function CreatePoolWizard({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
-      title={created ? "Pool created" : "Create Pool"}
-      size="lg"
-      preventClose={busy}
-      titleAccessory={
-        created ? undefined : (
-          <Link
-            href="/guides/create-a-pool"
-            className="text-xs font-medium text-op-selected-fg underline underline-offset-4"
-          >
-            Creation guide
-          </Link>
-        )
-      }
-      description={created ? undefined : seasonDescription}
+      onOpenChange={(next) => {
+        if (!next && !busy) onClose();
+      }}
     >
+      <DialogContent
+        className="max-h-[90vh] overflow-y-auto sm:max-w-lg"
+        showCloseButton={!busy}
+      >
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-3 pr-8">
+            <DialogTitle>
+              {created ? "Pool created" : "Create Pool"}
+            </DialogTitle>
+            {!created ? (
+              <Link
+                href="/guides/create-a-pool"
+                className="text-xs font-medium text-op-selected-fg underline underline-offset-4"
+              >
+                Creation guide
+              </Link>
+            ) : null}
+          </div>
+          {!created && seasonDescription ? (
+            <DialogDescription>{seasonDescription}</DialogDescription>
+          ) : null}
+        </DialogHeader>
       {created ? (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-op-secondary">
             Share an invite so others can join. Opening the link alone does not
             enroll anyone — they must accept.
           </p>
-          <button
+          <Button
             type="button"
             onClick={() => void copyShareLink()}
-            className="op-btn op-btn-primary self-start"
+            className="self-start"
           >
             {copied ? "Copied" : "Copy link"}
-          </button>
+          </Button>
           {created.returningInvites.length > 0 ? (
             <>
               <h3 className="text-sm font-semibold text-op-text">
@@ -402,13 +420,14 @@ function CreatePoolWizard({
                         ({row.role === "admin" ? "proposed Admin" : "Member"})
                       </span>
                     </p>
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => void copyReturningLink(row.url)}
-                      className="op-btn op-btn-secondary h-8 px-3 text-xs"
                     >
                       {copiedReturningUrl === row.url ? "Copied" : "Copy link"}
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -419,16 +438,16 @@ function CreatePoolWizard({
               {error}
             </p>
           ) : null}
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => {
               onClose();
               router.push(`/pools/${created.poolId}`);
             }}
-            className="op-btn op-btn-secondary"
           >
             View pool / Make picks
-          </button>
+          </Button>
         </div>
       ) : (
     <form
@@ -526,11 +545,11 @@ function CreatePoolWizard({
 
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-op-text">Name</span>
-              <input
+              <Input
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="op-input op-input-lg"
+                className="h-11 text-base"
                 placeholder="Name your pool"
                 autoFocus
               />
@@ -770,32 +789,27 @@ function CreatePoolWizard({
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-op-border pt-4">
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={step === 0 ? onClose : goBack}
           disabled={busy}
-          className="op-btn op-btn-secondary"
         >
           {step === 0 ? "Cancel" : "Back"}
-        </button>
+        </Button>
         <div className="flex flex-wrap gap-2">
           {step < 2 ? (
-            <button type="submit" className="op-btn op-btn-primary">
-              Continue
-            </button>
+            <Button type="submit">Continue</Button>
           ) : (
-            <button
-              type="submit"
-              disabled={busy || weeks.length === 0}
-              className="op-btn op-btn-primary"
-            >
+            <Button type="submit" disabled={busy || weeks.length === 0}>
               {busy ? "Creating…" : "Create Active Pool"}
-            </button>
+            </Button>
           )}
         </div>
       </div>
     </form>
       )}
+      </DialogContent>
     </Dialog>
   );
 }
@@ -807,7 +821,7 @@ export function CreatePoolDialog({
   open: boolean;
   onClose: () => void;
 }) {
-  // Unmount when closed so the next open starts with a clean wizard.
+  // Remount when reopened so the wizard starts clean.
   if (!open) return null;
   return <CreatePoolWizard open={open} onClose={onClose} />;
 }
