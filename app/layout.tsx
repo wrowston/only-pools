@@ -6,6 +6,7 @@ import { clerkAppearance } from "@/lib/clerkAppearance";
 import { siteUrl } from "@/lib/siteUrl";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
+import { cn } from "@/lib/utils";
 
 /* Satoshi ≈ Suisse: clean Swiss grotesque used like Firecrawl’s body face */
 const satoshi = localFont({
@@ -70,7 +71,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${satoshi.variable} ${geistMono.variable} h-full antialiased`}
+      className={cn("h-full", "antialiased", satoshi.variable, geistMono.variable, "font-sans")}
     >
       <body className="flex min-h-full flex-col font-sans text-op-text">
         <ClerkProvider

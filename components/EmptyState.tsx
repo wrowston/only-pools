@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 /**
- * Shared empty / unavailable surface — never leave a blank white main area.
+ * Shared empty / unavailable surface — wraps shadcn Empty.
+ * Prefer Skeleton for pure loading placeholders.
  */
 export function EmptyState({
   title,
@@ -15,15 +23,19 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-16">
-      <h1 className="text-2xl font-medium tracking-tight text-op-text">
-        {title}
-      </h1>
-      {description ? (
-        <p className="text-[15px] leading-6 text-op-secondary">{description}</p>
-      ) : null}
+    <Empty className="mx-auto max-w-md border-0 py-16">
+      <EmptyHeader className="items-start text-left">
+        <EmptyTitle className="text-2xl tracking-tight">{title}</EmptyTitle>
+        {description ? (
+          <EmptyDescription className="text-[15px] leading-6 text-op-secondary">
+            {description}
+          </EmptyDescription>
+        ) : null}
+      </EmptyHeader>
       {children}
-      {action ? <div className="flex flex-wrap items-center gap-3">{action}</div> : null}
-    </div>
+      {action ? (
+        <EmptyContent className="max-w-none items-start">{action}</EmptyContent>
+      ) : null}
+    </Empty>
   );
 }
