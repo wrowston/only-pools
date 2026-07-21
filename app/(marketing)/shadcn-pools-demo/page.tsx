@@ -160,11 +160,11 @@ export default function ShadcnPoolsDemoPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="op-eyebrow">Skeleton loading</h2>
-        <div className="op-panel divide-y divide-op-border px-4">
+        <div className="op-panel divide-y divide-op-border overflow-hidden p-0">
           {Array.from({ length: 2 }, (_, i) => (
             <div
               key={i}
-              className="flex items-start justify-between gap-3 py-3.5"
+              className="flex items-start justify-between gap-3 px-4 py-3.5"
             >
               <div className="flex flex-1 flex-col gap-2">
                 <Skeleton className="h-4 w-36" />
