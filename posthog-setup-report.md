@@ -13,9 +13,9 @@ The wizard has completed a full client-side PostHog integration for **only-pools
 
 | Event name | Description | File |
 |---|---|---|
-| `pool_created` | User successfully created a new pool from scratch. | `components/CreatePoolForm.tsx` |
-| `pool_created_from_template` | User successfully created a new pool using a prior pool as a template. | `components/CreatePoolForm.tsx` |
-| `invite_link_copied` | User copied a pool invite link to their clipboard after creating a pool. | `components/CreatePoolForm.tsx` |
+| `pool_created` | User successfully created a new pool from scratch. | `components/CreatePoolDialog.tsx` |
+| `pool_created_from_template` | User successfully created a new pool using a prior pool as a template. | `components/CreatePoolDialog.tsx` |
+| `invite_link_copied` | User copied a pool invite link to their clipboard after creating a pool. | `components/CreatePoolDialog.tsx` |
 | `invite_accepted` | User accepted a pool invite and joined the pool. | `components/JoinInviteView.tsx` |
 | `returning_invite_accepted` | Returning participant accepted a personal returning invite and rejoined the pool. | `components/JoinReturningInviteView.tsx` |
 | `survivor_pick_saved` | User selected and autosaved their Survivor pick for the current week. | `components/WeekBoardView.tsx` |
