@@ -22,10 +22,13 @@ import {
   type IncidentTriggerInput,
   type IncidentType,
 } from "./lib/incidents";
+import { createLogger } from "./lib/log";
 import { isProductionOperator } from "./lib/operator";
 import { captureIncidentSignal } from "./lib/sentry";
 import { resolveDeploymentKind } from "./lib/syncGate";
 import { enqueueSentryDelivery } from "./sentry";
+
+const log = createLogger("incidents");
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 
@@ -173,6 +176,13 @@ async function openFromTrigger(
   );
   const existing = await findOpenByDedupe(ctx, dedupeKey);
   if (existing) {
+    log.info("incident_deduped", {
+      incidentId: existing._id,
+      type: decision.type,
+      surface: args.surface,
+      scopeKey: args.scopeKey,
+      triggerKind: args.trigger.kind,
+    });
     return {
       opened: false as const,
       incidentId: existing._id,
@@ -191,6 +201,15 @@ async function openFromTrigger(
     summary,
     openedAtMs: args.nowMs,
     maintenanceLock: false,
+  });
+
+  log.warn("incident_opened", {
+    incidentId,
+    type: decision.type,
+    surface: args.surface,
+    scopeKey: args.scopeKey,
+    participantVisible: decision.participantVisible,
+    triggerKind: args.trigger.kind,
   });
 
   await enqueueSentryDelivery(
@@ -255,6 +274,13 @@ export const autoResolveIncident = internalMutation({
       status: "resolved",
       resolvedAtMs: nowMs,
       resolvedAutomatically: true,
+    });
+
+    log.info("incident_auto_resolved", {
+      incidentId: existing._id,
+      type: args.type,
+      surface: args.surface,
+      scopeKey: args.scopeKey,
     });
 
     await enqueueSentryDelivery(
@@ -401,6 +427,12 @@ export const acknowledgeIncident = mutation({
       }),
     );
 
+    log.info("incident_acknowledged", {
+      incidentId: incident._id,
+      type: incident.type,
+      actorClerkUserId: operator.clerkUserId,
+    });
+
     return { status: "acknowledged" as const };
   },
 });
@@ -449,6 +481,13 @@ export const resolveIncident = mutation({
         summary: args.resolutionNote,
       }),
     );
+
+    log.info("incident_resolved", {
+      incidentId: incident._id,
+      type: incident.type,
+      actorClerkUserId: operator.clerkUserId,
+      hasNote: Boolean(args.resolutionNote),
+    });
 
     return { status: "resolved" as const };
   },
@@ -529,6 +568,14 @@ export const requestAuditedResync = mutation({
         reopenedLocks: false,
         editedAuthoritativeInputs: false,
       },
+    });
+
+    log.info("audited_resync_requested", {
+      incidentId: incident._id,
+      workItemId,
+      surface: args.surface,
+      scopeKey: args.scopeKey,
+      actorClerkUserId: operator.clerkUserId,
     });
 
     return {
@@ -614,6 +661,14 @@ export const requestAuditedReplay = mutation({
         reopenedLocks: false,
         editedAuthoritativeInputs: false,
       },
+    });
+
+    log.info("audited_replay_requested", {
+      incidentId: incident._id,
+      poolId: args.poolId,
+      week: args.week,
+      poolType: pool.type,
+      actorClerkUserId: operator.clerkUserId,
     });
 
     return {

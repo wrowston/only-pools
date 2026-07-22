@@ -10,6 +10,7 @@ import {
   isValidTiebreakerPrediction,
   orderPickSheetGames,
 } from "./lib/confidenceScale";
+import { createLogger } from "./lib/log";
 import {
   computeWeeklyCutoffMs,
   isConfidenceGameLocked,
@@ -23,6 +24,8 @@ import {
   requireOwnedActiveEntry,
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
+
+const log = createLogger("confidencePicks");
 
 class ConfidencePickError extends Error {
   constructor(message: string) {
@@ -638,6 +641,20 @@ export const autosaveConfidence = mutation({
       args.confidenceReorder !== undefined ||
       args.tiebreakerPrediction !== undefined;
 
+    // Counts only — never log pickedTeamId / confidence values.
+    if (submittedAnything) {
+      log.info("confidence_pick_autosaved", {
+        poolId: pool._id,
+        entryId: entry._id,
+        week: args.week,
+        participantId: participant._id,
+        predictionCount: args.predictions?.length ?? 0,
+        reorderCount: args.confidenceReorder?.length ?? 0,
+        tiebreakerUpdated: args.tiebreakerPrediction !== undefined,
+        saveStatus: submittedAnything ? saveTrust.status : "saved",
+      });
+    }
+
     return {
       entryId: entry._id,
       units: {
@@ -822,6 +839,14 @@ export const materializeConfidenceLocks = mutation({
     ) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
     }
+
+    log.info("confidence_locks_materialized", {
+      poolId: args.poolId,
+      week: args.week,
+      lockedPickCount,
+      automaticSetCount,
+      tiebreakerLockedCount,
+    });
 
     return { lockedPickCount, automaticSetCount, tiebreakerLockedCount };
   },

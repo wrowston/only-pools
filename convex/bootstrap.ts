@@ -22,11 +22,14 @@ import {
   type SportsDbEvent,
   type SportsDbTeam,
 } from "./providers/thesportsdb/adapter";
+import { createLogger, errorMessage } from "./lib/log";
 import {
   fetchNflTeams,
   fetchSeasonEvents,
   sportsDbApiKey,
 } from "./providers/thesportsdb/client";
+
+const log = createLogger("bootstrap");
 
 const normalizedTeamValidator = v.object({
   stableKey: v.string(),
@@ -80,8 +83,13 @@ export const assertProductionOperator = internalMutation({
       process.env as Record<string, string | undefined>,
     );
     if (!allowed) {
+      log.warn("operator_denied", {
+        reason: "not_production_operator",
+        clerkUserId: identity.subject,
+      });
       throw new AuthError("Production Operator required");
     }
+    log.info("operator_asserted", { clerkUserId: identity.subject });
     return {
       tokenIdentifier: identity.tokenIdentifier,
       clerkUserId: identity.subject,
@@ -251,6 +259,18 @@ export const applyNormalizedBootstrap = internalMutation({
       }),
     });
 
+    log.info("bootstrap_applied", {
+      seasonId: season._id,
+      seasonLabel: args.seasonLabel,
+      status: availability.status,
+      usableStartWeek: availability.usableStartWeek ?? null,
+      teamCount: args.teams.length,
+      gameCount: args.games.length,
+      syncGateEnabled: gateEnabled,
+      deploymentKind,
+      actorClerkUserId: args.actorClerkUserId,
+    });
+
     return {
       seasonId: season._id,
       status: availability.status,
@@ -292,25 +312,47 @@ async function fetchAndApplyBootstrap(
   seasonLabel: string,
   actor: OperatorActor,
 ): Promise<BootstrapApplyResult> {
-  const apiKey = sportsDbApiKey();
-  const [rawTeams, rawEvents] = await Promise.all([
-    fetchNflTeams(apiKey),
-    fetchSeasonEvents(seasonLabel, apiKey),
-  ]);
-
-  const teams = normalizeTeams(rawTeams as SportsDbTeam[]);
-  const games = normalizeSeasonEvents(
-    rawEvents as SportsDbEvent[],
+  const startedAtMs = Date.now();
+  log.info("bootstrap_fetch_started", {
     seasonLabel,
-  );
-
-  return await ctx.runMutation(internal.bootstrap.applyNormalizedBootstrap, {
-    seasonLabel,
-    teams,
-    games,
-    actorTokenIdentifier: actor.tokenIdentifier,
     actorClerkUserId: actor.clerkUserId,
   });
+  try {
+    const apiKey = sportsDbApiKey();
+    const [rawTeams, rawEvents] = await Promise.all([
+      fetchNflTeams(apiKey),
+      fetchSeasonEvents(seasonLabel, apiKey),
+    ]);
+
+    const teams = normalizeTeams(rawTeams as SportsDbTeam[]);
+    const games = normalizeSeasonEvents(
+      rawEvents as SportsDbEvent[],
+      seasonLabel,
+    );
+
+    log.info("bootstrap_fetch_finished", {
+      seasonLabel,
+      teamCount: teams.length,
+      gameCount: games.length,
+      durationMs: Date.now() - startedAtMs,
+    });
+
+    return await ctx.runMutation(internal.bootstrap.applyNormalizedBootstrap, {
+      seasonLabel,
+      teams,
+      games,
+      actorTokenIdentifier: actor.tokenIdentifier,
+      actorClerkUserId: actor.clerkUserId,
+    });
+  } catch (error) {
+    log.error("bootstrap_fetch_failed", {
+      seasonLabel,
+      actorClerkUserId: actor.clerkUserId,
+      error: errorMessage(error),
+      durationMs: Date.now() - startedAtMs,
+    });
+    throw error;
+  }
 }
 
 /**

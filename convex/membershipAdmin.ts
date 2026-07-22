@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
 import { assertAbuseReportPayloadSafe } from "./lib/abuseReportSanitize";
+import { createLogger } from "./lib/log";
 import { isPoolArchived } from "./lib/poolArchive";
 import { MAX_POOL_ENTRIES, MAX_MEMBERSHIPS_PER_SEASON } from "./lib/quotas";
 import {
@@ -11,6 +12,8 @@ import {
   createPrimaryEntry,
   endActiveEntriesForParticipant,
 } from "./lib/poolEntries";
+
+const log = createLogger("membershipAdmin");
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 
@@ -192,6 +195,13 @@ export const offerOwnershipTransfer = mutation({
       },
     });
 
+    log.info("ownership_transfer_offered", {
+      poolId: pool._id,
+      offerId,
+      fromParticipantId: participant._id,
+      toParticipantId: args.toParticipantId,
+    });
+
     return { offerId, status: "pending" as const };
   },
 });
@@ -262,6 +272,13 @@ export const acceptOwnershipTransfer = mutation({
         priorRole: "admin",
         resultingRole: "owner",
       },
+    });
+
+    log.info("ownership_transfer_accepted", {
+      poolId: pool._id,
+      offerId: offer._id,
+      priorOwnerParticipantId: offer.fromParticipantId,
+      newOwnerParticipantId: offer.toParticipantId,
     });
 
     return {
@@ -349,6 +366,12 @@ export const promoteAdmin = mutation({
       },
     });
 
+    log.info("admin_promoted", {
+      poolId: args.poolId,
+      actorParticipantId: actor._id,
+      affectedParticipantId: args.participantId,
+    });
+
     return { participantId: args.participantId, role: "admin" as const };
   },
 });
@@ -407,6 +430,12 @@ export const demoteAdmin = mutation({
         priorRole: "admin",
         resultingRole: "member",
       },
+    });
+
+    log.info("admin_demoted", {
+      poolId: args.poolId,
+      actorParticipantId: actor._id,
+      affectedParticipantId: args.participantId,
     });
 
     return { participantId: args.participantId, role: "member" as const };
@@ -501,6 +530,13 @@ export const removeMember = mutation({
         resultingStatus: "removed",
         reason,
       },
+    });
+
+    log.info("member_removed", {
+      poolId: args.poolId,
+      actorParticipantId: actor._id,
+      affectedParticipantId: args.participantId,
+      priorRole,
     });
 
     return {
@@ -599,6 +635,12 @@ export const reinstateMember = mutation({
       },
     });
 
+    log.info("member_reinstated", {
+      poolId: args.poolId,
+      actorParticipantId: actor._id,
+      affectedParticipantId: args.participantId,
+    });
+
     return {
       participantId: args.participantId,
       role: "member" as const,
@@ -689,6 +731,12 @@ export const leavePool = mutation({
       },
     });
 
+    log.info("member_left", {
+      poolId: pool._id,
+      participantId: participant._id,
+      priorRole,
+    });
+
     return { poolId: pool._id, status: "left" as const };
   },
 });
@@ -729,6 +777,12 @@ export const archivePool = mutation({
       },
     });
 
+    log.info("pool_archived", {
+      poolId: pool._id,
+      actorParticipantId: participant._id,
+      lifecycleStatus: pool.status,
+    });
+
     return { poolId: pool._id, archived: true as const };
   },
 });
@@ -763,6 +817,12 @@ export const restorePool = mutation({
         resultingArchived: false,
         lifecycleStatus: pool.status,
       },
+    });
+
+    log.info("pool_restored", {
+      poolId: pool._id,
+      actorParticipantId: participant._id,
+      lifecycleStatus: pool.status,
     });
 
     return { poolId: pool._id, archived: false as const };

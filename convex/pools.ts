@@ -3,6 +3,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { createLogger } from "./lib/log";
 import {
   assertRulesEditable,
   assertValidStartWeekSlate,
@@ -34,6 +35,8 @@ import {
   poolMaxEntriesPerUser,
 } from "./lib/poolEntries";
 import { isAdmissionClosed } from "./lib/membershipCutoff";
+
+const log = createLogger("pools");
 
 const poolTypeValidator = v.union(
   v.literal("survivor"),
@@ -204,6 +207,17 @@ export const createPool = mutation({
       poolId,
       createdByParticipantId: participant._id,
       nowMs,
+    });
+
+    // Never log inviteUrl / credential — only pool metadata.
+    log.info("pool_created", {
+      poolId,
+      type: args.type,
+      startWeek: args.startWeek,
+      seasonId: season._id,
+      ownerParticipantId: participant._id,
+      maxEntriesPerUser,
+      pickLockMode: args.pickLockMode,
     });
 
     return {
