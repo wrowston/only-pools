@@ -7,7 +7,10 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
+import { createLogger } from "./lib/log";
 import type { SentryCapture, SentryLevel } from "./lib/sentry";
+
+const log = createLogger("sentry");
 
 const levelValidator = v.union(
   v.literal("info"),
@@ -88,11 +91,16 @@ async function postStoreEvent(args: {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    console.error(
-      "[sentry:convex] store failed",
-      response.status,
-      text.slice(0, 200),
-    );
+    log.error("sentry_store_failed", {
+      status: response.status,
+      bodyPreview: text.slice(0, 200),
+      level: args.level,
+    });
+  } else {
+    log.info("sentry_store_delivered", {
+      level: args.level,
+      pagesProduction: true,
+    });
   }
 }
 

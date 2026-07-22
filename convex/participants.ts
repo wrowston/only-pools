@@ -7,11 +7,14 @@ import {
   hasAvailableSeason,
   requireParticipant,
 } from "./lib/auth";
+import { createLogger } from "./lib/log";
 import {
   buildMembershipStatus,
   loadEarliestKickoffByWeek,
   resolveBoardWeek,
 } from "./lib/myPoolsStatus";
+
+const log = createLogger("participants");
 
 /**
  * Create or refresh the Clerk-linked Participant after dual verification.
@@ -24,6 +27,10 @@ export const ensureMyParticipant = mutation({
   handler: async (ctx, args) => {
     const participantId = await ensureParticipant(ctx, {
       avatarUrl: args.avatarUrl,
+    });
+    log.debug("ensure_my_participant", {
+      participantId,
+      avatarProvided: args.avatarUrl !== undefined,
     });
     return { participantId };
   },

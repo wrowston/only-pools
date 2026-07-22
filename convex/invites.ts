@@ -9,6 +9,7 @@ import {
   inviteUrlFromToken,
   parseInviteToken,
 } from "./lib/inviteCrypto";
+import { createLogger } from "./lib/log";
 import {
   evaluateThrottle,
   INVITE_UNAVAILABLE,
@@ -27,6 +28,8 @@ import {
   createPrimaryEntry,
 } from "./lib/poolEntries";
 import { CONTACT_VISIBILITY_DISCLOSURE } from "./lib/inviteDisclosure";
+
+const log = createLogger("invites");
 
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 const INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -282,6 +285,11 @@ export const createOrRetrieveInvite = mutation({
           action: "invite_retrieved",
           metadata: { inviteId: existing._id },
         });
+        log.info("invite_retrieved", {
+          poolId: pool._id,
+          inviteId: existing._id,
+          actorParticipantId: participant._id,
+        });
         return {
           url: inviteUrlFromToken(existing.credentialSecret),
           expiresAtMs: existing.expiresAtMs,
@@ -307,6 +315,13 @@ export const createOrRetrieveInvite = mutation({
       actorParticipantId: participant._id,
       action: "invite_created",
       metadata: { inviteId },
+    });
+
+    log.info("invite_created", {
+      poolId: pool._id,
+      inviteId,
+      actorParticipantId: participant._id,
+      expiresAtMs,
     });
 
     return {
@@ -367,6 +382,13 @@ export const rotateInvite = mutation({
         inviteId,
         priorInviteId: existing?._id ?? null,
       },
+    });
+
+    log.info("invite_rotated", {
+      poolId: pool._id,
+      inviteId,
+      priorInviteId: existing?._id ?? null,
+      actorParticipantId: participant._id,
     });
 
     return {
@@ -489,6 +511,11 @@ export const acceptInvite = mutation({
     const activePool = pool!;
 
     if (await ensureAdmissionLatch(ctx, activePool, nowMs)) {
+      log.info("invite_accept_refused", {
+        poolId: activePool._id,
+        participantId: participant._id,
+        reason: "admission_closed",
+      });
       // Latch must persist — do not throw (Convex rolls back writes on throw).
       return {
         poolId: activePool._id,
@@ -508,6 +535,11 @@ export const acceptInvite = mutation({
       .unique();
 
     if (existingMembership?.status === "active") {
+      log.info("invite_accept_existing", {
+        poolId: activePool._id,
+        participantId: participant._id,
+        role: existingMembership.role,
+      });
       return {
         poolId: activePool._id,
         role: existingMembership.role,
@@ -574,6 +606,13 @@ export const acceptInvite = mutation({
         },
       });
 
+      log.info("invite_accepted", {
+        poolId: activePool._id,
+        participantId: participant._id,
+        inviteId: activeInvite._id,
+        reactivated: true,
+      });
+
       return {
         poolId: activePool._id,
         role: "member" as const,
@@ -605,6 +644,13 @@ export const acceptInvite = mutation({
       actorParticipantId: participant._id,
       action: "invite_accepted",
       metadata: { inviteId: activeInvite._id },
+    });
+
+    log.info("invite_accepted", {
+      poolId: activePool._id,
+      participantId: participant._id,
+      inviteId: activeInvite._id,
+      reactivated: false,
     });
 
     return {

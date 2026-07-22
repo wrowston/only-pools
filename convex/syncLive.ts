@@ -35,6 +35,7 @@ import {
   type BudgetPriority,
   type BudgetUsage,
 } from "./lib/providerBudget";
+import { createLogger, errorMessage } from "./lib/log";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
 import { enqueueSentryDelivery } from "./sentry";
@@ -47,6 +48,8 @@ import {
   liveObservationValidator,
   scheduleObservationValidator,
 } from "./lib/syncObservations";
+
+const log = createLogger("syncLive");
 
 const SYNC_GATE_KEY = "deployment" as const;
 const BUDGET_WINDOW_MS = 60_000;
@@ -534,6 +537,13 @@ export const recordSyncSurfaceHealth = internalMutation({
     }
 
     if (providerException) {
+      log.error("sync_provider_exception", {
+        surface: args.surface,
+        scopeKey: args.scopeKey,
+        gameId: args.gameId ?? null,
+        message: args.exceptionMessage ?? "Provider Exception",
+        consecutiveFailures: fields.consecutiveFailures,
+      });
       await ctx.db.insert("providerExceptions", {
         kind: "sync_failure",
         gameId: args.gameId,
@@ -548,6 +558,14 @@ export const recordSyncSurfaceHealth = internalMutation({
           extra: { scopeKey: args.scopeKey },
         }),
       );
+    } else {
+      log.info("sync_surface_health", {
+        surface: args.surface,
+        scopeKey: args.scopeKey,
+        success: args.success,
+        consecutiveFailures: fields.consecutiveFailures,
+        gameId: args.gameId ?? null,
+      });
     }
 
     const freshness = deriveFreshness({
@@ -763,6 +781,7 @@ export const dispatchSyncWork = internalMutation({
     const gateEnabled = await loadSyncGateEnabled(ctx);
 
     if (!gateEnabled) {
+      log.info("dispatch_skipped", { reason: "sync_gate_off", nowMs });
       return {
         gateEnabled: false,
         claimed: [] as Array<{
@@ -882,6 +901,13 @@ export const dispatchSyncWork = internalMutation({
       });
     }
 
+    log.info("dispatch_complete", {
+      nowMs,
+      dueCount: dueItems.length,
+      claimedCount: claimed.length,
+      maxClaims,
+    });
+
     return { gateEnabled: true, claimed, denied: null };
   },
 });
@@ -904,6 +930,15 @@ export const runClaimedFetch = internalAction({
     // Intentionally no HTTP in the default test path — fixture tests call
     // applyLiveObservation / applyConfirmationObservationMutation directly.
     // When a live key is present, confirmation lookups use fetchEventLookup.
+    const fetchLog = log.child({
+      workItemId: args.workItemId,
+      surface: args.surface,
+      gameId: args.gameId ?? null,
+      purpose: args.purpose ?? null,
+    });
+    fetchLog.info("fetch_started");
+    const startedAtMs = Date.now();
+
     const { fetchEventLookup, sportsDbApiKey } = await import(
       "./providers/thesportsdb/client"
     );
@@ -922,6 +957,11 @@ export const runClaimedFetch = internalAction({
         await ctx.runMutation(internal.syncLive.completeSyncWork, {
           workItemId: args.workItemId,
         });
+        fetchLog.warn("fetch_finished", {
+          ok: false,
+          reason: "game_missing",
+          durationMs: Date.now() - startedAtMs,
+        });
         return { ok: false as const, reason: "game_missing" };
       }
 
@@ -939,6 +979,11 @@ export const runClaimedFetch = internalAction({
             status: "FT",
             lookupFailed: true,
           },
+        });
+        fetchLog.warn("fetch_finished", {
+          ok: false,
+          reason: "alias_missing",
+          durationMs: Date.now() - startedAtMs,
         });
         return { ok: false as const, reason: "alias_missing" };
       }
@@ -965,6 +1010,11 @@ export const runClaimedFetch = internalAction({
           );
           await ctx.runMutation(internal.syncLive.completeSyncWork, {
             workItemId: args.workItemId,
+          });
+          fetchLog.warn("fetch_finished", {
+            ok: false,
+            reason: "lookup_empty",
+            durationMs: Date.now() - startedAtMs,
           });
           return { ok: false as const, reason: "lookup_empty" };
         }
@@ -1036,8 +1086,13 @@ export const runClaimedFetch = internalAction({
         await ctx.runMutation(internal.syncLive.completeSyncWork, {
           workItemId: args.workItemId,
         });
+        fetchLog.info("fetch_finished", {
+          ok: true,
+          reason: "confirmation_applied",
+          durationMs: Date.now() - startedAtMs,
+        });
         return { ok: true as const };
-      } catch {
+      } catch (error) {
         await ctx.runMutation(
           internal.syncLive.applyConfirmationObservationMutation,
           {
@@ -1060,6 +1115,12 @@ export const runClaimedFetch = internalAction({
           exceptionMessage: "confirmation_fetch_failed",
           gameId: args.gameId,
         });
+        fetchLog.error("fetch_finished", {
+          ok: false,
+          reason: "fetch_failed",
+          error: errorMessage(error),
+          durationMs: Date.now() - startedAtMs,
+        });
         return { ok: false as const, reason: "fetch_failed" };
       }
     }
@@ -1079,6 +1140,11 @@ export const runClaimedFetch = internalAction({
       if (!workMeta?.seasonId) {
         await ctx.runMutation(internal.syncLive.completeSyncWork, {
           workItemId: args.workItemId,
+        });
+        fetchLog.warn("fetch_finished", {
+          ok: false,
+          reason: "missing_season",
+          durationMs: Date.now() - startedAtMs,
         });
         return { ok: false as const, reason: "missing_season" };
       }
@@ -1136,6 +1202,12 @@ export const runClaimedFetch = internalAction({
           await ctx.runMutation(internal.syncLive.completeSyncWork, {
             workItemId: args.workItemId,
           });
+          fetchLog.info("fetch_finished", {
+            ok: true,
+            reason: "live_applied",
+            applied,
+            durationMs: Date.now() - startedAtMs,
+          });
           return { ok: true as const, applied };
         }
 
@@ -1147,6 +1219,11 @@ export const runClaimedFetch = internalAction({
         if (!seasonLabel) {
           await ctx.runMutation(internal.syncLive.completeSyncWork, {
             workItemId: args.workItemId,
+          });
+          fetchLog.warn("fetch_finished", {
+            ok: false,
+            reason: "season_missing",
+            durationMs: Date.now() - startedAtMs,
           });
           return { ok: false as const, reason: "season_missing" };
         }
@@ -1181,8 +1258,14 @@ export const runClaimedFetch = internalAction({
         await ctx.runMutation(internal.syncLive.completeSyncWork, {
           workItemId: args.workItemId,
         });
+        fetchLog.info("fetch_finished", {
+          ok: true,
+          reason: "schedule_applied",
+          applied,
+          durationMs: Date.now() - startedAtMs,
+        });
         return { ok: true as const, applied };
-      } catch {
+      } catch (error) {
         await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
           surface: args.surface === "live" ? "league_live" : "schedule",
           scopeKey: `${args.surface}:${workMeta.seasonId}`,
@@ -1196,12 +1279,23 @@ export const runClaimedFetch = internalAction({
           workItemId: args.workItemId,
           dueAtMs: nowMs + 60_000,
         });
+        fetchLog.error("fetch_finished", {
+          ok: false,
+          reason: "fetch_failed",
+          error: errorMessage(error),
+          durationMs: Date.now() - startedAtMs,
+        });
         return { ok: false as const, reason: "fetch_failed" };
       }
     }
 
     await ctx.runMutation(internal.syncLive.completeSyncWork, {
       workItemId: args.workItemId,
+    });
+    fetchLog.info("fetch_finished", {
+      ok: true,
+      reason: "noop_complete",
+      durationMs: Date.now() - startedAtMs,
     });
     return { ok: true as const };
   },

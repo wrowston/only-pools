@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { createLogger } from "./lib/log";
 import {
   computeWeeklyCutoffMs,
   isSurvivorPickLocked,
@@ -16,6 +17,8 @@ import {
   requireOwnedActiveEntry,
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
+
+const log = createLogger("survivorPicks");
 
 /** Application error — client reads `error.data` for the user-facing message. */
 class SurvivorPickError extends ConvexError<string> {
@@ -376,6 +379,16 @@ export const autosaveSurvivorPick = mutation({
       savedAtMs: nowMs,
     };
 
+    // Do not log nflTeamId — Hidden Pick values stay off application logs.
+    log.info("survivor_pick_autosaved", {
+      poolId: pool._id,
+      entryId: entry._id,
+      week: args.week,
+      participantId: participant._id,
+      provisional,
+      rulesFrozen: true,
+    });
+
     return {
       poolId: pool._id,
       entryId: entry._id,
@@ -507,6 +520,13 @@ export const materializeSurvivorLocks = mutation({
     if ((lockedCount > 0 || omissionCount > 0) && !pool.rulesFrozen) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
     }
+
+    log.info("survivor_locks_materialized", {
+      poolId: pool._id,
+      week: args.week,
+      lockedCount,
+      omissionCount,
+    });
 
     return { lockedCount, omissionCount };
   },

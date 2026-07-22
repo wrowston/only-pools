@@ -7,10 +7,13 @@ import {
   phoneVerifiedFromIdentity,
   pickString,
 } from "./identityClaims";
+import { createLogger } from "./log";
 import {
   evaluateVerificationGate,
   type VerificationClaims,
 } from "./verificationGate";
+
+const log = createLogger("auth");
 
 export class AuthError extends Error {
   constructor(message: string) {
@@ -108,6 +111,7 @@ export async function requireParticipant(
 ): Promise<Doc<"participants">> {
   const identity = await ctx.auth.getUserIdentity();
   if (identity === null) {
+    log.warn("require_participant_denied", { reason: "unauthenticated" });
     throw new AuthError("Unauthenticated");
   }
 
@@ -121,16 +125,31 @@ export async function requireParticipant(
 
   const decision = evaluateVerificationGate(claims, { previouslyEstablished });
   if (decision.action === "refuse") {
+    log.warn("require_participant_denied", {
+      reason: "verification_incomplete",
+      missing: decision.missing.join(","),
+      clerkUserId: claims.clerkUserId,
+      previouslyEstablished,
+    });
     throw new AuthError(
       `Verification incomplete: missing ${decision.missing.join(", ")}`,
     );
   }
 
   if (existing === null) {
+    log.warn("require_participant_denied", {
+      reason: "participant_not_established",
+      clerkUserId: claims.clerkUserId,
+    });
     throw new AuthError("Participant not established");
   }
 
   if (existing.suspended) {
+    log.warn("require_participant_denied", {
+      reason: "participant_suspended",
+      participantId: existing._id,
+      clerkUserId: claims.clerkUserId,
+    });
     throw new AuthError("Participant suspended");
   }
 
@@ -150,6 +169,7 @@ export async function ensureParticipant(
 ): Promise<Id<"participants">> {
   const identity = await ctx.auth.getUserIdentity();
   if (identity === null) {
+    log.warn("ensure_participant_denied", { reason: "unauthenticated" });
     throw new AuthError("Unauthenticated");
   }
 
@@ -164,13 +184,19 @@ export async function ensureParticipant(
 
   const decision = evaluateVerificationGate(claims, { previouslyEstablished });
   if (decision.action === "refuse") {
+    log.warn("ensure_participant_denied", {
+      reason: "verification_incomplete",
+      missing: decision.missing.join(","),
+      clerkUserId: claims.clerkUserId,
+      previouslyEstablished,
+    });
     throw new AuthError(
       `Verification incomplete: missing ${decision.missing.join(", ")}`,
     );
   }
 
   if (existing === null) {
-    return await ctx.db.insert("participants", {
+    const participantId = await ctx.db.insert("participants", {
       tokenIdentifier: claims.tokenIdentifier,
       clerkUserId: claims.clerkUserId,
       displayName: claims.displayName,
@@ -185,9 +211,20 @@ export async function ensureParticipant(
       avatarUrl,
       lastClerkSessionId: claims.clerkSessionId ?? undefined,
     });
+    log.info("participant_created", {
+      participantId,
+      clerkUserId: claims.clerkUserId,
+      hasAvatar: Boolean(avatarUrl),
+    });
+    return participantId;
   }
 
   if (existing.suspended) {
+    log.warn("ensure_participant_denied", {
+      reason: "participant_suspended",
+      participantId: existing._id,
+      clerkUserId: claims.clerkUserId,
+    });
     throw new AuthError("Participant suspended");
   }
 
@@ -212,6 +249,12 @@ export async function ensureParticipant(
   }
 
   await ctx.db.patch(existing._id, patch);
+  log.info("participant_refreshed", {
+    participantId: existing._id,
+    clerkUserId: claims.clerkUserId,
+    previouslyEstablished,
+    hasAvatar: Boolean(avatarUrl),
+  });
   return existing._id;
 }
 
