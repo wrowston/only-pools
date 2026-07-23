@@ -15,13 +15,15 @@ export function PoolPanelSkeleton() {
         </div>
         <Skeleton className="h-4 w-56 max-w-full" />
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {Array.from({ length: 4 }, (_, i) => (
           <div
             key={i}
-            className="rounded-[12px] border border-op-border px-4 py-3"
+            className="flex flex-col gap-3 rounded-xl border border-op-border bg-op-surface p-4"
           >
             <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-3 w-56 max-w-full" />
+            <Skeleton className="h-16 w-full" />
           </div>
         ))}
       </div>
