@@ -2,6 +2,7 @@ type AuditMetadata = Record<string, unknown> | null;
 
 export type PoolAuditEventLike = {
   action: string;
+  actorParticipantId?: string | null;
   actorDisplayName?: string | null;
   affectedDisplayName?: string | null;
   metadata: AuditMetadata;
@@ -37,6 +38,46 @@ function roleLabel(value: unknown): string | null {
   return raw;
 }
 
+export function affectedParticipantIdFromMetadata(
+  metadata: AuditMetadata,
+): string | null {
+  if (!metadata) return null;
+  return (
+    asString(metadata.affectedParticipantId) ??
+    asString(metadata.toParticipantId) ??
+    asString(metadata.newOwnerParticipantId)
+  );
+}
+
+/**
+ * Resolve display names for an audit event from query fields and/or a
+ * participantId → displayName map (e.g. current pool members).
+ */
+export function resolveAuditDisplayNames(
+  event: PoolAuditEventLike,
+  nameByParticipantId?: ReadonlyMap<string, string>,
+): {
+  actorDisplayName: string | null;
+  affectedDisplayName: string | null;
+} {
+  const affectedId = affectedParticipantIdFromMetadata(event.metadata);
+  const actorFromMap = event.actorParticipantId
+    ? nameByParticipantId?.get(event.actorParticipantId)
+    : undefined;
+  const affectedFromMap = affectedId
+    ? nameByParticipantId?.get(affectedId)
+    : undefined;
+
+  return {
+    actorDisplayName:
+      asString(event.actorDisplayName) ?? asString(actorFromMap) ?? null,
+    affectedDisplayName:
+      asString(event.affectedDisplayName) ??
+      asString(affectedFromMap) ??
+      null,
+  };
+}
+
 /**
  * Human-readable Pool Audit title + detail lines for the Pool panel.
  */
@@ -46,7 +87,7 @@ export function formatPoolAuditEvent(event: PoolAuditEventLike): {
 } {
   const title = ACTION_LABELS[event.action] ?? event.action.replaceAll("_", " ");
   const meta = event.metadata ?? {};
-  const actor = asString(event.actorDisplayName) ?? "Someone";
+  const actor = asString(event.actorDisplayName) ?? "A participant";
   const affected = asString(event.affectedDisplayName);
   const priorRole = roleLabel(meta.priorRole);
   const resultingRole = roleLabel(meta.resultingRole);
@@ -113,10 +154,16 @@ export function formatPoolAuditEvent(event: PoolAuditEventLike): {
       );
       break;
     case "invite_created":
+      details.push(`${actor} created an invite`);
+      break;
     case "invite_retrieved":
+      details.push(`${actor} retrieved the invite`);
+      break;
     case "invite_rotated":
+      details.push(`${actor} rotated the invite`);
+      break;
     case "returning_invite_created":
-      details.push(`${actor} ${title.toLowerCase()}`);
+      details.push(`${actor} created a returning invite`);
       break;
     case "invite_accepted":
     case "returning_invite_accepted":

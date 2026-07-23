@@ -66,9 +66,9 @@
   --muted-foreground: var(--op-muted);
   --accent: var(--op-heat-8);
   --accent-foreground: var(--op-selected-fg);
-  --destructive: var(--op-lost-fg);
+  --destructive: #ef4444;
   --border: var(--op-border);
-  --input: var(--op-border-strong);
+  --input: var(--op-border);
   --ring: var(--op-ink);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);

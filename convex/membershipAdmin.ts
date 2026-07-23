@@ -861,7 +861,11 @@ export const listPoolAuditEvents = query({
       const cached = nameById.get(participantId);
       if (cached) return cached;
       const person = await ctx.db.get(participantId);
-      const name = person?.displayName ?? null;
+      if (!person) return null;
+      const name =
+        person.displayName.trim() ||
+        person.email?.trim() ||
+        null;
       if (name) nameById.set(participantId, name);
       return name;
     }

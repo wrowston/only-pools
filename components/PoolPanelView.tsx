@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -37,7 +38,10 @@ import {
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
-import { formatPoolAuditEvent } from "@/lib/poolAuditDisplay";
+import {
+  formatPoolAuditEvent,
+  resolveAuditDisplayNames,
+} from "@/lib/poolAuditDisplay";
 import { EmptyState } from "./EmptyState";
 import {
   PoolAuditSkeleton,
@@ -45,13 +49,27 @@ import {
 } from "./PoolPanelSkeleton";
 import { usePoolChromeName } from "./PoolChrome";
 
+function memberRoleBadgeVariant(
+  role: string,
+): "default" | "attention" | "neutral" {
+  if (role === "owner") return "default";
+  if (role === "admin") return "attention";
+  return "neutral";
+}
+
+function memberRoleLabel(role: string): string {
+  if (role === "owner") return "Owner";
+  if (role === "admin") return "Admin";
+  return "Member";
+}
+
 function absoluteInviteUrl(path: string): string {
   if (typeof window === "undefined") return path;
   return `${window.location.origin}${path}`;
 }
 
 const textareaClassName =
-  "flex min-h-20 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
+  "flex min-h-20 w-full rounded-lg border border-op-border bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
 
 function PoolPanelSection({
   id,
@@ -309,6 +327,9 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     members.callerRole === "owner" || members.callerRole === "admin";
   const needsReason =
     confirm?.kind === "remove" || confirm?.kind === "reinstate";
+  const auditNameByParticipantId = new Map(
+    members.members.map((m) => [m.participantId as string, m.displayName]),
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
@@ -550,12 +571,18 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                 >
                   <div>
                     <p className="font-medium text-op-text">{m.displayName}</p>
-                    <p className="text-xs uppercase tracking-wide text-op-muted">
-                      {m.role}
-                      {m.status !== "active" ? ` · ${m.status}` : ""}
-                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <Badge variant={memberRoleBadgeVariant(m.role)}>
+                        {memberRoleLabel(m.role)}
+                      </Badge>
+                      {m.status !== "active" ? (
+                        <Badge variant="eliminated">
+                          {m.status === "removed" ? "Removed" : "Left"}
+                        </Badge>
+                      ) : null}
+                    </div>
                     {"email" in m || "phone" in m ? (
-                      <div className="mt-1 text-sm text-op-secondary">
+                      <div className="mt-1.5 text-sm text-op-secondary">
                         {m.email ? <p>{m.email}</p> : null}
                         {m.phone ? <p>{m.phone}</p> : null}
                       </div>
@@ -751,9 +778,19 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
           ) : (
             <ul className="divide-y divide-op-border text-sm">
               {audit.events.map((e, i) => {
-                const { title, details } = formatPoolAuditEvent(e);
+                const names = resolveAuditDisplayNames(
+                  e,
+                  auditNameByParticipantId,
+                );
+                const { title, details } = formatPoolAuditEvent({
+                  ...e,
+                  ...names,
+                });
                 return (
-                  <li key={`${e.action}-${e.atMs}-${i}`} className="py-2 first:pt-0 last:pb-0">
+                  <li
+                    key={`${e.action}-${e.atMs}-${i}`}
+                    className="py-2 first:pt-0 last:pb-0"
+                  >
                     <p className="font-medium text-op-text">{title}</p>
                     {details.map((line, detailIndex) => (
                       <p
