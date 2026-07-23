@@ -410,6 +410,10 @@ describe("sanitized audit events (acceptance scenario 6)", () => {
     expect(actions).toContain("pool_archived");
     expect(actions).toContain("pool_restored");
 
+    const promoted = audit.events.find((e) => e.action === "admin_promoted");
+    expect(promoted?.actorDisplayName).toBeTruthy();
+    expect(promoted?.affectedDisplayName).toBeTruthy();
+
     const blob = JSON.stringify(audit.events);
     expect(blob).not.toMatch(/credentialSecret/);
     expect(blob).not.toMatch(/\/join\//);

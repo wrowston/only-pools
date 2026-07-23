@@ -853,6 +853,19 @@ export const listPoolAuditEvents = query({
       .order("desc")
       .take(limit * 3);
 
+    const nameById = new Map<Id<"participants">, string>();
+    async function displayNameFor(
+      participantId: Id<"participants"> | undefined,
+    ): Promise<string | null> {
+      if (!participantId) return null;
+      const cached = nameById.get(participantId);
+      if (cached) return cached;
+      const person = await ctx.db.get(participantId);
+      const name = person?.displayName ?? null;
+      if (name) nameById.set(participantId, name);
+      return name;
+    }
+
     const events = [];
     for (const row of rows) {
       if (!PARTICIPANT_VISIBLE_AUDIT_ACTIONS.has(row.action)) continue;
@@ -879,9 +892,26 @@ export const listPoolAuditEvents = query({
         void _url;
         metadata = safe;
       }
+
+      const affectedId =
+        typeof metadata?.affectedParticipantId === "string"
+          ? (metadata.affectedParticipantId as Id<"participants">)
+          : typeof metadata?.toParticipantId === "string"
+            ? (metadata.toParticipantId as Id<"participants">)
+            : typeof metadata?.newOwnerParticipantId === "string"
+              ? (metadata.newOwnerParticipantId as Id<"participants">)
+              : undefined;
+
+      const [actorDisplayName, affectedDisplayName] = await Promise.all([
+        displayNameFor(row.actorParticipantId),
+        displayNameFor(affectedId),
+      ]);
+
       events.push({
         action: row.action,
         actorParticipantId: row.actorParticipantId,
+        actorDisplayName,
+        affectedDisplayName,
         atMs: row.atMs,
         metadata,
       });

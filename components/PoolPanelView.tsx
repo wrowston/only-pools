@@ -2,7 +2,6 @@
 
 import posthog from "posthog-js";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { MoreHorizontalIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -44,6 +43,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { formatPoolAuditEvent } from "@/lib/poolAuditDisplay";
 import { EmptyState } from "./EmptyState";
 import {
   PoolAuditSkeleton,
@@ -403,40 +403,6 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
           </AccordionItem>
         ) : null}
 
-        {isOwner ? (
-          <AccordionItem value="archive">
-            <AccordionTrigger>Archive</AccordionTrigger>
-            <AccordionContent>
-              <div className="flex flex-col gap-3 pt-1">
-                <p className="text-sm text-op-secondary">
-                  Archive is a reversible read-only overlay. Locks, sync, and
-                  scoring continue.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {!members.archived ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() => openConfirm({ kind: "archive" })}
-                    >
-                      Archive Pool
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => openConfirm({ kind: "restore" })}
-                    >
-                      Restore Pool
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        ) : null}
-
         {members.canManageInvites && !members.archived ? (
           <AccordionItem value="invite">
             <AccordionTrigger>Pool Invite</AccordionTrigger>
@@ -633,7 +599,6 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                             }
                           >
                             Actions
-                            <MoreHorizontalIcon />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="min-w-44">
                             {canPromote ? (
@@ -819,23 +784,83 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                 />
               ) : (
                 <ul className="divide-y divide-op-border text-sm">
-                  {audit.events.map((e, i) => (
-                    <li key={`${e.action}-${e.atMs}-${i}`} className="py-2">
-                      <p className="font-medium text-op-text">{e.action}</p>
-                      <p className="text-xs text-op-muted">
-                        {new Intl.DateTimeFormat(undefined, {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        }).format(new Date(e.atMs))}
-                      </p>
-                    </li>
-                  ))}
+                  {audit.events.map((e, i) => {
+                    const { title, details } = formatPoolAuditEvent(e);
+                    return (
+                      <li key={`${e.action}-${e.atMs}-${i}`} className="py-2">
+                        <p className="font-medium text-op-text">{title}</p>
+                        {details.map((line, detailIndex) => (
+                          <p
+                            key={`${e.action}-detail-${detailIndex}`}
+                            className="text-sm text-op-secondary"
+                          >
+                            {line}
+                          </p>
+                        ))}
+                        <p className="mt-0.5 text-xs text-op-muted">
+                          {new Intl.DateTimeFormat(undefined, {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          }).format(new Date(e.atMs))}
+                        </p>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+
+      {isOwner ? (
+        <section
+          className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50/70 p-4"
+          aria-labelledby="pool-danger-zone"
+        >
+          <h2
+            id="pool-danger-zone"
+            className="text-lg font-semibold text-red-800"
+          >
+            Danger Zone
+          </h2>
+          {!members.archived ? (
+            <>
+              <p className="text-sm text-red-900/80">
+                Archiving hides this Pool from normal My Pools lists and locks
+                ordinary membership, invite, and role changes. Locks, sync, and
+                scoring still continue. You can restore later, but Members will
+                lose day-to-day access until you do.
+              </p>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={busy}
+                className="self-start"
+                onClick={() => openConfirm({ kind: "archive" })}
+              >
+                Archive Pool
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-red-900/80">
+                This Pool is archived. Restoring returns normal access and
+                eligible administrative actions.
+              </p>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={busy}
+                className="self-start"
+                onClick={() => openConfirm({ kind: "restore" })}
+              >
+                Restore Pool
+              </Button>
+            </>
+          )}
+        </section>
+      ) : null}
 
       <AlertDialog
         open={confirmOpen}
@@ -865,7 +890,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               {confirm?.kind === "leave"
                 ? "You will lose access to this Pool until invited again."
                 : confirm?.kind === "archive"
-                  ? "Archive is a reversible read-only overlay. Locks, sync, and scoring continue."
+                  ? "This hides the Pool from normal My Pools lists and locks ordinary membership, invite, and role changes until you restore it. Locks, sync, and scoring continue."
                   : confirm?.kind === "restore"
                     ? "The Pool will leave the archived overlay and become editable again."
                     : confirm?.kind === "remove"
@@ -892,7 +917,9 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant={
-                confirm?.kind === "remove" || confirm?.kind === "leave"
+                confirm?.kind === "remove" ||
+                confirm?.kind === "leave" ||
+                confirm?.kind === "archive"
                   ? "destructive"
                   : "default"
               }
