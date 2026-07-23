@@ -27,12 +27,13 @@ type CellVisual =
   | { tone: "lost"; label: string; aria: string }
   | { tone: "pending"; label: string; aria: string };
 
+/** Text/tint only — no bordered cards in the pick grid. */
 const TONE_CLASS: Record<CellVisual["tone"], string> = {
-  empty: "border-op-border bg-op-surface text-op-muted",
-  hidden: "border-op-border-strong bg-op-control text-op-muted",
-  won: "border-op-won-border bg-op-won-bg text-op-won-fg",
-  lost: "border-op-lost-border bg-op-lost-bg text-op-lost-fg",
-  pending: "border-op-border-strong bg-op-surface text-op-text",
+  empty: "text-op-muted",
+  hidden: "text-op-muted",
+  won: "text-op-won-fg",
+  lost: "text-op-lost-fg",
+  pending: "text-op-text",
 };
 
 function cellVisual(cell: StandingsPickCell): CellVisual {
@@ -77,8 +78,7 @@ function cellVisual(cell: StandingsPickCell): CellVisual {
 }
 
 /**
- * Splashsports-style pick square — pastel won/lost, text always present when relevant.
- * Compact on mobile; larger on desktop so the standings grid fills the page.
+ * Compact pick marker — logo + abbr, outcome via text color only.
  */
 export function PickCell({ cell }: { cell: StandingsPickCell }) {
   const visual = cellVisual(cell);
@@ -88,8 +88,8 @@ export function PickCell({ cell }: { cell: StandingsPickCell }) {
   return (
     <span
       className={[
-        "inline-flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border text-[9px] font-semibold leading-none tabular-nums",
-        "min-[900px]:h-12 min-[900px]:min-w-14 min-[900px]:w-auto min-[900px]:flex-row min-[900px]:gap-1.5 min-[900px]:px-2 min-[900px]:text-xs min-[900px]:rounded-lg",
+        "inline-flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-0.5 text-[9px] font-semibold leading-none tabular-nums",
+        "min-[900px]:h-12 min-[900px]:w-auto min-[900px]:min-w-0 min-[900px]:flex-row min-[900px]:gap-1.5 min-[900px]:text-xs",
         TONE_CLASS[visual.tone],
       ].join(" ")}
       title={visual.aria}

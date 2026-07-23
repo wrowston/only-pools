@@ -10,9 +10,10 @@ import { PickCell, type StandingsPickCell } from "./PickCell";
 const PLAYER_COL =
   "w-[9.5rem] min-w-[9.5rem] max-w-[9.5rem] min-[900px]:w-[16rem] min-[900px]:min-w-[16rem] min-[900px]:max-w-[16rem]";
 
-/** Week pick columns — match PickCell size + padding (compact mobile, larger desktop). */
+/** Week pick columns — logo + abbr, no card chrome. */
 const WEEK_COL =
   "w-12 min-w-12 max-w-12 min-[900px]:w-16 min-[900px]:min-w-16 min-[900px]:max-w-16";
+const WEEK_COL_WIDTH_REM = { mobile: 3, desktop: 4 } as const;
 
 /** Sticky status column — desktop only; mobile uses player meta for status. */
 const STATUS_COL =
@@ -135,7 +136,7 @@ export function SurvivorPickGrid({
                       else headerRefs.current.delete(week);
                     }}
                     className={[
-                      "relative px-1 py-2.5 text-center min-[900px]:px-2 min-[900px]:py-3.5",
+                      "relative px-1 py-2.5 text-center min-[900px]:px-1.5 min-[900px]:py-3.5",
                       WEEK_COL,
                       uiType.eyebrow,
                       focused
@@ -190,16 +191,16 @@ export function SurvivorPickGrid({
                             <span
                               className="pointer-events-none absolute inset-y-0 border-x border-x-op-heat-40 min-[900px]:hidden"
                               style={{
-                                left: `${9.5 + focusedWeekIndex * 3}rem`,
-                                width: "3rem",
+                                left: `${9.5 + focusedWeekIndex * WEEK_COL_WIDTH_REM.mobile}rem`,
+                                width: `${WEEK_COL_WIDTH_REM.mobile}rem`,
                               }}
                               aria-hidden
                             />
                             <span
                               className="pointer-events-none absolute inset-y-0 hidden border-x border-x-op-heat-40 min-[900px]:block"
                               style={{
-                                left: `${16 + focusedWeekIndex * 4}rem`,
-                                width: "4rem",
+                                left: `${16 + focusedWeekIndex * WEEK_COL_WIDTH_REM.desktop}rem`,
+                                width: `${WEEK_COL_WIDTH_REM.desktop}rem`,
                               }}
                               aria-hidden
                             />
@@ -254,7 +255,7 @@ export function SurvivorPickGrid({
                         <td
                           key={cell.week}
                           className={[
-                            "border-t border-op-border px-1 py-2.5 text-center min-[900px]:px-2 min-[900px]:py-3.5",
+                            "border-t border-op-border px-1 py-2.5 text-center min-[900px]:px-1.5 min-[900px]:py-3.5",
                             WEEK_COL,
                             row.isViewer ? "bg-op-selected" : "",
                             focused

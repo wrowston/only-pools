@@ -28,6 +28,16 @@ export function SurvivorStandingsView({
 
   const currentWeek = useMemo(() => {
     if (!standings || standings.weeks.length === 0) return 1;
+    // Prefer the earliest week that still has an unlocked authored pick —
+    // that is the live board week once prior weeks have locked.
+    for (const week of standings.weeks) {
+      const hasOpenPick = standings.rows.some((row) =>
+        row.cells.some(
+          (c) => c.week === week && c.hasPick && !c.locked,
+        ),
+      );
+      if (hasOpenPick) return week;
+    }
     for (let i = standings.weeks.length - 1; i >= 0; i--) {
       const week = standings.weeks[i]!;
       const hasLocked = standings.rows.some((row) =>
