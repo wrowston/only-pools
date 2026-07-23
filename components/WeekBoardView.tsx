@@ -22,7 +22,7 @@ import { usePoolChrome, usePoolChromeName } from "./PoolChrome";
 import { SaveTrust } from "./SaveTrust";
 import { SurvivorStandingsPeek } from "./SurvivorStandingsPeek";
 import { TeamLogo } from "./TeamLogo";
-import { Toast } from "./Toast";
+import { Toast, type ToastTone } from "./Toast";
 import {
   WeekBoardSkeleton,
   WeekBoardSlateSkeleton,
@@ -125,7 +125,11 @@ export function WeekBoardView({
     status: TrustStatus;
     explanation?: string;
   }>({ status: "idle" });
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    title?: string;
+    tone?: ToastTone;
+  } | null>(null);
   const [pendingTeamId, setPendingTeamId] = useState<Id<"nflTeams"> | null>(
     null,
   );
@@ -176,7 +180,7 @@ export function WeekBoardView({
     if (nextWeek === selectedWeek) return;
     setSelectedWeek(nextWeek);
     setTrust({ status: "idle" });
-    setToastMessage(null);
+    setToast(null);
     setPendingTeamId(null);
     setLocalConfidence({});
     setTiebreakerDraft("");
@@ -187,7 +191,7 @@ export function WeekBoardView({
     if (nextEntryId === activeEntryId) return;
     setActiveEntryId(nextEntryId);
     setTrust({ status: "idle" });
-    setToastMessage(null);
+    setToast(null);
     setPendingTeamId(null);
     setLocalConfidence({});
     setTiebreakerDraft("");
@@ -201,7 +205,10 @@ export function WeekBoardView({
       const result = await addPoolEntry({ poolId });
       selectEntry(result.entryId);
     } catch (err) {
-      setToastMessage(convexErrorMessage(err, "Could not add entry"));
+      setToast({
+        title: "Couldn't add entry",
+        message: convexErrorMessage(err, "Could not add entry"),
+      });
     } finally {
       setAddingEntry(false);
     }
@@ -214,7 +221,10 @@ export function WeekBoardView({
       await dropPoolEntry({ poolId, entryId: activeEntryId });
       setActiveEntryId(null);
     } catch (err) {
-      setToastMessage(convexErrorMessage(err, "Could not drop entry"));
+      setToast({
+        title: "Couldn't drop entry",
+        message: convexErrorMessage(err, "Could not drop entry"),
+      });
     } finally {
       setDroppingEntry(false);
     }
@@ -410,7 +420,12 @@ export function WeekBoardView({
       const explanation = priorUse.abbreviation
         ? `${priorUse.abbreviation} is already used in week ${priorUse.week}. Survivor picks are one-use — choose a different team.`
         : SURVIVOR_ONE_USE_MESSAGE;
-      setToastMessage(explanation);
+      setToast({
+        title: priorUse.abbreviation
+          ? `${priorUse.abbreviation} already used`
+          : "Team already used",
+        message: explanation,
+      });
       setTrust({ status: "error", explanation });
       return;
     }
@@ -435,7 +450,10 @@ export function WeekBoardView({
         err,
         "Save failed — tap a team to retry",
       );
-      setToastMessage(explanation);
+      setToast({
+        title: "Couldn't save pick",
+        message: explanation,
+      });
       setTrust({ status: "error", explanation });
       setPendingTeamId(null);
     }
@@ -621,7 +639,12 @@ export function WeekBoardView({
 
   return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:max-w-3xl min-[900px]:px-8">
-      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      <Toast
+        message={toast?.message ?? null}
+        title={toast?.title}
+        tone={toast?.tone}
+        onDismiss={() => setToast(null)}
+      />
       <header className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-medium tracking-tight text-op-text min-[900px]:text-3xl">

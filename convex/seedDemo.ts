@@ -1,6 +1,10 @@
 /**
  * Dev-only browse-ready demo seeder — no SportsDB / provider calls.
  *
+ * Narrative clock: weeks 1–3 are past/locked (1–2 scored), week 4 is the open
+ * board (TNF started; rest of slate still pickable), weeks 5–6 stay fully
+ * future for Create Pool start-week options.
+ *
  *   bunx convex run seedDemo:seedDemoWorld '{"ownerClerkUserId":"user_…"}'
  *
  * Requires the owner to have signed in once (participants row by clerkUserId).
@@ -19,6 +23,13 @@ const SEED_TOKEN_PREFIX = "seed|";
 const SEED_CLERK_PREFIX = "seed_";
 const DEFAULT_OWNER_CLERK_USER_ID = "user_3GYF9xQXL66xX5aTpVwIvUj4bok";
 const SEASON_LABEL = "2025";
+/** Demo slate: weeks before this are past/locked; this week is the open board. */
+const OPEN_WEEK = 4;
+/** Extra future weeks so Create Pool still has Available Start Weeks. */
+const SLATE_END_WEEK = 6;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const WEEK_MS = 7 * DAY_MS;
 
 const NFL_TEAMS: ReadonlyArray<{
   abbr: string;
@@ -274,17 +285,33 @@ export const seedDemoWorld = internalMutation({
     }
 
     let gameCount = 0;
-    for (let week = 1; week <= 4; week++) {
-      const kickoffBase =
-        nowMs + week * 7 * 24 * 60 * 60 * 1000 + 17 * 60 * 60 * 1000;
+    for (let week = 1; week <= SLATE_END_WEEK; week++) {
       // Rotate pairings so weeks aren't identical.
       const order = NFL_TEAMS.map((t, i) => NFL_TEAMS[(i + week) % NFL_TEAMS.length]!);
+      const pastWeek = week < OPEN_WEEK;
+      const upcomingWeek = week > OPEN_WEEK;
       for (let i = 0; i + 1 < order.length; i += 2) {
         const home = order[i]!;
         const away = order[i + 1]!;
         const homeId = abbrToId.get(home.abbr);
         const awayId = abbrToId.get(away.abbr);
         if (!homeId || !awayId) continue;
+
+        const slot = i / 2;
+        // Past weeks: entire slate finished days/weeks ago so kickoff locks hold.
+        // Open week: first game already kicked off (boardWeek advances) while the
+        // rest of the slate stays in the future so picks remain editable.
+        // Later weeks: fully future so Create Pool still has start-week options.
+        const scheduledKickoffMs = pastWeek
+          ? nowMs - (OPEN_WEEK - week) * WEEK_MS - 2 * DAY_MS + slot * HOUR_MS
+          : upcomingWeek
+            ? nowMs + (week - OPEN_WEEK) * WEEK_MS + DAY_MS + slot * HOUR_MS
+            : slot === 0
+              ? nowMs - 2 * HOUR_MS
+              : nowMs + DAY_MS + (slot - 1) * 3 * HOUR_MS;
+        const kickoffReached = scheduledKickoffMs <= nowMs;
+        const homeScore = pastWeek ? 21 + (slot % 14) : null;
+        const awayScore = pastWeek ? 14 + (slot % 11) : null;
 
         const stableKey = gameStableKey(week, away.abbr, home.abbr);
         const existing = await ctx.db
@@ -297,11 +324,29 @@ export const seedDemoWorld = internalMutation({
           week,
           homeTeamId: homeId,
           awayTeamId: awayId,
-          scheduledKickoffMs: kickoffBase + (i / 2) * 60 * 60 * 1000,
-          lifecycle: "scheduled" as const,
-          homeScore: null,
-          awayScore: null,
+          scheduledKickoffMs,
+          lifecycle: pastWeek
+            ? ("terminal" as const)
+            : kickoffReached
+              ? ("in_progress" as const)
+              : ("scheduled" as const),
+          homeScore,
+          awayScore,
           sportsDbEventId: `seed_evt_w${week}_${away.abbr}_${home.abbr}`,
+          ...(kickoffReached
+            ? { kickoffLockReachedAtMs: scheduledKickoffMs }
+            : {}),
+          ...(pastWeek && homeScore !== null && awayScore !== null
+            ? {
+                resultAuthority: "verified" as const,
+                verifiedResult: {
+                  homeScore,
+                  awayScore,
+                  verifiedAtMs: scheduledKickoffMs + 3 * HOUR_MS,
+                  status: "FT" as const,
+                },
+              }
+            : { resultAuthority: "none" as const }),
         };
         if (existing) {
           await ctx.db.patch(existing._id, fields);
@@ -457,7 +502,7 @@ export const seedDemoWorld = internalMutation({
 
 /**
  * Demo-only history so Standings shows Splashsports-style week pick cells.
- * Weeks 1–2 locked + scored; week 3 locked pending; week 4 unlocked (hidden).
+ * Weeks 1–2 locked + scored; week 3 locked pending; open week unlocked (hidden).
  */
 async function seedSurvivorStandingsHistory(
   ctx: MutationCtx,
@@ -471,22 +516,24 @@ async function seedSurvivorStandingsHistory(
 ): Promise<number> {
   let pickCount = 0;
   const eliminated = new Set<string>();
+  const lastScoredWeek = OPEN_WEEK - 2;
+  const lastLockedWeek = OPEN_WEEK - 1;
 
-  for (let week = 1; week <= 4; week++) {
+  for (let week = 1; week <= OPEN_WEEK; week++) {
     const revisionId =
-      week <= 2
+      week <= lastScoredWeek
         ? await ctx.db.insert("scoringRevisions", {
             poolId: args.poolId,
             week,
             kind: "survivor",
             revisionNumber: 1,
             fingerprint: `seed|${args.poolId}|w${week}`,
-            publishedAtMs: args.nowMs - (5 - week) * 86_400_000,
+            publishedAtMs: args.nowMs - (OPEN_WEEK + 1 - week) * DAY_MS,
             status: "published",
           })
         : null;
 
-    if (week <= 2) {
+    if (week <= lastScoredWeek) {
       await ctx.db.insert("poolWeeks", {
         poolId: args.poolId,
         week,
@@ -503,7 +550,7 @@ async function seedSurvivorStandingsHistory(
       if (eliminated.has(entryId)) continue;
 
       const teamId = args.teamIds[(i + week * 3) % args.teamIds.length]!;
-      const locked = week <= 3;
+      const locked = week <= lastLockedWeek;
       const pickId = await ctx.db.insert("survivorPicks", {
         poolId: args.poolId,
         participantId,
@@ -511,7 +558,9 @@ async function seedSurvivorStandingsHistory(
         week,
         nflTeamId: teamId,
         locked,
-        lockedAtMs: locked ? args.nowMs - (5 - week) * 86_400_000 : undefined,
+        lockedAtMs: locked
+          ? args.nowMs - (OPEN_WEEK + 1 - week) * DAY_MS
+          : undefined,
         provenance: "authored",
         provisional: false,
         updatedAtMs: args.nowMs,
@@ -528,7 +577,7 @@ async function seedSurvivorStandingsHistory(
         updatedAtMs: args.nowMs,
       });
 
-      if (week <= 2 && revisionId) {
+      if (week <= lastScoredWeek && revisionId) {
         // Eliminate ~1/3 of the field each scored week so the grid has red cells.
         const loses = (i + week) % 3 === 0 && i > 0;
         const outcome = loses ? ("loss" as const) : ("win" as const);
@@ -555,8 +604,6 @@ async function seedSurvivorStandingsHistory(
             updatedAtMs: args.nowMs,
           });
         }
-      } else if (week === 3 && locked) {
-        // Locked but unscored — pending look with revealed abbr.
       }
     }
   }

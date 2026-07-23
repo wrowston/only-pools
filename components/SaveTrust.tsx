@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheckBigIcon, LoaderCircleIcon } from "lucide-react";
+
 type SaveTrustProps = {
   status: "idle" | "saving" | "saved" | "error";
   explanation?: string;
@@ -14,25 +16,45 @@ export function SaveTrust({ status, explanation }: SaveTrustProps) {
     return null;
   }
 
-  const label =
-    status === "saving"
-      ? "Saving…"
-      : status === "saved"
-        ? "Saved"
-        : explanation ?? "Save failed — tap a team to retry";
+  if (status === "saved") {
+    return (
+      <p
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-op-won-fg"
+        aria-live="polite"
+        data-save-trust={status}
+        data-live-region="save-trust"
+      >
+        <CircleCheckBigIcon className="size-4 shrink-0" aria-hidden="true" />
+        Saved
+      </p>
+    );
+  }
+
+  if (status === "saving") {
+    return (
+      <p
+        className="inline-flex items-center gap-1.5 text-sm text-op-secondary"
+        aria-live="polite"
+        data-save-trust={status}
+        data-live-region="save-trust"
+      >
+        <LoaderCircleIcon
+          className="size-4 shrink-0 animate-spin text-op-muted"
+          aria-hidden="true"
+        />
+        Saving…
+      </p>
+    );
+  }
 
   return (
     <p
-      className={
-        status === "error"
-          ? "text-sm text-op-lost-fg"
-          : "text-sm text-op-secondary"
-      }
+      className="text-sm text-op-lost-fg"
       aria-live="polite"
       data-save-trust={status}
       data-live-region="save-trust"
     >
-      {label}
+      {explanation ?? "Save failed — tap a team to retry"}
     </p>
   );
 }

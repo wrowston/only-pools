@@ -88,13 +88,13 @@ describe("seedDemoWorld (browse-ready)", () => {
     const survivor = home.memberships.find((m) => m.type === "survivor");
     const confidence = home.memberships.find((m) => m.type === "confidence");
     expect(survivor).toMatchObject({
-      boardWeek: 1,
-      pickStatus: "pick_locked",
+      boardWeek: 4,
+      pickStatus: "pick_saved",
       nextAction: "open_week_board",
       standing: { kind: "survivor", eligibility: "alive" },
     });
     expect(confidence).toMatchObject({
-      boardWeek: 1,
+      boardWeek: 4,
       pickStatus: "needs_pick",
       nextAction: "make_pick",
       standing: { kind: "confidence" },
@@ -105,6 +105,43 @@ describe("seedDemoWorld (browse-ready)", () => {
     });
     expect(season?.status).toBe("available");
     expect(season?.usableStartWeek).toBe(1);
+
+    const slate = await t.run(async (ctx) => {
+      const games = await ctx.db
+        .query("nflGames")
+        .withIndex("by_seasonId", (q) => q.eq("seasonId", result.seasonId))
+        .collect();
+      const nowMs = Date.now();
+      return {
+        pastLocked: games
+          .filter((g) => g.week <= 3)
+          .every(
+            (g) =>
+              g.scheduledKickoffMs < nowMs &&
+              g.kickoffLockReachedAtMs != null &&
+              g.lifecycle === "terminal",
+          ),
+        openWeekHasFutureGames: games.some(
+          (g) => g.week === 4 && g.scheduledKickoffMs > nowMs,
+        ),
+        openWeekHasStartedGame: games.some(
+          (g) => g.week === 4 && g.scheduledKickoffMs <= nowMs,
+        ),
+        futureStartWeeks: [
+          ...new Set(
+            games
+              .filter((g) => g.scheduledKickoffMs > nowMs)
+              .map((g) => g.week),
+          ),
+        ].sort((a, b) => a - b),
+      };
+    });
+    expect(slate.pastLocked).toBe(true);
+    expect(slate.openWeekHasFutureGames).toBe(true);
+    expect(slate.openWeekHasStartedGame).toBe(true);
+    expect(slate.futureStartWeeks).toEqual(
+      expect.arrayContaining([5, 6]),
+    );
   });
 
   it("reset replaces prior seed pools without duplicating", async () => {

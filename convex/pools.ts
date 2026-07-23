@@ -35,6 +35,10 @@ import {
   poolMaxEntriesPerUser,
 } from "./lib/poolEntries";
 import { isAdmissionClosed } from "./lib/membershipCutoff";
+import {
+  loadEarliestKickoffByWeek,
+  resolveBoardWeek,
+} from "./lib/myPoolsStatus";
 
 const log = createLogger("pools");
 
@@ -657,19 +661,25 @@ export const getWeekBoard = query({
       }
     }
 
-    const week = args.week ?? pool.startWeek;
+    const nowMs = Date.now();
+    const earliestKickoffByWeek = await loadEarliestKickoffByWeek(
+      ctx,
+      pool.seasonId,
+    );
+    const week =
+      args.week ??
+      resolveBoardWeek({
+        startWeek: pool.startWeek,
+        earliestKickoffByWeek,
+        nowMs,
+      });
     const games = await loadWeekGames(ctx, pool.seasonId, week);
     const season = await ctx.db.get(pool.seasonId);
-    const nowMs = Date.now();
 
-    const seasonGames = await ctx.db
-      .query("nflGames")
-      .withIndex("by_seasonId", (q) => q.eq("seasonId", pool.seasonId))
-      .take(512);
     const availableWeekSet = new Set<number>();
-    for (const g of seasonGames) {
-      if (g.week >= pool.startWeek && g.week <= 18) {
-        availableWeekSet.add(g.week);
+    for (const weekNumber of earliestKickoffByWeek.keys()) {
+      if (weekNumber >= pool.startWeek && weekNumber <= 18) {
+        availableWeekSet.add(weekNumber);
       }
     }
     availableWeekSet.add(week);
