@@ -170,6 +170,9 @@ export function assertHelpIntakeOperational(
   if (!hasResendApiKey(env) && !isDoubleEmailMode(env)) {
     return { ok: false, reason: "RESEND_API_KEY is not configured" };
   }
+  if (!getHelpAllowedOrigin(env)) {
+    return { ok: false, reason: "HELP_ALLOWED_ORIGIN is not configured" };
+  }
   const rateLimit = assertHelpRateLimitReady(env);
   if (!rateLimit.ok) {
     return { ok: false, reason: rateLimit.reason };

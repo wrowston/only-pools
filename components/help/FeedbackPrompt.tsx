@@ -35,6 +35,7 @@ export function FeedbackPrompt() {
   const [open, setOpen] = useState(false);
   const shownRef = useRef(false);
   const recordingRef = useRef(false);
+  const explicitCloseRef = useRef(false);
 
   const recordShown = useMutation(api.helpPrompt.recordPromptShown);
   const snoozePrompt = useMutation(api.helpPrompt.snoozePrompt);
@@ -90,6 +91,7 @@ export function FeedbackPrompt() {
 
   const handleSentiment = useCallback(
     (sentiment: FeedbackSentiment) => {
+      explicitCloseRef.current = true;
       writeHelpPromptDraft({ sentiment, createdAtMs: Date.now() });
       posthog.capture("help_prompt_draft_started");
       setOpen(false);
@@ -99,16 +101,36 @@ export function FeedbackPrompt() {
   );
 
   const handleSnooze = useCallback(() => {
+    explicitCloseRef.current = true;
     void snoozePrompt({ nowMs: Date.now() });
     posthog.capture("help_prompt_snoozed");
     setOpen(false);
   }, [snoozePrompt]);
 
   const handleRetire = useCallback(() => {
+    explicitCloseRef.current = true;
     void retirePrompt({ nowMs: Date.now() });
     posthog.capture("help_prompt_retired");
     setOpen(false);
   }, [retirePrompt]);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        setOpen(true);
+        return;
+      }
+      if (explicitCloseRef.current) {
+        explicitCloseRef.current = false;
+        setOpen(false);
+        return;
+      }
+      void snoozePrompt({ nowMs: Date.now() });
+      posthog.capture("help_prompt_snoozed");
+      setOpen(false);
+    },
+    [snoozePrompt],
+  );
 
   if (!featureEnabled || !isSignedIn || !calmPage) {
     return null;
@@ -117,7 +139,7 @@ export function FeedbackPrompt() {
   return (
     <FeedbackPromptDialog
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={handleOpenChange}
       onSentiment={handleSentiment}
       onSnooze={handleSnooze}
       onRetire={handleRetire}

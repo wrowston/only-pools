@@ -245,18 +245,114 @@ export const deliverIntake = internalAction({
     const config = await runEffect(configEffect);
     const nowMs = Date.now();
 
-    if (intake.lane === "feedback") {
-      const feedbackType = intake.feedbackType ?? "problem";
-      const sentiment = intake.sentiment ?? "neutral";
-      const mailboxSubject = `[Feedback] ${feedbackType} · ${sentiment} · ${intake.reference}`;
-      const mailboxText = formatFeedbackMailboxBody({
+    try {
+      if (intake.lane === "feedback") {
+        const feedbackType = intake.feedbackType ?? "problem";
+        const sentiment = intake.sentiment ?? "neutral";
+        const mailboxSubject = `[Feedback] ${feedbackType} · ${sentiment} · ${intake.reference}`;
+        const mailboxText = formatFeedbackMailboxBody({
+          reference: intake.reference,
+          feedbackType,
+          sentiment,
+          message: intake.message,
+          replyEmail: intake.replyEmail,
+          participantId: intake.participantId,
+          anonymous: intake.anonymous,
+          contextJson: intake.contextJson,
+        });
+
+        await attemptRecipientDelivery(ctx, {
+          intake,
+          channel: "mailbox",
+          from: config.from,
+          to: config.mailbox,
+          subject: mailboxSubject,
+          text: mailboxText,
+          replyTo: intake.replyEmail,
+          nowMs,
+        });
+
+        if (intake.anonymous || !intake.replyEmail) {
+          if (shouldAttemptDelivery(intake.receiptDelivery, nowMs)) {
+            await markReceiptSkipped(
+              ctx,
+              args.intakeId,
+              intake.anonymous ? "anonymous_feedback" : "no_reply_email",
+              nowMs,
+            );
+          }
+          return null;
+        }
+
+        const receiptSubject = `Only Pools Feedback — ${intake.reference}`;
+        const receiptText = formatFeedbackReceiptBody({
+          reference: intake.reference,
+          feedbackType,
+          sentiment,
+          message: intake.message,
+        });
+
+        await attemptRecipientDelivery(ctx, {
+          intake,
+          channel: "receipt",
+          from: config.from,
+          to: intake.replyEmail,
+          subject: receiptSubject,
+          text: receiptText,
+          nowMs,
+        });
+
+        return null;
+      }
+
+      if (intake.lane !== "support") {
+        const skippedAtMs = Date.now();
+        if (shouldAttemptDelivery(intake.mailboxDelivery, skippedAtMs)) {
+          await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+            intakeId: args.intakeId,
+            channel: "mailbox",
+            outcome: {
+              kind: "skipped",
+              failureClass: "unsupported_lane",
+              attemptAtMs: skippedAtMs,
+            },
+          });
+        }
+        if (shouldAttemptDelivery(intake.receiptDelivery, skippedAtMs)) {
+          await markReceiptSkipped(ctx, args.intakeId, "unsupported_lane", skippedAtMs);
+        }
+        return null;
+      }
+
+      const category = intake.supportCategory ?? "Other";
+      const replyEmail = intake.replyEmail;
+      if (!replyEmail) {
+        const failedAtMs = Date.now();
+        if (shouldAttemptDelivery(intake.mailboxDelivery, failedAtMs)) {
+          await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+            intakeId: args.intakeId,
+            channel: "mailbox",
+            outcome: {
+              kind: "failure",
+              failureClass: "missing_reply_email",
+              retryable: false,
+              attemptAtMs: failedAtMs,
+            },
+          });
+        }
+        if (shouldAttemptDelivery(intake.receiptDelivery, failedAtMs)) {
+          await markReceiptSkipped(ctx, args.intakeId, "missing_reply_email", failedAtMs);
+        }
+        return null;
+      }
+
+      const mailboxSubject = `[Support] ${category} · ${intake.reference}`;
+      const mailboxText = formatSupportMailboxBody({
         reference: intake.reference,
-        feedbackType,
-        sentiment,
+        category,
         message: intake.message,
-        replyEmail: intake.replyEmail,
+        replyEmail,
         participantId: intake.participantId,
-        anonymous: intake.anonymous,
         contextJson: intake.contextJson,
       });
 
@@ -267,27 +363,14 @@ export const deliverIntake = internalAction({
         to: config.mailbox,
         subject: mailboxSubject,
         text: mailboxText,
-        replyTo: intake.replyEmail,
+        replyTo: replyEmail,
         nowMs,
       });
 
-      if (intake.anonymous || !intake.replyEmail) {
-        if (shouldAttemptDelivery(intake.receiptDelivery, nowMs)) {
-          await markReceiptSkipped(
-            ctx,
-            args.intakeId,
-            intake.anonymous ? "anonymous_feedback" : "no_reply_email",
-            nowMs,
-          );
-        }
-        return null;
-      }
-
-      const receiptSubject = `Only Pools Feedback — ${intake.reference}`;
-      const receiptText = formatFeedbackReceiptBody({
+      const receiptSubject = `Only Pools Support — ${intake.reference}`;
+      const receiptText = formatSupportReceiptBody({
         reference: intake.reference,
-        feedbackType,
-        sentiment,
+        category,
         message: intake.message,
       });
 
@@ -295,93 +378,17 @@ export const deliverIntake = internalAction({
         intake,
         channel: "receipt",
         from: config.from,
-        to: intake.replyEmail,
+        to: replyEmail,
         subject: receiptSubject,
         text: receiptText,
         nowMs,
       });
-
-      return null;
+    } finally {
+      await ctx.runMutation(internal.helpIntake.scheduleNextDeliveryIfNeeded, {
+        intakeId: args.intakeId,
+        nowMs: Date.now(),
+      });
     }
-
-    if (intake.lane !== "support") {
-      const skippedAtMs = Date.now();
-      if (shouldAttemptDelivery(intake.mailboxDelivery, skippedAtMs)) {
-        await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
-          intakeId: args.intakeId,
-          channel: "mailbox",
-          outcome: {
-            kind: "skipped",
-            failureClass: "unsupported_lane",
-            attemptAtMs: skippedAtMs,
-          },
-        });
-      }
-      if (shouldAttemptDelivery(intake.receiptDelivery, skippedAtMs)) {
-        await markReceiptSkipped(ctx, args.intakeId, "unsupported_lane", skippedAtMs);
-      }
-      return null;
-    }
-
-    const category = intake.supportCategory ?? "Other";
-    const replyEmail = intake.replyEmail;
-    if (!replyEmail) {
-      const failedAtMs = Date.now();
-      if (shouldAttemptDelivery(intake.mailboxDelivery, failedAtMs)) {
-        await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
-          intakeId: args.intakeId,
-          channel: "mailbox",
-          outcome: {
-            kind: "failure",
-            failureClass: "missing_reply_email",
-            retryable: false,
-            attemptAtMs: failedAtMs,
-          },
-        });
-      }
-      if (shouldAttemptDelivery(intake.receiptDelivery, failedAtMs)) {
-        await markReceiptSkipped(ctx, args.intakeId, "missing_reply_email", failedAtMs);
-      }
-      return null;
-    }
-
-    const mailboxSubject = `[Support] ${category} · ${intake.reference}`;
-    const mailboxText = formatSupportMailboxBody({
-      reference: intake.reference,
-      category,
-      message: intake.message,
-      replyEmail,
-      participantId: intake.participantId,
-      contextJson: intake.contextJson,
-    });
-
-    await attemptRecipientDelivery(ctx, {
-      intake,
-      channel: "mailbox",
-      from: config.from,
-      to: config.mailbox,
-      subject: mailboxSubject,
-      text: mailboxText,
-      replyTo: replyEmail,
-      nowMs,
-    });
-
-    const receiptSubject = `Only Pools Support — ${intake.reference}`;
-    const receiptText = formatSupportReceiptBody({
-      reference: intake.reference,
-      category,
-      message: intake.message,
-    });
-
-    await attemptRecipientDelivery(ctx, {
-      intake,
-      channel: "receipt",
-      from: config.from,
-      to: replyEmail,
-      subject: receiptSubject,
-      text: receiptText,
-      nowMs,
-    });
 
     return null;
   },

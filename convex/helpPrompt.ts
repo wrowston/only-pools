@@ -202,7 +202,7 @@ export async function maybeMarkSurvivorPlayingMilestone(
   if (state?.memberEligibleAtMs !== undefined) return;
 
   const validPickCount = await countValidSurvivorPicks(ctx, participantId);
-  if (validPickCount !== 1) return;
+  if (validPickCount < 1) return;
 
   await markMemberPlayingMilestone(ctx, participantId, nowMs);
 }
@@ -334,6 +334,16 @@ export const recordPromptShown = mutation({
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
     const state = await ensurePromptState(ctx, participant._id, args.nowMs);
+
+    if (!computeCanShowPrompt(state, args.nowMs)) {
+      return {
+        canShow: false,
+        displayCount: state.displayCount,
+        snoozeUntilMs: state.snoozeUntilMs ?? null,
+        retired: state.retired,
+        eligible: isEligible(state),
+      };
+    }
 
     const nextDisplayCount = state.displayCount + 1;
     const nextRetired =

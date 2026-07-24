@@ -58,6 +58,7 @@ describe("helpConfig", () => {
 
   it("fails closed in production without network hash secret", () => {
     process.env.DEPLOYMENT_KIND = "production";
+    process.env.HELP_ALLOWED_ORIGIN = "https://onlypools.example";
     process.env.HELP_SUPPORT_MAILBOX = "support@example.test";
     process.env.HELP_FROM_EMAIL = "Only Pools <noreply@example.test>";
     process.env.RESEND_API_KEY = "re_test_key";
@@ -69,6 +70,24 @@ describe("helpConfig", () => {
     expect(check.ok).toBe(false);
     if (!check.ok) {
       expect(check.reason).toMatch(/HELP_NETWORK_HASH_SECRET/i);
+    }
+  });
+
+  it("fails closed in production without allowed origin", () => {
+    process.env.DEPLOYMENT_KIND = "production";
+    process.env.HELP_SUPPORT_MAILBOX = "support@example.test";
+    process.env.HELP_FROM_EMAIL = "Only Pools <noreply@example.test>";
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.HELP_NETWORK_HASH_SECRET = "test-secret";
+    delete process.env.HELP_ALLOWED_ORIGIN;
+    delete process.env.CLIENT_ORIGIN;
+    delete process.env.NEXT_PUBLIC_SITE_URL;
+    delete process.env.HELP_EMAIL_MODE;
+
+    const check = assertHelpIntakeOperational();
+    expect(check.ok).toBe(false);
+    if (!check.ok) {
+      expect(check.reason).toMatch(/HELP_ALLOWED_ORIGIN/i);
     }
   });
 

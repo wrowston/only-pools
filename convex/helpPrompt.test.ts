@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
-import { SEVEN_DAYS_MS } from "./helpPrompt";
+import { maybeMarkSurvivorPlayingMilestone, SEVEN_DAYS_MS } from "./helpPrompt";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -237,9 +237,71 @@ describe("helpPrompt member milestones", () => {
     expect(state.eligible).toBe(true);
     expect(state.canShow).toBe(true);
   });
+
+  it("marks eligible when multiple survivor picks exist but milestone was missed", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId } = await asAlex.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    const pool = await asAlex.mutation(api.pools.createPool, {
+      name: "Missed Milestone Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("survivorPicks", {
+        poolId: pool.poolId,
+        participantId,
+        week: 1,
+        nflTeamId: seeded.kc,
+        locked: false,
+        provenance: "authored",
+        provisional: false,
+        updatedAtMs: now,
+      });
+      await ctx.db.insert("survivorPicks", {
+        poolId: pool.poolId,
+        participantId,
+        week: 2,
+        nflTeamId: seeded.buf,
+        locked: false,
+        provenance: "authored",
+        provisional: false,
+        updatedAtMs: now,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      await maybeMarkSurvivorPlayingMilestone(ctx, participantId, now);
+    });
+
+    const state = await asAlex.query(api.helpPrompt.getPromptState, { nowMs: now });
+    expect(state.eligible).toBe(true);
+    expect(state.canShow).toBe(true);
+  });
 });
 
 describe("helpPrompt display, snooze, and retirement", () => {
+  it("does not increment displayCount before eligibility", async () => {
+    const t = convexTest(schema, modules);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const now = Date.now();
+    const result = await asAlex.mutation(api.helpPrompt.recordPromptShown, {
+      nowMs: now,
+    });
+    expect(result.displayCount).toBe(0);
+    expect(result.eligible).toBe(false);
+    expect(result.canShow).toBe(false);
+  });
+
   it("snoozes for seven days after Not now and allows a final display", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSurvivorSlate(t);

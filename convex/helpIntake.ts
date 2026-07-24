@@ -530,20 +530,25 @@ export const acceptSubmission = internalMutation({
     }),
   ),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    const existingRows = await ctx.db
       .query("helpIntake")
       .withIndex("by_idempotencyKey", (q) =>
         q.eq("idempotencyKey", args.idempotencyKey),
       )
-      .unique();
+      .collect();
 
-    if (existing) {
+    if (existingRows.length > 0) {
+      existingRows.sort((a, b) => a._creationTime - b._creationTime);
+      const survivor = existingRows[0]!;
+      for (const duplicate of existingRows.slice(1)) {
+        await ctx.db.delete("helpIntake", duplicate._id);
+      }
       return {
         ok: true as const,
-        intakeId: existing._id,
-        reference: existing.reference,
-        acceptedAtMs: existing.acceptedAtMs,
-        lane: existing.lane,
+        intakeId: survivor._id,
+        reference: survivor.reference,
+        acceptedAtMs: survivor.acceptedAtMs,
+        lane: survivor.lane,
         isReplay: true,
       };
     }
@@ -580,17 +585,32 @@ export const acceptSubmission = internalMutation({
       receiptDelivery: { ...pendingDelivery },
     });
 
-    await ctx.scheduler.runAfter(0, internal.helpDelivery.deliverIntake, {
-      intakeId,
-    });
+    const afterInsertRows = await ctx.db
+      .query("helpIntake")
+      .withIndex("by_idempotencyKey", (q) =>
+        q.eq("idempotencyKey", args.idempotencyKey),
+      )
+      .collect();
+    afterInsertRows.sort((a, b) => a._creationTime - b._creationTime);
+    const survivor = afterInsertRows[0]!;
+    for (const duplicate of afterInsertRows.slice(1)) {
+      await ctx.db.delete("helpIntake", duplicate._id);
+    }
+
+    const isSurvivor = survivor._id === intakeId;
+    if (isSurvivor) {
+      await ctx.scheduler.runAfter(0, internal.helpDelivery.deliverIntake, {
+        intakeId: survivor._id,
+      });
+    }
 
     return {
       ok: true as const,
-      intakeId,
-      reference,
-      acceptedAtMs: args.acceptedAtMs,
-      lane: args.lane,
-      isReplay: false,
+      intakeId: survivor._id,
+      reference: survivor.reference,
+      acceptedAtMs: survivor.acceptedAtMs,
+      lane: survivor.lane,
+      isReplay: !isSurvivor,
     };
   },
 });
@@ -679,11 +699,6 @@ export const recordDeliveryAttempt = internalMutation({
           nextAttemptAtMs,
         },
       });
-      await ctx.scheduler.runAfter(
-        delayMs,
-        internal.helpDelivery.deliverIntake,
-        { intakeId: args.intakeId },
-      );
       return null;
     }
 
@@ -707,6 +722,41 @@ export const recordDeliveryAttempt = internalMutation({
       await enqueueSentryDelivery(ctx, capture);
     }
 
+    return null;
+  },
+});
+
+export const scheduleNextDeliveryIfNeeded = internalMutation({
+  args: {
+    intakeId: v.id("helpIntake"),
+    nowMs: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get("helpIntake", args.intakeId);
+    if (!doc) return null;
+
+    const pendingRetryAtMs: number[] = [];
+    for (const delivery of [doc.mailboxDelivery, doc.receiptDelivery]) {
+      if (
+        delivery.status === "pending" &&
+        delivery.nextAttemptAtMs !== undefined
+      ) {
+        pendingRetryAtMs.push(delivery.nextAttemptAtMs);
+      }
+    }
+
+    if (pendingRetryAtMs.length === 0) {
+      return null;
+    }
+
+    const nextAttemptAtMs = Math.min(...pendingRetryAtMs);
+    const delayMs = Math.max(0, nextAttemptAtMs - args.nowMs);
+    await ctx.scheduler.runAfter(
+      delayMs,
+      internal.helpDelivery.deliverIntake,
+      { intakeId: args.intakeId },
+    );
     return null;
   },
 });

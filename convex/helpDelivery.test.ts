@@ -381,6 +381,32 @@ describe("Help delivery durability (issue #23)", () => {
     expect(resendSink.emails).toHaveLength(1);
   });
 
+  it("schedules only one continuation when both channels fail transiently", async () => {
+    const t = createHelpTest();
+    resendSink.failNext(2, { status: 500, failureClass: "provider_5xx" });
+
+    const json = await acceptSupport(t, { idempotencyKey: "del-dual-fail" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+
+    const pendingRetries = await t.run(async (ctx) => {
+      const jobs = await ctx.db.system.query("_scheduled_functions").collect();
+      return jobs.filter(
+        (job) =>
+          job.state.kind === "pending" &&
+          typeof job.name === "string" &&
+          job.name.includes("deliverIntake"),
+      );
+    });
+    expect(pendingRetries).toHaveLength(1);
+
+    const stored = await getIntakeByReference(t, json.reference);
+    expect(stored!.mailboxDelivery.status).toBe("pending");
+    expect(stored!.receiptDelivery.status).toBe("pending");
+    expect(stored!.mailboxDelivery.attemptCount).toBe(1);
+    expect(stored!.receiptDelivery.attemptCount).toBe(1);
+  });
+
   it("schedules bounded delayed retries via mutation-driven policy", async () => {
     const t = createHelpTest();
     resendSink.failNext(1, { status: 500, failureClass: "provider_5xx" });

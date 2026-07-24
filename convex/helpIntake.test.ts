@@ -6,6 +6,7 @@ import schema from "./schema";
 import { isOpaqueHelpReference } from "./lib/helpReference";
 import { resendSink } from "./lib/resendSink";
 import {
+  HELP_RETENTION_MS,
   HELP_TEST_RATE_LIMIT_SECRET,
   MAX_HELP_REQUEST_BODY_BYTES,
   MIN_HELP_FORM_COMPLETION_MS,
@@ -1488,5 +1489,72 @@ describe("Help intake HTTP — security & abuse (issue #22)", () => {
     expect(response.status).toBe(503);
     const json = (await response.json()) as { ok: false; error: string };
     expect(json.error).toMatch(/HELP_NETWORK_HASH_SECRET/i);
+  });
+});
+
+describe("acceptSubmission idempotency race", () => {
+  it("deduplicates duplicate rows and returns oldest survivor", async () => {
+    const t = convexTest(schema, modules);
+    const key = "idem-race-key";
+    const acceptedAtMs = Date.now();
+    const expiresAtMs = acceptedAtMs + HELP_RETENTION_MS;
+
+    const survivorRef = await t.run(async (ctx) => {
+      await ctx.db.insert("helpIntake", {
+        reference: "OP-AAAAAAAAAAAAAAAAAAAAAAAA",
+        idempotencyKey: key,
+        lane: "support",
+        supportCategory: "Technical problem",
+        message: "older",
+        replyEmail: "older@example.test",
+        anonymous: false,
+        includeDiagnostics: false,
+        acceptedAtMs: acceptedAtMs - 1_000,
+        expiresAtMs,
+        mailboxDelivery: { status: "pending", attemptCount: 0 },
+        receiptDelivery: { status: "pending", attemptCount: 0 },
+      });
+      await ctx.db.insert("helpIntake", {
+        reference: "OP-BBBBBBBBBBBBBBBBBBBBBBBB",
+        idempotencyKey: key,
+        lane: "support",
+        supportCategory: "Technical problem",
+        message: "newer duplicate",
+        replyEmail: "newer@example.test",
+        anonymous: false,
+        includeDiagnostics: false,
+        acceptedAtMs,
+        expiresAtMs,
+        mailboxDelivery: { status: "pending", attemptCount: 0 },
+        receiptDelivery: { status: "pending", attemptCount: 0 },
+      });
+      return "OP-AAAAAAAAAAAAAAAAAAAAAAAA";
+    });
+
+    const result = await t.mutation(internal.helpIntake.acceptSubmission, {
+      lane: "support",
+      idempotencyKey: key,
+      supportCategory: "Technical problem",
+      message: "replay attempt",
+      replyEmail: "replay@example.test",
+      anonymous: false,
+      includeDiagnostics: false,
+      acceptedAtMs,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.isReplay).toBe(true);
+      expect(result.reference).toBe(survivorRef);
+    }
+
+    const count = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("helpIntake")
+        .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", key))
+        .collect();
+      return rows.length;
+    });
+    expect(count).toBe(1);
   });
 });
