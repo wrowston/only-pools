@@ -41,3 +41,5 @@ export const FEEDBACK_SENTIMENT_LABELS: Record<FeedbackSentiment, string> = {
 
 export const HELP_RESPONSE_EXPECTATION =
   "We aim to respond within 2 business days.";
+
+export const HELP_RETENTION_DAYS = 90;

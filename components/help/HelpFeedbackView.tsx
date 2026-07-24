@@ -14,6 +14,9 @@ import {
   type FeedbackType,
 } from "@/lib/helpConstants";
 import type { Guide } from "@/lib/guides";
+import type { HelpContextDisclosure } from "@/lib/helpDiagnostics";
+import { HELP_RETENTION_DAYS } from "@/lib/helpConstants";
+import { HelpContextDisclosurePanel } from "@/components/help/HelpContextDisclosure";
 
 const textareaClassName =
   "flex min-h-24 w-full rounded-lg border border-op-border bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
@@ -68,6 +71,9 @@ export type HelpFeedbackViewProps = {
   onFeedbackMessageChange: (value: string) => void;
   onFeedbackReplyEmailChange: (value: string) => void;
   onFeedbackAnonymousChange: (value: boolean) => void;
+  includeDiagnostics: boolean;
+  onIncludeDiagnosticsChange: (value: boolean) => void;
+  contextDisclosure: HelpContextDisclosure;
   fieldErrors: HelpFieldErrors;
   formError: string | null;
   submitting: boolean;
@@ -101,6 +107,9 @@ export function HelpFeedbackView({
   onFeedbackMessageChange,
   onFeedbackReplyEmailChange,
   onFeedbackAnonymousChange,
+  includeDiagnostics,
+  onIncludeDiagnosticsChange,
+  contextDisclosure,
   fieldErrors,
   formError,
   submitting,
@@ -259,7 +268,8 @@ export function HelpFeedbackView({
         </h1>
         <p className="mt-4 max-w-2xl text-[15px] leading-7 text-op-secondary">
           Choose a lane below. Guides may answer your question without waiting
-          for a reply.
+          for a reply. Submissions are stored temporarily (up to{" "}
+          {HELP_RETENTION_DAYS} days) and delivered to our support mailbox.
         </p>
 
         {suggestedGuides.length > 0 ? (
@@ -452,6 +462,13 @@ export function HelpFeedbackView({
                   </span>
                 ) : null}
               </label>
+
+              <HelpContextDisclosurePanel
+                disclosure={contextDisclosure}
+                includeDiagnostics={includeDiagnostics}
+                onIncludeDiagnosticsChange={onIncludeDiagnosticsChange}
+                lane="support"
+              />
 
               {formError ? (
                 <p className="text-sm text-destructive" role="alert">
@@ -668,6 +685,13 @@ export function HelpFeedbackView({
                   </span>
                 </label>
               ) : null}
+
+              <HelpContextDisclosurePanel
+                disclosure={contextDisclosure}
+                includeDiagnostics={includeDiagnostics}
+                onIncludeDiagnosticsChange={onIncludeDiagnosticsChange}
+                lane="feedback"
+              />
 
               {formError ? (
                 <p className="text-sm text-destructive" role="alert">

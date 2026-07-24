@@ -1,12 +1,18 @@
 import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
+import { httpAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   assertHelpIntakeOperational,
   corsHeaders,
   getHelpAllowedOrigin,
 } from "./lib/helpConfig";
-import { validateFeedbackIntake, validateSupportIntake } from "./helpIntake";
+import {
+  parsePoolIdHint,
+  resolveStoredHelpContext,
+  validateFeedbackIntake,
+  validateSupportIntake,
+} from "./helpIntake";
 
 const http = httpRouter();
 
@@ -26,6 +32,61 @@ function jsonResponse(
 
 function requestOrigin(req: Request): string | null {
   return req.headers.get("Origin")?.trim() || null;
+}
+
+async function resolveAuthorizedPoolId(
+  ctx: ActionCtx,
+  participantId: Id<"participants"> | undefined,
+  poolIdHint: Id<"pools"> | undefined,
+): Promise<Id<"pools"> | undefined> {
+  if (!participantId || !poolIdHint) return undefined;
+
+  const isMember = await ctx.runQuery(
+    internal.helpIntake.verifyPoolMembership,
+    { poolId: poolIdHint, participantId },
+  );
+  return isMember ? poolIdHint : undefined;
+}
+
+async function resolveIdentityContext(
+  ctx: ActionCtx,
+  args: {
+    anonymous: boolean;
+    poolIdHint?: Id<"pools">;
+  },
+): Promise<{
+  participantId?: Id<"participants">;
+  email?: string;
+  poolId?: Id<"pools">;
+}> {
+  if (args.anonymous) {
+    return {};
+  }
+
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) {
+    return {};
+  }
+
+  const participant = await ctx.runQuery(
+    internal.helpIntake.lookupParticipantByToken,
+    { tokenIdentifier: identity.tokenIdentifier },
+  );
+  if (!participant) {
+    return {};
+  }
+
+  const poolId = await resolveAuthorizedPoolId(
+    ctx,
+    participant._id,
+    args.poolIdHint,
+  );
+
+  return {
+    participantId: participant._id,
+    email: participant.email ?? identity.email ?? undefined,
+    poolId,
+  };
 }
 
 http.route({
@@ -80,6 +141,7 @@ http.route({
     const payload = body as Record<string, unknown>;
     const lane = payload.lane;
     const acceptedAtMs = Date.now();
+    const poolIdHint = parsePoolIdHint(payload.poolIdHint);
 
     if (lane === "feedback") {
       const validated = validateFeedbackIntake({
@@ -100,21 +162,40 @@ http.route({
         return jsonResponse({ ok: false, errors: validated.errors }, 400, cors);
       }
 
-      let participantId = undefined;
       let replyEmail: string | undefined = validated.value.replyEmail;
 
       if (validated.value.anonymous) {
-        participantId = undefined;
         replyEmail = undefined;
-      } else {
-        const identity = await ctx.auth.getUserIdentity();
-        if (identity !== null) {
-          const participant = await ctx.runQuery(
-            internal.helpIntake.lookupParticipantByToken,
-            { tokenIdentifier: identity.tokenIdentifier },
-          );
-          participantId = participant?._id;
-        }
+      }
+
+      const identity = validated.value.anonymous
+        ? {}
+        : await resolveIdentityContext(ctx, {
+            anonymous: false,
+            poolIdHint,
+          });
+
+      let contextJson: string | undefined;
+      try {
+        contextJson = resolveStoredHelpContext({
+          lane: "feedback",
+          anonymous: validated.value.anonymous,
+          includeDiagnostics: validated.value.includeDiagnostics,
+          clientContextJson: validated.value.contextJson,
+          identity,
+        });
+      } catch (error) {
+        return jsonResponse(
+          {
+            ok: false,
+            errors: {
+              context:
+                error instanceof Error ? error.message : "Invalid context",
+            },
+          },
+          400,
+          cors,
+        );
       }
 
       const result = await ctx.runMutation(
@@ -127,8 +208,9 @@ http.route({
           message: validated.value.message,
           replyEmail,
           anonymous: validated.value.anonymous,
-          participantId,
-          contextJson: validated.value.contextJson,
+          participantId: identity.participantId,
+          poolId: identity.poolId,
+          contextJson,
           includeDiagnostics: validated.value.includeDiagnostics,
           acceptedAtMs,
         },
@@ -164,14 +246,32 @@ http.route({
       return jsonResponse({ ok: false, errors: validated.errors }, status, cors);
     }
 
-    let participantId = undefined;
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity !== null) {
-      const participant = await ctx.runQuery(
-        internal.helpIntake.lookupParticipantByToken,
-        { tokenIdentifier: identity.tokenIdentifier },
+    const identity = await resolveIdentityContext(ctx, {
+      anonymous: false,
+      poolIdHint,
+    });
+
+    let contextJson: string | undefined;
+    try {
+      contextJson = resolveStoredHelpContext({
+        lane: "support",
+        anonymous: false,
+        includeDiagnostics: validated.value.includeDiagnostics,
+        clientContextJson: validated.value.contextJson,
+        identity,
+      });
+    } catch (error) {
+      return jsonResponse(
+        {
+          ok: false,
+          errors: {
+            context:
+              error instanceof Error ? error.message : "Invalid context",
+          },
+        },
+        400,
+        cors,
       );
-      participantId = participant?._id;
     }
 
     const result = await ctx.runMutation(
@@ -183,8 +283,9 @@ http.route({
         message: validated.value.message,
         replyEmail: validated.value.replyEmail,
         anonymous: validated.value.anonymous,
-        participantId,
-        contextJson: validated.value.contextJson,
+        participantId: identity.participantId,
+        poolId: identity.poolId,
+        contextJson,
         includeDiagnostics: validated.value.includeDiagnostics,
         acceptedAtMs,
       },

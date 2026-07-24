@@ -1,9 +1,10 @@
 "use client";
 
 import { useAuth, useUser } from "@clerk/nextjs";
+import { useQuery } from "convex/react";
 import posthog from "posthog-js";
-import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   HelpFeedbackView,
   type FeedbackAcceptance,
@@ -12,16 +13,26 @@ import {
   type HelpLane,
   type SupportAcceptance,
 } from "@/components/help/HelpFeedbackView";
+import { api } from "@/convex/_generated/api";
 import { convexSiteUrl } from "@/lib/convexSiteUrl";
 import type { FeedbackSentiment, FeedbackType } from "@/lib/helpConstants";
 import { suggestGuidesForHelpContext } from "@/lib/help";
+import {
+  buildHelpClientContextPayload,
+  buildHelpContextDisclosure,
+} from "@/lib/helpDiagnostics";
 
 export function HelpFeedbackPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname() ?? "/help";
   const source = searchParams.get("source");
   const suggestedGuides = suggestGuidesForHelpContext(source);
   const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
+  const helpIdentity = useQuery(
+    api.participants.myHelpIdentity,
+    isSignedIn ? {} : "skip",
+  );
 
   const [activeLane, setActiveLane] = useState<HelpLane>("support");
   const [category, setCategory] = useState("");
@@ -42,6 +53,7 @@ export function HelpFeedbackPage() {
   >(null);
   const feedbackReplyEmail = feedbackReplyEmailOverride ?? clerkEmail;
   const [feedbackAnonymous, setFeedbackAnonymous] = useState(false);
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(true);
   const [fieldErrors, setFieldErrors] = useState<HelpFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -49,24 +61,46 @@ export function HelpFeedbackPage() {
 
   const supportIdempotencyKeyRef = useRef<string | null>(null);
   const feedbackIdempotencyKeyRef = useRef<string | null>(null);
-  const supportStartedAtMsRef = useRef<number | null>(null);
-  const feedbackStartedAtMsRef = useRef<number | null>(null);
   const openedRef = useRef(false);
+
+  const signedInEmail =
+    helpIdentity?.email ?? user?.primaryEmailAddress?.emailAddress ?? null;
+  const signedInAccountId = helpIdentity?.participantId ?? null;
+
+  const contextInput = useMemo(
+    () => ({
+      lane: activeLane,
+      pathname,
+      search: typeof window !== "undefined" ? window.location.search : "",
+      userAgent:
+        typeof navigator !== "undefined" ? navigator.userAgent : "Unknown",
+      includeDiagnostics,
+      signedIn: Boolean(isSignedIn && signedInAccountId),
+      signedInEmail,
+      signedInAccountId,
+      anonymousFeedback: activeLane === "feedback" && feedbackAnonymous,
+    }),
+    [
+      activeLane,
+      pathname,
+      includeDiagnostics,
+      isSignedIn,
+      signedInAccountId,
+      signedInEmail,
+      feedbackAnonymous,
+    ],
+  );
+
+  const contextDisclosure = useMemo(
+    () => buildHelpContextDisclosure(contextInput),
+    [contextInput],
+  );
 
   useEffect(() => {
     if (openedRef.current) return;
     openedRef.current = true;
     posthog.capture("help_opened", { source: source ?? undefined });
   }, [source]);
-
-  useEffect(() => {
-    if (activeLane === "support" && supportStartedAtMsRef.current === null) {
-      supportStartedAtMsRef.current = Date.now();
-    }
-    if (activeLane === "feedback" && feedbackStartedAtMsRef.current === null) {
-      feedbackStartedAtMsRef.current = Date.now();
-    }
-  }, [activeLane]);
 
   const getSupportIdempotencyKey = useCallback(() => {
     if (!supportIdempotencyKeyRef.current) {
@@ -111,6 +145,11 @@ export function HelpFeedbackPage() {
       const trimmedEmail = replyEmail.trim();
       const trimmedMessage = message.trim();
 
+      const contextPayload = buildHelpClientContextPayload({
+        ...contextInput,
+        lane: "support",
+      });
+
       try {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
@@ -133,15 +172,9 @@ export function HelpFeedbackPage() {
             category: trimmedCategory,
             message: trimmedMessage,
             honeypot,
-            includeDiagnostics: false,
-            context: {
-              pagePath:
-                typeof window !== "undefined"
-                  ? `${window.location.pathname}${window.location.search}`
-                  : "/help",
-              source: source ?? undefined,
-              startedAtMs: supportStartedAtMsRef.current ?? undefined,
-            },
+            includeDiagnostics: contextPayload.includeDiagnostics,
+            context: contextPayload.context,
+            poolIdHint: contextPayload.poolIdHint,
           }),
         });
 
@@ -166,7 +199,6 @@ export function HelpFeedbackPage() {
           };
           setAcceptance(nextAcceptance);
           supportIdempotencyKeyRef.current = null;
-          supportStartedAtMsRef.current = null;
           return;
         }
 
@@ -195,13 +227,13 @@ export function HelpFeedbackPage() {
     },
     [
       category,
+      contextInput,
       getSupportIdempotencyKey,
       getToken,
       honeypot,
       isSignedIn,
       message,
       replyEmail,
-      source,
     ],
   );
 
@@ -216,6 +248,12 @@ export function HelpFeedbackPage() {
       const type = feedbackType;
       const trimmedMessage = feedbackMessage.trim();
       const trimmedEmail = feedbackAnonymous ? "" : feedbackReplyEmail.trim();
+
+      const contextPayload = buildHelpClientContextPayload({
+        ...contextInput,
+        lane: "feedback",
+        anonymousFeedback: feedbackAnonymous,
+      });
 
       try {
         const headers: Record<string, string> = {
@@ -241,15 +279,9 @@ export function HelpFeedbackPage() {
             replyEmail: trimmedEmail.length > 0 ? trimmedEmail : undefined,
             anonymous: feedbackAnonymous,
             honeypot,
-            includeDiagnostics: false,
-            context: {
-              pagePath:
-                typeof window !== "undefined"
-                  ? `${window.location.pathname}${window.location.search}`
-                  : "/help",
-              source: source ?? undefined,
-              startedAtMs: feedbackStartedAtMsRef.current ?? undefined,
-            },
+            includeDiagnostics: contextPayload.includeDiagnostics,
+            context: contextPayload.context,
+            poolIdHint: contextPayload.poolIdHint,
           }),
         });
 
@@ -279,7 +311,6 @@ export function HelpFeedbackPage() {
           };
           setAcceptance(nextAcceptance);
           feedbackIdempotencyKeyRef.current = null;
-          feedbackStartedAtMsRef.current = null;
           return;
         }
 
@@ -311,6 +342,7 @@ export function HelpFeedbackPage() {
       }
     },
     [
+      contextInput,
       feedbackAnonymous,
       feedbackMessage,
       feedbackReplyEmail,
@@ -320,7 +352,6 @@ export function HelpFeedbackPage() {
       getToken,
       honeypot,
       isSignedIn,
-      source,
     ],
   );
 
@@ -328,7 +359,7 @@ export function HelpFeedbackPage() {
     <HelpFeedbackView
       source={source}
       suggestedGuides={suggestedGuides}
-      signedInEmail={user?.primaryEmailAddress?.emailAddress ?? null}
+      signedInEmail={signedInEmail}
       activeLane={activeLane}
       onLaneChange={handleLaneChange}
       onGuideSelect={handleGuideSelect}
@@ -350,6 +381,9 @@ export function HelpFeedbackPage() {
       onFeedbackMessageChange={setFeedbackMessage}
       onFeedbackReplyEmailChange={setFeedbackReplyEmailOverride}
       onFeedbackAnonymousChange={handleFeedbackAnonymousChange}
+      includeDiagnostics={includeDiagnostics}
+      onIncludeDiagnosticsChange={setIncludeDiagnostics}
+      contextDisclosure={contextDisclosure}
       fieldErrors={fieldErrors}
       formError={formError}
       submitting={submitting}

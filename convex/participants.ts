@@ -37,6 +37,37 @@ export const ensureMyParticipant = mutation({
 });
 
 /**
+ * Lightweight identity for Help & Feedback disclosure (signed-in users only).
+ */
+export const myHelpIdentity = query({
+  args: {},
+  returns: v.union(
+    v.object({
+      participantId: v.id("participants"),
+      email: v.optional(v.string()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) return null;
+
+    const participant = await ctx.db
+      .query("participants")
+      .withIndex("by_tokenIdentifier", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
+      )
+      .unique();
+    if (!participant) return null;
+
+    return {
+      participantId: participant._id,
+      email: participant.email ?? identity.email ?? undefined,
+    };
+  },
+});
+
+/**
  * Dev diagnostic: which verification claims Convex sees on the Clerk JWT.
  * Does not return secrets — only keys + booleans + whether email/phone present.
  */

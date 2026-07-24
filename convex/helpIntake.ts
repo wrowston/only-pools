@@ -22,7 +22,8 @@ import {
 import { generateHelpReference } from "./lib/helpReference";
 import {
   assertTextSafeForHelp,
-  sanitizeHelpContext,
+  buildStoredHelpContext,
+  sanitizeClientHelpContext,
 } from "./lib/helpSanitize";
 
 const laneValidator = v.union(v.literal("support"), v.literal("feedback"));
@@ -140,7 +141,7 @@ export function validateSupportIntake(args: {
       errors.context = "context must be an object";
     } else {
       try {
-        contextJson = sanitizeHelpContext(
+        contextJson = sanitizeClientHelpContext(
           args.context as Record<string, unknown>,
           MAX_CONTEXT_FIELD_LENGTH,
           MAX_CONTEXT_JSON_LENGTH,
@@ -273,7 +274,7 @@ export function validateFeedbackIntake(args: {
       errors.context = "context must be an object";
     } else {
       try {
-        contextJson = sanitizeHelpContext(
+        contextJson = sanitizeClientHelpContext(
           args.context as Record<string, unknown>,
           MAX_CONTEXT_FIELD_LENGTH,
           MAX_CONTEXT_JSON_LENGTH,
@@ -338,6 +339,64 @@ export const lookupParticipantByToken = internalQuery({
     return { _id: participant._id, email: participant.email };
   },
 });
+
+export const verifyPoolMembership = internalQuery({
+  args: {
+    poolId: v.id("pools"),
+    participantId: v.id("participants"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const membership = await ctx.db
+      .query("poolMemberships")
+      .withIndex("by_poolId_and_participantId", (q) =>
+        q.eq("poolId", args.poolId).eq("participantId", args.participantId),
+      )
+      .unique();
+    return membership?.status === "active";
+  },
+});
+
+export type ResolvedIntakeIdentity = {
+  participantId?: Id<"participants">;
+  email?: string;
+  poolId?: Id<"pools">;
+};
+
+export function resolveStoredHelpContext(args: {
+  lane: "support" | "feedback";
+  anonymous: boolean;
+  includeDiagnostics: boolean;
+  clientContextJson?: string;
+  identity: ResolvedIntakeIdentity;
+}): string | undefined {
+  const enrichIdentity =
+    args.lane === "support" ||
+    (args.lane === "feedback" && !args.anonymous && args.identity.participantId);
+
+  try {
+    return buildStoredHelpContext(
+      {
+        includeDiagnostics: args.includeDiagnostics,
+        clientContextJson: args.clientContextJson,
+        accountId: enrichIdentity ? args.identity.participantId : undefined,
+        email: enrichIdentity ? args.identity.email : undefined,
+        poolId: enrichIdentity ? args.identity.poolId : undefined,
+      },
+      MAX_CONTEXT_FIELD_LENGTH,
+      MAX_CONTEXT_JSON_LENGTH,
+    );
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("Invalid context");
+  }
+}
+
+export function parsePoolIdHint(value: unknown): Id<"pools"> | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed as Id<"pools">;
+}
 
 export const getIntakeById = internalQuery({
   args: { intakeId: v.id("helpIntake") },

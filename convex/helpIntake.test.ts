@@ -666,3 +666,371 @@ describe("Help intake HTTP — Feedback lane (issue #20)", () => {
     expect(stored!.participantId).not.toEqual(fakeId);
   });
 });
+
+async function seedSeasonForHelp(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) => {
+    const seasonId = await ctx.db.insert("poolSeasons", {
+      label: "2025",
+      year: 2025,
+      status: "available",
+      usableStartWeek: 1,
+      bootstrappedAtMs: Date.now(),
+    });
+    const homeId = await ctx.db.insert("nflTeams", {
+      stableKey: "nfl:kc",
+      name: "Kansas City Chiefs",
+      abbreviation: "KC",
+      sportsDbTeamId: "134934",
+    });
+    const awayId = await ctx.db.insert("nflTeams", {
+      stableKey: "nfl:buf",
+      name: "Buffalo Bills",
+      abbreviation: "BUF",
+      sportsDbTeamId: "134918",
+    });
+    const now = Date.now();
+    await ctx.db.insert("nflGames", {
+      stableKey: "nfl:2025:w1:buf@kc",
+      seasonId,
+      seasonLabel: "2025",
+      week: 1,
+      homeTeamId: homeId,
+      awayTeamId: awayId,
+      scheduledKickoffMs: now + 7 * 24 * 60 * 60 * 1000,
+      lifecycle: "scheduled",
+      homeScore: null,
+      awayScore: null,
+      sportsDbEventId: "evt_w1",
+    });
+    await ctx.db.insert("nflGames", {
+      stableKey: "nfl:2025:w2:buf@kc",
+      seasonId,
+      seasonLabel: "2025",
+      week: 2,
+      homeTeamId: homeId,
+      awayTeamId: awayId,
+      scheduledKickoffMs: now + 14 * 24 * 60 * 60 * 1000,
+      lifecycle: "scheduled",
+      homeScore: null,
+      awayScore: null,
+      sportsDbEventId: "evt_w2",
+    });
+  });
+}
+
+async function createOwnedPoolForHelp(t: ReturnType<typeof convexTest>) {
+  await seedSeasonForHelp(t);
+  const asUser = t.withIdentity(fullyVerifiedIdentity());
+  await asUser.mutation(api.participants.ensureMyParticipant, {});
+  const created = await asUser.mutation(api.pools.createPool, {
+    name: "Help Pool",
+    type: "survivor",
+    startWeek: 1,
+    pickLockMode: "gameKickoff",
+  });
+  return { asUser, poolId: created.poolId };
+}
+
+describe("Help intake HTTP — diagnostic context (issue #21)", () => {
+  const prevEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of [
+      "DEPLOYMENT_KIND",
+      "HELP_ALLOWED_ORIGIN",
+      "HELP_SUPPORT_MAILBOX",
+      "HELP_FROM_EMAIL",
+      "HELP_EMAIL_MODE",
+      "RESEND_API_KEY",
+    ]) {
+      prevEnv[key] = process.env[key];
+    }
+    applyHelpTestEnv();
+    resendSink.reset();
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resendSink.reset();
+  });
+
+  async function finishDelivery(t: ReturnType<typeof convexTest>) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+  }
+
+  it("stores optional diagnostics when includeDiagnostics is true", async () => {
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        supportPayload({
+          idempotencyKey: "ctx-diag-on",
+          includeDiagnostics: true,
+          context: {
+            pagePath: "/help?source=board",
+            browserSummary: "Chrome on macOS",
+            appVersion: "0.1.0",
+          },
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.includeDiagnostics).toBe(true);
+    const context = JSON.parse(stored!.contextJson!) as Record<string, string>;
+    expect(context.pagePath).toBe("/help?source=board");
+    expect(context.browserSummary).toBe("Chrome on macOS");
+    expect(context.appVersion).toBe("0.1.0");
+  });
+
+  it("excludes optional diagnostics when includeDiagnostics is false", async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId } = await asUser.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        supportPayload({
+          idempotencyKey: "ctx-diag-off",
+          includeDiagnostics: false,
+          context: {
+            pagePath: "/help",
+            browserSummary: "Should not store",
+            appVersion: "9.9.9",
+          },
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.includeDiagnostics).toBe(false);
+    const context = JSON.parse(stored!.contextJson!) as Record<string, string>;
+    expect(context.pagePath).toBeUndefined();
+    expect(context.browserSummary).toBeUndefined();
+    expect(context.accountId).toBe(participantId);
+  });
+
+  it("enriches signed-in support from server identity, not client payload", async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId } = await asUser.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    const fakeId = "jh7fakeparticipantid000000000000" as Id<"participants">;
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        supportPayload({
+          idempotencyKey: "ctx-enrich-support",
+          includeDiagnostics: false,
+          participantId: fakeId,
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.participantId).toEqual(participantId);
+    expect(stored!.participantId).not.toEqual(fakeId);
+    const context = JSON.parse(stored!.contextJson!) as Record<string, string>;
+    expect(context.accountId).toBe(participantId);
+    expect(context.email).toBe("help@example.com");
+  });
+
+  it("rejects forged sensitive context keys", async () => {
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "ctx-forged-sensitive",
+          context: {
+            pagePath: "/help",
+            hiddenPick: "KC",
+          },
+        }),
+      ),
+    });
+    expect(response.status).toBe(400);
+    const json = (await response.json()) as {
+      ok: false;
+      errors: Record<string, string>;
+    };
+    expect(json.errors.context).toMatch(/unsupported field|forbidden field/i);
+  });
+
+  it("minimizes anonymous feedback context regardless of client payload", async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    await asUser.mutation(api.participants.ensureMyParticipant, {});
+    const { poolId } = await createOwnedPoolForHelp(t);
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "ctx-anon-min",
+          anonymous: true,
+          includeDiagnostics: true,
+          context: {
+            pagePath: "/help",
+            browserSummary: "Chrome on macOS",
+            appVersion: "0.1.0",
+          },
+          poolIdHint: poolId,
+          participantId: "jh7fakeparticipantid000000000000",
+          replyEmail: "ignored@example.test",
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.anonymous).toBe(true);
+    expect(stored!.participantId).toBeUndefined();
+    expect(stored!.poolId).toBeUndefined();
+    const context = JSON.parse(stored!.contextJson!) as Record<string, string>;
+    expect(context.accountId).toBeUndefined();
+    expect(context.email).toBeUndefined();
+    expect(context.poolId).toBeUndefined();
+    expect(context.pagePath).toBe("/help");
+  });
+
+  it("attaches poolId only when authenticated and membership is verified", async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, poolId } = await createOwnedPoolForHelp(t);
+    const { participantId } = await asUser.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        supportPayload({
+          idempotencyKey: "ctx-pool-member",
+          includeDiagnostics: false,
+          poolIdHint: poolId,
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.poolId).toEqual(poolId);
+    expect(stored!.participantId).toEqual(participantId);
+    const context = JSON.parse(stored!.contextJson!) as Record<string, string>;
+    expect(context.poolId).toBe(poolId);
+    expect(context.accountId).toBe(participantId);
+  });
+
+  it("ignores forged poolId when submitter is not a member", async () => {
+    const t = convexTest(schema, modules);
+    const { poolId } = await createOwnedPoolForHelp(t);
+    const asUser = t.withIdentity(
+      fullyVerifiedIdentity({ subject: "clerk_user_other" }),
+    );
+    await asUser.mutation(api.participants.ensureMyParticipant, {});
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        supportPayload({
+          idempotencyKey: "ctx-pool-forged",
+          includeDiagnostics: false,
+          poolIdHint: poolId,
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.poolId).toBeUndefined();
+    const context = stored!.contextJson
+      ? (JSON.parse(stored!.contextJson) as Record<string, string>)
+      : {};
+    expect(context.poolId).toBeUndefined();
+  });
+});

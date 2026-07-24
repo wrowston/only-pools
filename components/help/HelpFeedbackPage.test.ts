@@ -7,8 +7,21 @@ import {
 } from "@/components/help/HelpFeedbackView";
 import { guides } from "@/lib/guides";
 import { suggestGuidesForHelpContext } from "@/lib/help";
+import { buildHelpContextDisclosure } from "@/lib/helpDiagnostics";
 
 function noop() {}
+
+const defaultDisclosure = buildHelpContextDisclosure({
+  lane: "support",
+  pathname: "/help",
+  search: "",
+  userAgent: "Mozilla/5.0 Chrome Safari",
+  includeDiagnostics: true,
+  signedIn: true,
+  signedInEmail: "player@example.test",
+  signedInAccountId: "participant_abc",
+  anonymousFeedback: false,
+});
 
 function baseProps(
   overrides: Partial<HelpFeedbackViewProps> = {},
@@ -37,6 +50,9 @@ function baseProps(
     onFeedbackMessageChange: noop,
     onFeedbackReplyEmailChange: noop,
     onFeedbackAnonymousChange: noop,
+    includeDiagnostics: true,
+    onIncludeDiagnosticsChange: noop,
+    contextDisclosure: defaultDisclosure,
     fieldErrors: {},
     formError: null,
     submitting: false,
@@ -181,5 +197,59 @@ describe("HelpFeedbackView", () => {
     });
     expect(feedbackMarkup).toContain("Suggested guides");
     expect(feedbackMarkup).toContain("Share feedback");
+  });
+
+  it("shows context disclosure summary with optional diagnostics toggle on support", () => {
+    const markup = renderView({ activeLane: "support" });
+    expect(markup).toContain("Context we may include");
+    expect(markup).toContain('name="includeDiagnostics"');
+    expect(markup).toContain("Optional diagnostics");
+    expect(markup).toContain("Current page");
+    expect(markup).toContain("Verified account context");
+    expect(markup).toContain("Account identifier");
+    expect(markup).toContain("stored temporarily");
+  });
+
+  it("shows feedback disclosure without identity when anonymous", () => {
+    const anonymousDisclosure = buildHelpContextDisclosure({
+      lane: "feedback",
+      pathname: "/pools/pool123/board",
+      search: "",
+      userAgent: "Mozilla/5.0 Chrome Safari",
+      includeDiagnostics: true,
+      signedIn: true,
+      signedInEmail: "player@example.test",
+      signedInAccountId: "participant_abc",
+      anonymousFeedback: true,
+    });
+    const markup = renderView({
+      activeLane: "feedback",
+      feedbackAnonymous: true,
+      contextDisclosure: anonymousDisclosure,
+    });
+    expect(markup).toContain("private by default");
+    expect(markup).toContain("Optional diagnostics");
+    expect(markup).not.toContain("Verified account context");
+    expect(markup).not.toContain("Account identifier");
+  });
+
+  it("shows excluded optional diagnostics when toggle is off", () => {
+    const diagnosticsOff = buildHelpContextDisclosure({
+      lane: "support",
+      pathname: "/help",
+      search: "",
+      userAgent: "Mozilla/5.0 Chrome Safari",
+      includeDiagnostics: false,
+      signedIn: false,
+      signedInEmail: null,
+      signedInAccountId: null,
+      anonymousFeedback: false,
+    });
+    const markup = renderView({
+      includeDiagnostics: false,
+      contextDisclosure: diagnosticsOff,
+    });
+    expect(markup).toContain("optional diagnostics are turned off");
+    expect(markup).not.toContain("Browser and operating system");
   });
 });

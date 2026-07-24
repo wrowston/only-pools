@@ -32,8 +32,8 @@ function formatSupportMailboxBody(args: {
   if (args.participantId) {
     lines.push("", `Participant: ${args.participantId}`);
   }
-  if (args.includeDiagnostics && args.contextJson) {
-    lines.push("", "Diagnostics:", args.contextJson);
+  if (args.contextJson) {
+    lines.push("", "Context:", args.contextJson);
   }
   return lines.join("\n");
 }
@@ -81,8 +81,8 @@ function formatFeedbackMailboxBody(args: {
     "Message:",
     args.message.length > 0 ? args.message : "(none provided)",
   ];
-  if (args.includeDiagnostics && args.contextJson) {
-    lines.push("", "Diagnostics:", args.contextJson);
+  if (args.contextJson) {
+    lines.push("", "Context:", args.contextJson);
   }
   return lines.join("\n");
 }
