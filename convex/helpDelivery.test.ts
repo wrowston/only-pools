@@ -14,6 +14,12 @@ import { sentrySink } from "./lib/sentry";
 
 const modules = import.meta.glob("./**/*.ts");
 
+function createHelpTest() {
+  return convexTest(schema, modules);
+}
+
+type HelpTest = ReturnType<typeof createHelpTest>;
+
 function validTimingFields() {
   const completedAtMs = Date.now();
   return {
@@ -94,7 +100,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   async function acceptSupport(
-    t: ReturnType<typeof convexTest>,
+    t: HelpTest,
     overrides: Record<string, unknown> = {},
   ) {
     const response = await t.fetch("/help/intake", {
@@ -111,13 +117,13 @@ describe("Help delivery durability (issue #23)", () => {
     };
   }
 
-  async function finishDelivery(t: ReturnType<typeof convexTest>) {
+  async function finishDelivery(t: HelpTest) {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await t.finishInProgressScheduledFunctions();
   }
 
   async function runDueDelivery(
-    t: ReturnType<typeof convexTest>,
+    t: HelpTest,
     intakeId: Id<"helpIntake">,
   ) {
     await t.run(async (ctx) => {
@@ -152,7 +158,7 @@ describe("Help delivery durability (issue #23)", () => {
   }
 
   async function getIntakeByReference(
-    t: ReturnType<typeof convexTest>,
+    t: HelpTest,
     reference: string,
   ) {
     return await t.run(async (ctx) => {
