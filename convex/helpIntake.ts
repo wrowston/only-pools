@@ -12,6 +12,7 @@ import {
   MAX_IDEMPOTENCY_KEY_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_REPLY_EMAIL_LENGTH,
+  MIN_HELP_FORM_COMPLETION_MS,
   SUPPORT_CATEGORY_SET,
   FEEDBACK_SENTIMENT_SET,
   FEEDBACK_TYPE_SET,
@@ -20,6 +21,7 @@ import {
   type SupportCategory,
 } from "./lib/helpConstants";
 import { generateHelpReference } from "./lib/helpReference";
+import { checkAndIncrementHelpThrottle } from "./lib/helpThrottle";
 import {
   assertTextSafeForHelp,
   buildStoredHelpContext,
@@ -74,6 +76,37 @@ export type ValidatedFeedbackSubmission = {
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function validateFormTiming(args: {
+  startedAtMs: unknown;
+  completedAtMs?: unknown;
+  acceptedAtMs: number;
+}): FieldErrors | null {
+  if (
+    typeof args.startedAtMs !== "number" ||
+    !Number.isFinite(args.startedAtMs) ||
+    args.startedAtMs <= 0
+  ) {
+    return {
+      form: "Please take a moment to review before submitting.",
+    };
+  }
+
+  const completedAtMs =
+    typeof args.completedAtMs === "number" &&
+    Number.isFinite(args.completedAtMs) &&
+    args.completedAtMs > 0
+      ? args.completedAtMs
+      : args.acceptedAtMs;
+
+  if (completedAtMs - args.startedAtMs < MIN_HELP_FORM_COMPLETION_MS) {
+    return {
+      form: "Please take a moment to review before submitting.",
+    };
+  }
+
+  return null;
+}
 
 export function validateSupportIntake(args: {
   lane: unknown;
@@ -472,14 +505,23 @@ export const acceptSubmission = internalMutation({
     contextJson: v.optional(v.string()),
     includeDiagnostics: v.boolean(),
     acceptedAtMs: v.number(),
+    accountKeyHash: v.optional(v.string()),
+    networkKeyHash: v.optional(v.string()),
   },
-  returns: v.object({
-    intakeId: v.id("helpIntake"),
-    reference: v.string(),
-    acceptedAtMs: v.number(),
-    lane: laneValidator,
-    isReplay: v.boolean(),
-  }),
+  returns: v.union(
+    v.object({
+      ok: v.literal(true),
+      intakeId: v.id("helpIntake"),
+      reference: v.string(),
+      acceptedAtMs: v.number(),
+      lane: laneValidator,
+      isReplay: v.boolean(),
+    }),
+    v.object({
+      ok: v.literal(false),
+      reason: v.union(v.literal("rate_limited")),
+    }),
+  ),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("helpIntake")
@@ -490,12 +532,22 @@ export const acceptSubmission = internalMutation({
 
     if (existing) {
       return {
+        ok: true as const,
         intakeId: existing._id,
         reference: existing.reference,
         acceptedAtMs: existing.acceptedAtMs,
         lane: existing.lane,
         isReplay: true,
       };
+    }
+
+    const throttleOk = await checkAndIncrementHelpThrottle(ctx, {
+      accountKeyHash: args.accountKeyHash,
+      networkKeyHash: args.networkKeyHash,
+      nowMs: args.acceptedAtMs,
+    });
+    if (!throttleOk) {
+      return { ok: false as const, reason: "rate_limited" as const };
     }
 
     const reference = generateHelpReference();
@@ -526,6 +578,7 @@ export const acceptSubmission = internalMutation({
     });
 
     return {
+      ok: true as const,
       intakeId,
       reference,
       acceptedAtMs: args.acceptedAtMs,

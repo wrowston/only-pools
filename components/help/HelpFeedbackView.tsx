@@ -18,6 +18,9 @@ import type { HelpContextDisclosure } from "@/lib/helpDiagnostics";
 import { HELP_RETENTION_DAYS } from "@/lib/helpConstants";
 import { HelpContextDisclosurePanel } from "@/components/help/HelpContextDisclosure";
 
+const HELP_SENSITIVE_DATA_WARNING =
+  "Do not include passwords, current Hidden Picks, or raw Pool Invite credentials.";
+
 const textareaClassName =
   "flex min-h-24 w-full rounded-lg border border-op-border bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
 
@@ -355,6 +358,10 @@ export function HelpFeedbackView({
               Pool panel.
             </p>
 
+            <p className="mt-3 text-sm leading-6 text-op-secondary">
+              {HELP_SENSITIVE_DATA_WARNING}
+            </p>
+
             <form
               className="mt-6 flex flex-col gap-4"
               onSubmit={onSupportSubmit}
@@ -496,6 +503,9 @@ export function HelpFeedbackView({
             <p className="mt-2 text-sm leading-6 text-op-secondary">
               Feedback is private by default. We do not publish it as a
               testimonial or share roadmap status.
+            </p>
+            <p className="mt-3 text-sm leading-6 text-op-secondary">
+              {HELP_SENSITIVE_DATA_WARNING}
             </p>
 
             <form

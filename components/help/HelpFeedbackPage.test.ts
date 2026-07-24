@@ -85,6 +85,9 @@ describe("HelpFeedbackView", () => {
     expect(markup).toContain('name="company_website"');
     expect(markup).toContain("respond within 2 business days");
     expect(markup).toContain("does not pause or reopen Pick Locks");
+    expect(markup).toContain("Do not include passwords");
+    expect(markup).toContain("Hidden Picks");
+    expect(markup).toContain("Pool Invite credentials");
   });
 
   it("links Pool conduct guidance to the abuse report guide", () => {
@@ -102,6 +105,7 @@ describe("HelpFeedbackView", () => {
     expect(markup).toContain('name="feedbackReplyEmail"');
     expect(markup).toContain("private by default");
     expect(markup).toMatch(/do not publish it as a testimonial/i);
+    expect(markup).toContain("Do not include passwords");
     expect(markup).toContain("Submit feedback");
     expect(markup).not.toContain("Coming soon");
   });

@@ -1,10 +1,21 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { isOpaqueHelpReference } from "./lib/helpReference";
 import { resendSink } from "./lib/resendSink";
+import {
+  HELP_TEST_RATE_LIMIT_SECRET,
+  MAX_HELP_REQUEST_BODY_BYTES,
+  MIN_HELP_FORM_COMPLETION_MS,
+  RATE_LIMIT_ACCOUNT_PER_WINDOW,
+  RATE_LIMIT_NETWORK_PER_WINDOW,
+} from "./lib/helpConstants";
+import {
+  hashHelpAccountKey,
+  hashHelpNetworkKey,
+} from "./lib/helpThrottle";
 import type { Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -24,6 +35,15 @@ function fullyVerifiedIdentity(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function validTimingFields(overrides: Record<string, unknown> = {}) {
+  const completedAtMs = Date.now();
+  return {
+    startedAtMs: completedAtMs - MIN_HELP_FORM_COMPLETION_MS - 500,
+    completedAtMs,
+    ...overrides,
+  };
+}
+
 function supportPayload(overrides: Record<string, unknown> = {}) {
   return {
     lane: "support",
@@ -38,6 +58,7 @@ function supportPayload(overrides: Record<string, unknown> = {}) {
       browserSummary: "Chrome 120 on macOS",
       appVersion: "0.1.0",
     },
+    ...validTimingFields(),
     ...overrides,
   };
 }
@@ -54,6 +75,7 @@ function feedbackPayload(overrides: Record<string, unknown> = {}) {
     context: {
       pagePath: "/help",
     },
+    ...validTimingFields(),
     ...overrides,
   };
 }
@@ -65,6 +87,12 @@ function applyHelpTestEnv() {
   process.env.HELP_FROM_EMAIL = "Only Pools <noreply@example.test>";
   process.env.HELP_EMAIL_MODE = "double";
   delete process.env.RESEND_API_KEY;
+  delete process.env.HELP_NETWORK_HASH_SECRET;
+  delete process.env.HELP_RATE_LIMIT_SECRET;
+}
+
+async function resetHelpThrottle(t: ReturnType<typeof convexTest>) {
+  await t.mutation(internal.lib.helpThrottle.resetHelpThrottleForTests, {});
 }
 
 describe("Help intake HTTP (issue #19)", () => {
@@ -233,6 +261,7 @@ describe("Help intake HTTP (issue #19)", () => {
       body: JSON.stringify({
         lane: "support",
         idempotencyKey: "bad-fields",
+        ...validTimingFields(),
       }),
     });
 
@@ -552,6 +581,7 @@ describe("Help intake HTTP — Feedback lane (issue #20)", () => {
       body: JSON.stringify({
         lane: "feedback",
         idempotencyKey: "fb-bad-fields",
+        ...validTimingFields(),
       }),
     });
 
@@ -1032,5 +1062,431 @@ describe("Help intake HTTP — diagnostic context (issue #21)", () => {
       ? (JSON.parse(stored!.contextJson) as Record<string, string>)
       : {};
     expect(context.poolId).toBeUndefined();
+  });
+});
+
+describe("Help intake HTTP — security & abuse (issue #22)", () => {
+  const prevEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of [
+      "DEPLOYMENT_KIND",
+      "HELP_ALLOWED_ORIGIN",
+      "HELP_SUPPORT_MAILBOX",
+      "HELP_FROM_EMAIL",
+      "HELP_EMAIL_MODE",
+      "RESEND_API_KEY",
+      "HELP_NETWORK_HASH_SECRET",
+      "HELP_RATE_LIMIT_SECRET",
+    ]) {
+      prevEnv[key] = process.env[key];
+    }
+    applyHelpTestEnv();
+    resendSink.reset();
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resendSink.reset();
+  });
+
+  async function finishDelivery(t: ReturnType<typeof convexTest>) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+  }
+
+  async function postIntake(
+    t: ReturnType<typeof convexTest>,
+    body: Record<string, unknown>,
+    headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Origin: "http://localhost:3000",
+    },
+  ) {
+    await resetHelpThrottle(t);
+    return await t.fetch("/help/intake", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("allows configured origin and rejects disallowed cross-origin requests", async () => {
+    const t = convexTest(schema, modules);
+
+    const allowed = await postIntake(t, supportPayload({ idempotencyKey: "cors-ok" }));
+    expect(allowed.status).toBe(200);
+
+    const rejected = await postIntake(
+      t,
+      supportPayload({ idempotencyKey: "cors-bad" }),
+      {
+        "Content-Type": "application/json",
+        Origin: "https://evil.example",
+      },
+    );
+    expect(rejected.status).toBe(403);
+
+    const preflight = await t.fetch("/help/intake", {
+      method: "OPTIONS",
+      headers: { Origin: "https://evil.example" },
+    });
+    expect(preflight.status).toBe(403);
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
+
+    const validPreflight = await t.fetch("/help/intake", {
+      method: "OPTIONS",
+      headers: { Origin: "http://localhost:3000" },
+    });
+    expect(validPreflight.status).toBe(204);
+    expect(validPreflight.headers.get("Access-Control-Allow-Origin")).toBe(
+      "http://localhost:3000",
+    );
+  });
+
+  it("allows requests without Origin header for same-origin test harness", async () => {
+    const t = convexTest(schema, modules);
+    const response = await postIntake(
+      t,
+      supportPayload({ idempotencyKey: "no-origin" }),
+      { "Content-Type": "application/json" },
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("rejects honeypot submissions for support and feedback", async () => {
+    const t = convexTest(schema, modules);
+
+    const support = await postIntake(
+      t,
+      supportPayload({ idempotencyKey: "hp-support", honeypot: "bot" }),
+    );
+    expect(support.status).toBe(400);
+    const supportJson = (await support.json()) as {
+      errors: Record<string, string>;
+    };
+    expect(supportJson.errors.honeypot).toBeTruthy();
+
+    const feedback = await postIntake(
+      t,
+      feedbackPayload({ idempotencyKey: "hp-feedback", honeypot: "spam" }),
+    );
+    expect(feedback.status).toBe(400);
+    const feedbackJson = (await feedback.json()) as {
+      errors: Record<string, string>;
+    };
+    expect(feedbackJson.errors.honeypot).toBeTruthy();
+  });
+
+  it("rejects missing or too-fast timing without echoing sensitive content", async () => {
+    const t = convexTest(schema, modules);
+
+    const missingPayload = supportPayload({ idempotencyKey: "timing-missing" });
+    delete (missingPayload as Record<string, unknown>).startedAtMs;
+    const missing = await postIntake(t, missingPayload);
+    expect(missing.status).toBe(400);
+    const missingJson = (await missing.json()) as {
+      errors: Record<string, string>;
+    };
+    expect(missingJson.errors.form).toMatch(/take a moment/i);
+    expect(JSON.stringify(missingJson)).not.toContain("hunter2");
+
+    const completedAtMs = Date.now();
+    const tooFast = await postIntake(t, {
+      ...supportPayload({ idempotencyKey: "timing-fast" }),
+      startedAtMs: completedAtMs - 100,
+      completedAtMs,
+    });
+    expect(tooFast.status).toBe(400);
+    const fastJson = (await tooFast.json()) as { errors: Record<string, string> };
+    expect(fastJson.errors.form).toMatch(/take a moment/i);
+  });
+
+  it("rejects oversized bodies via Content-Length and actual payload size", async () => {
+    const t = convexTest(schema, modules);
+
+    const viaHeader = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "Content-Length": String(MAX_HELP_REQUEST_BODY_BYTES + 1),
+      },
+      body: JSON.stringify(supportPayload({ idempotencyKey: "size-header" })),
+    });
+    expect(viaHeader.status).toBe(413);
+
+    const hugeMessage = "x".repeat(MAX_HELP_REQUEST_BODY_BYTES);
+    const viaBody = await postIntake(
+      t,
+      supportPayload({
+        idempotencyKey: "size-body",
+        message: hugeMessage,
+      }),
+      {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+    );
+    expect(viaBody.status).toBe(413);
+  });
+
+  it("rejects sensitive disclosures before persistence or email delivery", async () => {
+    const t = convexTest(schema, modules);
+    const secretMessage = "my password is hunter2 unique-secret-xyz";
+
+    const response = await postIntake(
+      t,
+      supportPayload({
+        idempotencyKey: "secret-reject",
+        message: secretMessage,
+      }),
+    );
+    expect(response.status).toBe(400);
+    const json = (await response.json()) as { errors: Record<string, string> };
+    expect(json.errors.message).toMatch(/passwords or secret credentials/i);
+    expect(JSON.stringify(json)).not.toContain("hunter2");
+    expect(JSON.stringify(json)).not.toContain("unique-secret-xyz");
+
+    const count = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("helpIntake")
+        .withIndex("by_idempotencyKey", (q) =>
+          q.eq("idempotencyKey", "secret-reject"),
+        )
+        .collect();
+      return rows.length;
+    });
+    expect(count).toBe(0);
+    expect(resendSink.emails).toHaveLength(0);
+  });
+
+  it("rate-limits burst traffic with a generic retry message", async () => {
+    const t = convexTest(schema, modules);
+    await resetHelpThrottle(t);
+
+    for (let i = 0; i < RATE_LIMIT_NETWORK_PER_WINDOW; i++) {
+      const response = await t.fetch("/help/intake", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost:3000",
+          "x-forwarded-for": "203.0.113.50",
+        },
+        body: JSON.stringify(
+          supportPayload({ idempotencyKey: `burst-${i}` }),
+        ),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const limited = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "x-forwarded-for": "203.0.113.50",
+      },
+      body: JSON.stringify(
+        supportPayload({ idempotencyKey: "burst-over" }),
+      ),
+    });
+    expect(limited.status).toBe(429);
+    const limitedJson = (await limited.json()) as {
+      ok: false;
+      error: string;
+    };
+    expect(limitedJson.error).toBe("Please try again later.");
+    expect(JSON.stringify(limitedJson)).not.toMatch(/30|limit|threshold/i);
+  });
+
+  it("uses separate account and network throttle keys", async () => {
+    const t = convexTest(schema, modules);
+    await resetHelpThrottle(t);
+
+    const networkIp = "198.51.100.10";
+    const networkHash = await hashHelpNetworkKey(
+      HELP_TEST_RATE_LIMIT_SECRET,
+      networkIp,
+    );
+
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId } = await asUser.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    const accountHash = await hashHelpAccountKey(
+      HELP_TEST_RATE_LIMIT_SECRET,
+      participantId,
+    );
+
+    for (let i = 0; i < RATE_LIMIT_ACCOUNT_PER_WINDOW; i++) {
+      const response = await asUser.fetch("/help/intake", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost:3000",
+          "x-forwarded-for": networkIp,
+        },
+        body: JSON.stringify(
+          supportPayload({ idempotencyKey: `acct-${i}` }),
+        ),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const accountLimited = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "x-forwarded-for": networkIp,
+      },
+      body: JSON.stringify(
+        supportPayload({ idempotencyKey: "acct-over" }),
+      ),
+    });
+    expect(accountLimited.status).toBe(429);
+
+    const otherNetworkOk = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "x-forwarded-for": "198.51.100.99",
+      },
+      body: JSON.stringify(
+        supportPayload({ idempotencyKey: "other-network" }),
+      ),
+    });
+    expect(otherNetworkOk.status).toBe(200);
+
+    const accountRow = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpThrottle")
+        .withIndex("by_keyHash", (q) => q.eq("keyHash", accountHash))
+        .unique();
+    });
+    const networkRow = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpThrottle")
+        .withIndex("by_keyHash", (q) => q.eq("keyHash", networkHash))
+        .unique();
+    });
+    expect(accountRow?.keyKind).toBe("account");
+    expect(networkRow?.keyKind).toBe("network");
+    expect(accountRow?.keyHash).not.toBe(networkRow?.keyHash);
+  });
+
+  it("ignores expired throttle records after 24 hours", async () => {
+    const t = convexTest(schema, modules);
+    await resetHelpThrottle(t);
+
+    const networkIp = "203.0.113.77";
+    const networkHash = await hashHelpNetworkKey(
+      HELP_TEST_RATE_LIMIT_SECRET,
+      networkIp,
+    );
+    const nowMs = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("helpThrottle", {
+        keyHash: networkHash,
+        keyKind: "network",
+        windowStartMs: nowMs - 25 * 60 * 60 * 1000,
+        count: RATE_LIMIT_NETWORK_PER_WINDOW,
+        expiresAtMs: nowMs - 1000,
+      });
+    });
+
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "x-forwarded-for": networkIp,
+      },
+      body: JSON.stringify(
+        supportPayload({ idempotencyKey: "expired-window" }),
+      ),
+    });
+    expect(response.status).toBe(200);
+
+    const row = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpThrottle")
+        .withIndex("by_keyHash", (q) => q.eq("keyHash", networkHash))
+        .unique();
+    });
+    expect(row!.count).toBe(1);
+    expect(row!.expiresAtMs).toBeGreaterThan(nowMs);
+  });
+
+  it("never stores raw network addresses in intake or throttle records", async () => {
+    const t = convexTest(schema, modules);
+    const rawIp = "203.0.113.44";
+
+    const response = await postIntake(
+      t,
+      supportPayload({ idempotencyKey: "raw-ip-absence" }),
+      {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "x-forwarded-for": rawIp,
+        "x-real-ip": rawIp,
+      },
+    );
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    const intakeBlob = JSON.stringify(stored);
+    expect(intakeBlob).not.toContain(rawIp);
+
+    const throttleRows = await t.run(async (ctx) => {
+      return await ctx.db.query("helpThrottle").take(20);
+    });
+    const throttleBlob = JSON.stringify(throttleRows);
+    expect(throttleBlob).not.toContain(rawIp);
+    for (const row of throttleRows) {
+      expect(row.keyHash).not.toBe(rawIp);
+    }
+
+    expect(resendSink.emails.length).toBeGreaterThan(0);
+    for (const email of resendSink.emails) {
+      expect(email.text).not.toContain(rawIp);
+      expect(email.html ?? "").not.toContain(rawIp);
+    }
+  });
+
+  it("fails closed in production without hash secret", async () => {
+    process.env.DEPLOYMENT_KIND = "production";
+    process.env.HELP_SUPPORT_MAILBOX = "support@example.test";
+    process.env.HELP_FROM_EMAIL = "Only Pools <noreply@example.test>";
+    process.env.RESEND_API_KEY = "re_test_key";
+    delete process.env.HELP_EMAIL_MODE;
+    delete process.env.HELP_NETWORK_HASH_SECRET;
+
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(supportPayload({ idempotencyKey: "prod-no-secret" })),
+    });
+    expect(response.status).toBe(503);
+    const json = (await response.json()) as { ok: false; error: string };
+    expect(json.error).toMatch(/HELP_NETWORK_HASH_SECRET/i);
   });
 });

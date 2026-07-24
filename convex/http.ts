@@ -6,15 +6,26 @@ import {
   assertHelpIntakeOperational,
   corsHeaders,
   getHelpAllowedOrigin,
+  getHelpNetworkHashSecret,
+  isHelpOriginAllowed,
 } from "./lib/helpConfig";
+import { MAX_HELP_REQUEST_BODY_BYTES } from "./lib/helpConstants";
+import {
+  extractClientNetworkAddress,
+  hashHelpAccountKey,
+  hashHelpNetworkKey,
+} from "./lib/helpThrottle";
 import {
   parsePoolIdHint,
   resolveStoredHelpContext,
   validateFeedbackIntake,
+  validateFormTiming,
   validateSupportIntake,
 } from "./helpIntake";
 
 const http = httpRouter();
+
+const GENERIC_RATE_LIMIT_ERROR = "Please try again later.";
 
 function jsonResponse(
   body: unknown,
@@ -32,6 +43,92 @@ function jsonResponse(
 
 function requestOrigin(req: Request): string | null {
   return req.headers.get("Origin")?.trim() || null;
+}
+
+function rejectOversizedBody(
+  req: Request,
+  cors: Record<string, string>,
+): Response | null {
+  const contentLengthHeader = req.headers.get("Content-Length")?.trim();
+  if (contentLengthHeader) {
+    const contentLength = Number(contentLengthHeader);
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength > MAX_HELP_REQUEST_BODY_BYTES
+    ) {
+      return jsonResponse(
+        { ok: false, errors: { body: "Request body is too large" } },
+        413,
+        cors,
+      );
+    }
+  }
+  return null;
+}
+
+async function parseJsonBody(
+  req: Request,
+  cors: Record<string, string>,
+): Promise<
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; response: Response }
+> {
+  const oversize = rejectOversizedBody(req, cors);
+  if (oversize) {
+    return { ok: false, response: oversize };
+  }
+
+  let rawBody: ArrayBuffer;
+  try {
+    rawBody = await req.arrayBuffer();
+  } catch {
+    return {
+      ok: false,
+      response: jsonResponse(
+        { ok: false, errors: { body: "Invalid request body" } },
+        400,
+        cors,
+      ),
+    };
+  }
+
+  if (rawBody.byteLength > MAX_HELP_REQUEST_BODY_BYTES) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        { ok: false, errors: { body: "Request body is too large" } },
+        413,
+        cors,
+      ),
+    };
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch {
+    return {
+      ok: false,
+      response: jsonResponse(
+        { ok: false, errors: { body: "Invalid JSON body" } },
+        400,
+        cors,
+      ),
+    };
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        { ok: false, errors: { body: "Request body must be a JSON object" } },
+        400,
+        cors,
+      ),
+    };
+  }
+
+  return { ok: true, payload: body as Record<string, unknown> };
 }
 
 async function resolveAuthorizedPoolId(
@@ -58,6 +155,7 @@ async function resolveIdentityContext(
   participantId?: Id<"participants">;
   email?: string;
   poolId?: Id<"pools">;
+  tokenIdentifier?: string;
 }> {
   if (args.anonymous) {
     return {};
@@ -73,7 +171,7 @@ async function resolveIdentityContext(
     { tokenIdentifier: identity.tokenIdentifier },
   );
   if (!participant) {
-    return {};
+    return { tokenIdentifier: identity.tokenIdentifier };
   }
 
   const poolId = await resolveAuthorizedPoolId(
@@ -86,6 +184,143 @@ async function resolveIdentityContext(
     participantId: participant._id,
     email: participant.email ?? identity.email ?? undefined,
     poolId,
+    tokenIdentifier: identity.tokenIdentifier,
+  };
+}
+
+async function resolveThrottleKeyHashes(
+  ctx: ActionCtx,
+  args: {
+    anonymous: boolean;
+    poolIdHint?: Id<"pools">;
+    req: Request;
+  },
+): Promise<{
+  accountKeyHash?: string;
+  networkKeyHash?: string;
+}> {
+  const secret = getHelpNetworkHashSecret();
+  if (!secret) {
+    return {};
+  }
+
+  const identity = await resolveIdentityContext(ctx, {
+    anonymous: args.anonymous,
+    poolIdHint: args.poolIdHint,
+  });
+
+  const accountSource =
+    identity.participantId ?? identity.tokenIdentifier ?? undefined;
+
+  const accountKeyHash = accountSource
+    ? await hashHelpAccountKey(secret, accountSource)
+    : undefined;
+
+  const networkAddress = extractClientNetworkAddress(args.req.headers);
+  const networkKeyHash = networkAddress
+    ? await hashHelpNetworkKey(secret, networkAddress)
+    : undefined;
+
+  return { accountKeyHash, networkKeyHash };
+}
+
+type AcceptResult =
+  | {
+      ok: true;
+      reference: string;
+      acceptedAtMs: number;
+      lane: "support" | "feedback";
+      contactable?: boolean;
+    }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+async function acceptValidatedSubmission(
+  ctx: ActionCtx,
+  args: {
+    req: Request;
+    acceptedAtMs: number;
+    lane: "support" | "feedback";
+    idempotencyKey: string;
+    message: string;
+    replyEmail?: string;
+    anonymous: boolean;
+    includeDiagnostics: boolean;
+    contextJson?: string;
+    poolIdHint?: Id<"pools">;
+    supportCategory?: string;
+    sentiment?: "negative" | "neutral" | "positive";
+    feedbackType?: "problem" | "idea" | "liked";
+  },
+): Promise<AcceptResult> {
+  const identity =
+    args.lane === "feedback" && args.anonymous
+      ? {}
+      : await resolveIdentityContext(ctx, {
+          anonymous: false,
+          poolIdHint: args.poolIdHint,
+        });
+
+  let contextJson: string | undefined;
+  try {
+    contextJson = resolveStoredHelpContext({
+      lane: args.lane,
+      anonymous: args.anonymous,
+      includeDiagnostics: args.includeDiagnostics,
+      clientContextJson: args.contextJson,
+      identity,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        errors: {
+          context:
+            error instanceof Error ? error.message : "Invalid context",
+        },
+      },
+    };
+  }
+
+  const throttleKeys = await resolveThrottleKeyHashes(ctx, {
+    anonymous: args.anonymous,
+    poolIdHint: args.poolIdHint,
+    req: args.req,
+  });
+
+  const result = await ctx.runMutation(internal.helpIntake.acceptSubmission, {
+    lane: args.lane,
+    idempotencyKey: args.idempotencyKey,
+    supportCategory: args.supportCategory,
+    sentiment: args.sentiment,
+    feedbackType: args.feedbackType,
+    message: args.message,
+    replyEmail: args.replyEmail,
+    anonymous: args.anonymous,
+    participantId: identity.participantId,
+    poolId: identity.poolId,
+    contextJson,
+    includeDiagnostics: args.includeDiagnostics,
+    acceptedAtMs: args.acceptedAtMs,
+    accountKeyHash: throttleKeys.accountKeyHash,
+    networkKeyHash: throttleKeys.networkKeyHash,
+  });
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      status: 429,
+      body: { ok: false, error: GENERIC_RATE_LIMIT_ERROR },
+    };
+  }
+
+  return {
+    ok: true,
+    reference: result.reference,
+    acceptedAtMs: result.acceptedAtMs,
+    lane: result.lane,
+    contactable: Boolean(args.replyEmail),
   };
 }
 
@@ -95,6 +330,11 @@ http.route({
   handler: httpAction(async (_ctx, req) => {
     const allowedOrigin = getHelpAllowedOrigin();
     const origin = requestOrigin(req);
+
+    if (!isHelpOriginAllowed(allowedOrigin, origin)) {
+      return new Response(null, { status: 403 });
+    }
+
     return new Response(null, {
       status: 204,
       headers: corsHeaders(allowedOrigin, origin),
@@ -110,6 +350,10 @@ http.route({
     const origin = requestOrigin(req);
     const cors = corsHeaders(allowedOrigin, origin);
 
+    if (!isHelpOriginAllowed(allowedOrigin, origin)) {
+      return jsonResponse({ ok: false, error: "Forbidden" }, 403, cors);
+    }
+
     const operational = assertHelpIntakeOperational();
     if (!operational.ok) {
       return jsonResponse(
@@ -119,29 +363,24 @@ http.route({
       );
     }
 
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return jsonResponse(
-        { ok: false, errors: { body: "Invalid JSON body" } },
-        400,
-        cors,
-      );
+    const parsedBody = await parseJsonBody(req, cors);
+    if (!parsedBody.ok) {
+      return parsedBody.response;
     }
 
-    if (body === null || typeof body !== "object" || Array.isArray(body)) {
-      return jsonResponse(
-        { ok: false, errors: { body: "Request body must be a JSON object" } },
-        400,
-        cors,
-      );
-    }
-
-    const payload = body as Record<string, unknown>;
+    const payload = parsedBody.payload;
     const lane = payload.lane;
     const acceptedAtMs = Date.now();
     const poolIdHint = parsePoolIdHint(payload.poolIdHint);
+
+    const timingErrors = validateFormTiming({
+      startedAtMs: payload.startedAtMs,
+      completedAtMs: payload.completedAtMs,
+      acceptedAtMs,
+    });
+    if (timingErrors) {
+      return jsonResponse({ ok: false, errors: timingErrors }, 400, cors);
+    }
 
     if (lane === "feedback") {
       const validated = validateFeedbackIntake({
@@ -163,66 +402,36 @@ http.route({
       }
 
       let replyEmail: string | undefined = validated.value.replyEmail;
-
       if (validated.value.anonymous) {
         replyEmail = undefined;
       }
 
-      const identity = validated.value.anonymous
-        ? {}
-        : await resolveIdentityContext(ctx, {
-            anonymous: false,
-            poolIdHint,
-          });
+      const accepted = await acceptValidatedSubmission(ctx, {
+        req,
+        acceptedAtMs,
+        lane: "feedback",
+        idempotencyKey: validated.value.idempotencyKey,
+        message: validated.value.message,
+        replyEmail,
+        anonymous: validated.value.anonymous,
+        includeDiagnostics: validated.value.includeDiagnostics,
+        contextJson: validated.value.contextJson,
+        poolIdHint,
+        sentiment: validated.value.sentiment,
+        feedbackType: validated.value.feedbackType,
+      });
 
-      let contextJson: string | undefined;
-      try {
-        contextJson = resolveStoredHelpContext({
-          lane: "feedback",
-          anonymous: validated.value.anonymous,
-          includeDiagnostics: validated.value.includeDiagnostics,
-          clientContextJson: validated.value.contextJson,
-          identity,
-        });
-      } catch (error) {
-        return jsonResponse(
-          {
-            ok: false,
-            errors: {
-              context:
-                error instanceof Error ? error.message : "Invalid context",
-            },
-          },
-          400,
-          cors,
-        );
+      if (!accepted.ok) {
+        return jsonResponse(accepted.body, accepted.status, cors);
       }
-
-      const result = await ctx.runMutation(
-        internal.helpIntake.acceptSubmission,
-        {
-          lane: validated.value.lane,
-          idempotencyKey: validated.value.idempotencyKey,
-          sentiment: validated.value.sentiment,
-          feedbackType: validated.value.feedbackType,
-          message: validated.value.message,
-          replyEmail,
-          anonymous: validated.value.anonymous,
-          participantId: identity.participantId,
-          poolId: identity.poolId,
-          contextJson,
-          includeDiagnostics: validated.value.includeDiagnostics,
-          acceptedAtMs,
-        },
-      );
 
       return jsonResponse(
         {
           ok: true,
-          reference: result.reference,
-          acceptedAtMs: result.acceptedAtMs,
-          lane: result.lane,
-          contactable: Boolean(replyEmail),
+          reference: accepted.reference,
+          acceptedAtMs: accepted.acceptedAtMs,
+          lane: accepted.lane,
+          contactable: accepted.contactable ?? false,
         },
         200,
         cors,
@@ -246,57 +455,30 @@ http.route({
       return jsonResponse({ ok: false, errors: validated.errors }, status, cors);
     }
 
-    const identity = await resolveIdentityContext(ctx, {
+    const accepted = await acceptValidatedSubmission(ctx, {
+      req,
+      acceptedAtMs,
+      lane: "support",
+      idempotencyKey: validated.value.idempotencyKey,
+      message: validated.value.message,
+      replyEmail: validated.value.replyEmail,
       anonymous: false,
+      includeDiagnostics: validated.value.includeDiagnostics,
+      contextJson: validated.value.contextJson,
       poolIdHint,
+      supportCategory: validated.value.category,
     });
 
-    let contextJson: string | undefined;
-    try {
-      contextJson = resolveStoredHelpContext({
-        lane: "support",
-        anonymous: false,
-        includeDiagnostics: validated.value.includeDiagnostics,
-        clientContextJson: validated.value.contextJson,
-        identity,
-      });
-    } catch (error) {
-      return jsonResponse(
-        {
-          ok: false,
-          errors: {
-            context:
-              error instanceof Error ? error.message : "Invalid context",
-          },
-        },
-        400,
-        cors,
-      );
+    if (!accepted.ok) {
+      return jsonResponse(accepted.body, accepted.status, cors);
     }
-
-    const result = await ctx.runMutation(
-      internal.helpIntake.acceptSubmission,
-      {
-        lane: validated.value.lane,
-        idempotencyKey: validated.value.idempotencyKey,
-        supportCategory: validated.value.category,
-        message: validated.value.message,
-        replyEmail: validated.value.replyEmail,
-        anonymous: validated.value.anonymous,
-        participantId: identity.participantId,
-        poolId: identity.poolId,
-        contextJson,
-        includeDiagnostics: validated.value.includeDiagnostics,
-        acceptedAtMs,
-      },
-    );
 
     return jsonResponse(
       {
         ok: true,
-        reference: result.reference,
-        acceptedAtMs: result.acceptedAtMs,
-        lane: result.lane,
+        reference: accepted.reference,
+        acceptedAtMs: accepted.acceptedAtMs,
+        lane: accepted.lane,
       },
       200,
       cors,

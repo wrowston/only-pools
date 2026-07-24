@@ -61,6 +61,8 @@ export function HelpFeedbackPage() {
 
   const supportIdempotencyKeyRef = useRef<string | null>(null);
   const feedbackIdempotencyKeyRef = useRef<string | null>(null);
+  const supportStartedAtMsRef = useRef<number | null>(null);
+  const feedbackStartedAtMsRef = useRef<number | null>(null);
   const openedRef = useRef(false);
 
   const signedInEmail =
@@ -99,6 +101,8 @@ export function HelpFeedbackPage() {
   useEffect(() => {
     if (openedRef.current) return;
     openedRef.current = true;
+    supportStartedAtMsRef.current = Date.now();
+    feedbackStartedAtMsRef.current = Date.now();
     posthog.capture("help_opened", { source: source ?? undefined });
   }, [source]);
 
@@ -120,6 +124,11 @@ export function HelpFeedbackPage() {
     setActiveLane(lane);
     setFormError(null);
     setFieldErrors({});
+    if (lane === "support") {
+      supportStartedAtMsRef.current = Date.now();
+    } else {
+      feedbackStartedAtMsRef.current = Date.now();
+    }
     posthog.capture("help_lane_selected", { lane });
   }, []);
 
@@ -144,6 +153,9 @@ export function HelpFeedbackPage() {
       const trimmedCategory = category.trim();
       const trimmedEmail = replyEmail.trim();
       const trimmedMessage = message.trim();
+      const startedAtMs =
+        supportStartedAtMsRef.current ?? Date.now() - 5_000;
+      const completedAtMs = Date.now();
 
       const contextPayload = buildHelpClientContextPayload({
         ...contextInput,
@@ -172,6 +184,8 @@ export function HelpFeedbackPage() {
             category: trimmedCategory,
             message: trimmedMessage,
             honeypot,
+            startedAtMs,
+            completedAtMs,
             includeDiagnostics: contextPayload.includeDiagnostics,
             context: contextPayload.context,
             poolIdHint: contextPayload.poolIdHint,
@@ -209,8 +223,10 @@ export function HelpFeedbackPage() {
 
         if (json.errors) {
           setFieldErrors(json.errors);
-          if (json.errors.lane) {
-            setFormError(json.errors.lane);
+          const formLevel =
+            json.errors.lane ?? json.errors.form ?? json.errors.timing;
+          if (formLevel) {
+            setFormError(formLevel);
           }
         } else {
           setFormError(json.error ?? "Something went wrong. Please try again.");
@@ -248,6 +264,9 @@ export function HelpFeedbackPage() {
       const type = feedbackType;
       const trimmedMessage = feedbackMessage.trim();
       const trimmedEmail = feedbackAnonymous ? "" : feedbackReplyEmail.trim();
+      const startedAtMs =
+        feedbackStartedAtMsRef.current ?? Date.now() - 5_000;
+      const completedAtMs = Date.now();
 
       const contextPayload = buildHelpClientContextPayload({
         ...contextInput,
@@ -279,6 +298,8 @@ export function HelpFeedbackPage() {
             replyEmail: trimmedEmail.length > 0 ? trimmedEmail : undefined,
             anonymous: feedbackAnonymous,
             honeypot,
+            startedAtMs,
+            completedAtMs,
             includeDiagnostics: contextPayload.includeDiagnostics,
             context: contextPayload.context,
             poolIdHint: contextPayload.poolIdHint,
@@ -323,8 +344,10 @@ export function HelpFeedbackPage() {
 
         if (json.errors) {
           setFieldErrors(json.errors);
-          if (json.errors.lane) {
-            setFormError(json.errors.lane);
+          const formLevel =
+            json.errors.lane ?? json.errors.form ?? json.errors.timing;
+          if (formLevel) {
+            setFormError(formLevel);
           }
         } else {
           setFormError(json.error ?? "Something went wrong. Please try again.");

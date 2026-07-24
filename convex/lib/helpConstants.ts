@@ -46,6 +46,15 @@ export const MAX_MESSAGE_LENGTH = 5000;
 export const MAX_CONTEXT_FIELD_LENGTH = 500;
 export const MAX_CONTEXT_JSON_LENGTH = 2048;
 
+/** Maximum raw HTTP body size for `/help/intake` (bytes). */
+export const MAX_HELP_REQUEST_BODY_BYTES = 32 * 1024;
+
+/** Minimum time between form open and submit (milliseconds). */
+export const MIN_HELP_FORM_COMPLETION_MS = 2500;
+
+/** Fixed secret for rate-limit hashing in test / double-email mode only. */
+export const HELP_TEST_RATE_LIMIT_SECRET = "test-help-rate-limit-secret";
+
 /** Per-account support submissions per 24h window (#22 expands enforcement). */
 export const RATE_LIMIT_ACCOUNT_PER_WINDOW = 10;
 

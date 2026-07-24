@@ -47,11 +47,28 @@ describe("helpConfig", () => {
     delete process.env.HELP_SUPPORT_MAILBOX;
     delete process.env.HELP_FROM_EMAIL;
     delete process.env.RESEND_API_KEY;
+    delete process.env.HELP_NETWORK_HASH_SECRET;
 
     const check = assertHelpIntakeOperational();
     expect(check.ok).toBe(false);
     if (!check.ok) {
       expect(check.reason).toMatch(/HELP_SUPPORT_MAILBOX/i);
+    }
+  });
+
+  it("fails closed in production without network hash secret", () => {
+    process.env.DEPLOYMENT_KIND = "production";
+    process.env.HELP_SUPPORT_MAILBOX = "support@example.test";
+    process.env.HELP_FROM_EMAIL = "Only Pools <noreply@example.test>";
+    process.env.RESEND_API_KEY = "re_test_key";
+    delete process.env.HELP_NETWORK_HASH_SECRET;
+    delete process.env.HELP_RATE_LIMIT_SECRET;
+    delete process.env.HELP_EMAIL_MODE;
+
+    const check = assertHelpIntakeOperational();
+    expect(check.ok).toBe(false);
+    if (!check.ok) {
+      expect(check.reason).toMatch(/HELP_NETWORK_HASH_SECRET/i);
     }
   });
 
