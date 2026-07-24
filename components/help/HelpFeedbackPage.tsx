@@ -22,7 +22,11 @@ export function HelpFeedbackPage() {
 
   const [activeLane, setActiveLane] = useState<HelpLane>("support");
   const [category, setCategory] = useState("");
-  const [replyEmail, setReplyEmail] = useState("");
+  const clerkEmail = user?.primaryEmailAddress?.emailAddress ?? "";
+  const [replyEmailOverride, setReplyEmailOverride] = useState<string | null>(
+    null,
+  );
+  const replyEmail = replyEmailOverride ?? clerkEmail;
   const [message, setMessage] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [fieldErrors, setFieldErrors] = useState<HelpFieldErrors>({});
@@ -40,13 +44,6 @@ export function HelpFeedbackPage() {
     openedRef.current = true;
     posthog.capture("help_opened", { source: source ?? undefined });
   }, [source]);
-
-  useEffect(() => {
-    const primary = user?.primaryEmailAddress?.emailAddress;
-    if (primary && replyEmail.trim().length === 0) {
-      setReplyEmail(primary);
-    }
-  }, [user?.primaryEmailAddress?.emailAddress, replyEmail]);
 
   useEffect(() => {
     if (activeLane === "support" && startedAtMsRef.current === null) {
@@ -221,7 +218,7 @@ export function HelpFeedbackPage() {
       message={message}
       honeypot={honeypot}
       onCategoryChange={setCategory}
-      onReplyEmailChange={setReplyEmail}
+      onReplyEmailChange={setReplyEmailOverride}
       onMessageChange={setMessage}
       onHoneypotChange={setHoneypot}
       fieldErrors={fieldErrors}
