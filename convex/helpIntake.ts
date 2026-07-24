@@ -20,7 +20,14 @@ import {
   type FeedbackType,
   type SupportCategory,
 } from "./lib/helpConstants";
+import {
+  computeNextAttemptDelayMs,
+  isDeliveryExhausted,
+  type DeliveryRecipient,
+} from "./lib/helpDeliveryPolicy";
 import { generateHelpReference } from "./lib/helpReference";
+import { captureHelpDeliveryExhausted } from "./lib/sentry";
+import { enqueueSentryDelivery } from "./sentry";
 import { checkAndIncrementHelpThrottle } from "./lib/helpThrottle";
 import {
   assertTextSafeForHelp,
@@ -588,18 +595,28 @@ export const acceptSubmission = internalMutation({
   },
 });
 
-export const recordDeliveryResult = internalMutation({
+export const recordDeliveryAttempt = internalMutation({
   args: {
     intakeId: v.id("helpIntake"),
     channel: v.union(v.literal("mailbox"), v.literal("receipt")),
-    status: v.union(
-      v.literal("sent"),
-      v.literal("failed"),
-      v.literal("skipped"),
+    outcome: v.union(
+      v.object({
+        kind: v.literal("success"),
+        providerMessageId: v.string(),
+        attemptAtMs: v.number(),
+      }),
+      v.object({
+        kind: v.literal("failure"),
+        failureClass: v.string(),
+        retryable: v.boolean(),
+        attemptAtMs: v.number(),
+      }),
+      v.object({
+        kind: v.literal("skipped"),
+        failureClass: v.string(),
+        attemptAtMs: v.number(),
+      }),
     ),
-    providerMessageId: v.optional(v.string()),
-    failureClass: v.optional(v.string()),
-    attemptAtMs: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -609,19 +626,87 @@ export const recordDeliveryResult = internalMutation({
     const current =
       args.channel === "mailbox" ? doc.mailboxDelivery : doc.receiptDelivery;
 
-    const updated = {
-      status: args.status,
-      attemptCount: current.attemptCount + 1,
-      lastAttemptAtMs: args.attemptAtMs,
-      providerMessageId: args.providerMessageId,
-      failureClass: args.failureClass,
-    };
-
-    if (args.channel === "mailbox") {
-      await ctx.db.patch(args.intakeId, { mailboxDelivery: updated });
-    } else {
-      await ctx.db.patch(args.intakeId, { receiptDelivery: updated });
+    if (current.status === "sent" || current.status === "skipped") {
+      return null;
     }
+
+    if (args.outcome.kind === "skipped") {
+      if (current.status === "failed") {
+        return null;
+      }
+      await ctx.db.patch(args.intakeId, {
+        [args.channel === "mailbox" ? "mailboxDelivery" : "receiptDelivery"]: {
+          status: "skipped" as const,
+          attemptCount: current.attemptCount,
+          lastAttemptAtMs: args.outcome.attemptAtMs,
+          failureClass: args.outcome.failureClass,
+        },
+      });
+      return null;
+    }
+
+    const attemptCount = current.attemptCount + 1;
+
+    if (args.outcome.kind === "success") {
+      await ctx.db.patch(args.intakeId, {
+        [args.channel === "mailbox" ? "mailboxDelivery" : "receiptDelivery"]: {
+          status: "sent" as const,
+          attemptCount,
+          lastAttemptAtMs: args.outcome.attemptAtMs,
+          providerMessageId: args.outcome.providerMessageId,
+          failureClass: undefined,
+          nextAttemptAtMs: undefined,
+        },
+      });
+      return null;
+    }
+
+    const classified = {
+      failureClass: args.outcome.failureClass,
+      retryable: args.outcome.retryable,
+    };
+    const retryable = classified.retryable && !isDeliveryExhausted(attemptCount);
+
+    if (retryable) {
+      const delayMs = computeNextAttemptDelayMs(attemptCount);
+      const nextAttemptAtMs = args.outcome.attemptAtMs + delayMs;
+      await ctx.db.patch(args.intakeId, {
+        [args.channel === "mailbox" ? "mailboxDelivery" : "receiptDelivery"]: {
+          status: "pending" as const,
+          attemptCount,
+          lastAttemptAtMs: args.outcome.attemptAtMs,
+          failureClass: classified.failureClass,
+          nextAttemptAtMs,
+        },
+      });
+      await ctx.scheduler.runAfter(
+        delayMs,
+        internal.helpDelivery.deliverIntake,
+        { intakeId: args.intakeId },
+      );
+      return null;
+    }
+
+    await ctx.db.patch(args.intakeId, {
+      [args.channel === "mailbox" ? "mailboxDelivery" : "receiptDelivery"]: {
+        status: "failed" as const,
+        attemptCount,
+        lastAttemptAtMs: args.outcome.attemptAtMs,
+        failureClass: classified.failureClass,
+        nextAttemptAtMs: undefined,
+      },
+    });
+
+    if (classified.retryable && isDeliveryExhausted(attemptCount)) {
+      const capture = captureHelpDeliveryExhausted({
+        lane: doc.lane,
+        recipient: args.channel as DeliveryRecipient,
+        failureClass: classified.failureClass,
+        attemptCount,
+      });
+      await enqueueSentryDelivery(ctx, capture);
+    }
+
     return null;
   },
 });

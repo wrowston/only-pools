@@ -29,6 +29,7 @@ export type SendEmailInput = {
   text?: string;
   html?: string;
   replyTo?: string | string[];
+  idempotencyKey?: string;
 };
 
 export type SendEmailResult = {
@@ -57,13 +58,25 @@ export function sendEmail(
     const useRealApi = canDeliverRealEmail(env);
 
     if (!useRealApi) {
-      const recorded = resendSink.record({
-        from: input.from,
-        to: input.to,
-        subject: input.subject,
-        text: input.text,
-        html: input.html,
-        replyTo: normalizeReplyTo(input.replyTo),
+      const recorded = yield* Effect.try({
+        try: () =>
+          resendSink.record({
+            from: input.from,
+            to: input.to,
+            subject: input.subject,
+            text: input.text,
+            html: input.html,
+            replyTo: normalizeReplyTo(input.replyTo),
+            idempotencyKey: input.idempotencyKey,
+          }),
+        catch: (cause) =>
+          cause instanceof ResendHttpError
+            ? cause
+            : new ResendHttpError({
+                status: 0,
+                statusText:
+                  cause instanceof Error ? cause.message : String(cause),
+              }),
       });
       log.debug("resend_sink_recorded", {
         to: Array.isArray(input.to) ? input.to.join(",") : input.to,
@@ -98,14 +111,19 @@ export function sendEmail(
       ),
     );
 
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    };
+    if (input.idempotencyKey) {
+      headers["Idempotency-Key"] = input.idempotencyKey;
+    }
+
     const response = yield* Effect.tryPromise({
       try: () =>
         fetch(RESEND_API_URL, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
+          headers,
           body: JSON.stringify(encoded),
         }),
       catch: (cause) =>

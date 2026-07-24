@@ -86,6 +86,27 @@ export function captureException(
   });
 }
 
+export function captureHelpDeliveryExhausted(args: {
+  lane: string;
+  recipient: "mailbox" | "receipt";
+  failureClass: string;
+  attemptCount: number;
+}): SentryCapture {
+  return sentrySink.capture({
+    message: "Help email delivery exhausted retries",
+    level: "error",
+    tags: {
+      channel: "help_delivery",
+      lane: args.lane,
+      recipient: args.recipient,
+      failure_class: args.failureClass,
+    },
+    extra: {
+      attemptCount: args.attemptCount,
+    },
+  });
+}
+
 export function captureIncidentSignal(args: {
   signal: "opened" | "escalated" | "resolved";
   incidentType: string;

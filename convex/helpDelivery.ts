@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import * as Effect from "effect/Effect";
 import { HELP_RESPONSE_EXPECTATION } from "./lib/helpConstants";
+import {
+  classifyDeliveryError,
+  shouldAttemptDelivery,
+  type DeliveryRecipient,
+} from "./lib/helpDeliveryPolicy";
 import { createLogger } from "./lib/log";
 import { runEffect } from "./effect/run";
 import {
@@ -12,6 +18,31 @@ import {
 
 const log = createLogger("helpDelivery");
 
+type IntakeForDelivery = {
+  _id: Id<"helpIntake">;
+  reference: string;
+  lane: "support" | "feedback";
+  supportCategory?: string;
+  sentiment?: "negative" | "neutral" | "positive";
+  feedbackType?: "problem" | "idea" | "liked";
+  message: string;
+  replyEmail?: string;
+  participantId?: Id<"participants">;
+  anonymous: boolean;
+  contextJson?: string;
+  includeDiagnostics: boolean;
+  mailboxDelivery: {
+    status: "pending" | "sent" | "failed" | "skipped";
+    attemptCount: number;
+    nextAttemptAtMs?: number;
+  };
+  receiptDelivery: {
+    status: "pending" | "sent" | "failed" | "skipped";
+    attemptCount: number;
+    nextAttemptAtMs?: number;
+  };
+};
+
 function formatSupportMailboxBody(args: {
   reference: string;
   category: string;
@@ -19,7 +50,6 @@ function formatSupportMailboxBody(args: {
   replyEmail: string;
   participantId?: string;
   contextJson?: string;
-  includeDiagnostics: boolean;
 }): string {
   const lines = [
     `Reference: ${args.reference}`,
@@ -65,7 +95,6 @@ function formatFeedbackMailboxBody(args: {
   participantId?: string;
   anonymous: boolean;
   contextJson?: string;
-  includeDiagnostics: boolean;
 }): string {
   const lines = [
     `Reference: ${args.reference}`,
@@ -108,9 +137,96 @@ function formatFeedbackReceiptBody(args: {
   return lines.join("\n");
 }
 
-function failureClassFromError(error: unknown): string {
-  if (error instanceof Error) return error.name || "Error";
-  return "UnknownError";
+function idempotencyKey(intakeId: Id<"helpIntake">, recipient: DeliveryRecipient): string {
+  return `${intakeId}:${recipient}`;
+}
+
+async function attemptRecipientDelivery(
+  ctx: ActionCtx,
+  args: {
+    intake: IntakeForDelivery;
+    channel: DeliveryRecipient;
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    replyTo?: string;
+    nowMs: number;
+  },
+): Promise<void> {
+  const state =
+    args.channel === "mailbox"
+      ? args.intake.mailboxDelivery
+      : args.intake.receiptDelivery;
+
+  if (!shouldAttemptDelivery(state, args.nowMs)) {
+    return;
+  }
+
+  const result = await runEffect(
+    sendEmail({
+      from: args.from,
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+      replyTo: args.replyTo,
+      idempotencyKey: idempotencyKey(args.intake._id, args.channel),
+    }).pipe(
+      Effect.match({
+        onFailure: (error) => ({ ok: false as const, error }),
+        onSuccess: (sendResult) => ({ ok: true as const, sendResult }),
+      }),
+    ),
+  );
+
+  if (result.ok) {
+    await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+      intakeId: args.intake._id,
+      channel: args.channel,
+      outcome: {
+        kind: "success",
+        providerMessageId: result.sendResult.id,
+        attemptAtMs: args.nowMs,
+      },
+    });
+    return;
+  }
+
+  const classified = classifyDeliveryError(result.error);
+  log.error("help_delivery_failed", {
+    intakeId: args.intake._id,
+    channel: args.channel,
+    failureClass: classified.failureClass,
+    retryable: classified.retryable,
+  });
+
+  await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+    intakeId: args.intake._id,
+    channel: args.channel,
+    outcome: {
+      kind: "failure",
+      failureClass: classified.failureClass,
+      retryable: classified.retryable,
+      attemptAtMs: args.nowMs,
+    },
+  });
+}
+
+async function markReceiptSkipped(
+  ctx: ActionCtx,
+  intakeId: Id<"helpIntake">,
+  failureClass: string,
+  nowMs: number,
+): Promise<void> {
+  await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+    intakeId,
+    channel: "receipt",
+    outcome: {
+      kind: "skipped",
+      failureClass,
+      attemptAtMs: nowMs,
+    },
+  });
 }
 
 export const deliverIntake = internalAction({
@@ -127,6 +243,7 @@ export const deliverIntake = internalAction({
 
     const configEffect = resolveSupportFromEmail();
     const config = await runEffect(configEffect);
+    const nowMs = Date.now();
 
     if (intake.lane === "feedback") {
       const feedbackType = intake.feedbackType ?? "problem";
@@ -141,56 +258,28 @@ export const deliverIntake = internalAction({
         participantId: intake.participantId,
         anonymous: intake.anonymous,
         contextJson: intake.contextJson,
-        includeDiagnostics: intake.includeDiagnostics,
       });
 
-      const attemptAtMs = Date.now();
-
-      const mailboxResult = await runEffect(
-        sendEmail({
-          from: config.from,
-          to: config.mailbox,
-          subject: mailboxSubject,
-          text: mailboxText,
-          replyTo: intake.replyEmail,
-        }).pipe(
-          Effect.match({
-            onFailure: (error) => ({ ok: false as const, error }),
-            onSuccess: (result) => ({ ok: true as const, result }),
-          }),
-        ),
-      );
-
-      if (mailboxResult.ok) {
-        await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-          intakeId: args.intakeId,
-          channel: "mailbox",
-          status: "sent",
-          providerMessageId: mailboxResult.result.id,
-          attemptAtMs,
-        });
-      } else {
-        log.error("feedback_mailbox_delivery_failed", {
-          intakeId: args.intakeId,
-          error: mailboxResult.error.message,
-        });
-        await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-          intakeId: args.intakeId,
-          channel: "mailbox",
-          status: "failed",
-          attemptAtMs,
-          failureClass: failureClassFromError(mailboxResult.error),
-        });
-      }
+      await attemptRecipientDelivery(ctx, {
+        intake,
+        channel: "mailbox",
+        from: config.from,
+        to: config.mailbox,
+        subject: mailboxSubject,
+        text: mailboxText,
+        replyTo: intake.replyEmail,
+        nowMs,
+      });
 
       if (intake.anonymous || !intake.replyEmail) {
-        await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-          intakeId: args.intakeId,
-          channel: "receipt",
-          status: "skipped",
-          attemptAtMs: Date.now(),
-          failureClass: intake.anonymous ? "anonymous_feedback" : "no_reply_email",
-        });
+        if (shouldAttemptDelivery(intake.receiptDelivery, nowMs)) {
+          await markReceiptSkipped(
+            ctx,
+            args.intakeId,
+            intake.anonymous ? "anonymous_feedback" : "no_reply_email",
+            nowMs,
+          );
+        }
         return null;
       }
 
@@ -202,82 +291,57 @@ export const deliverIntake = internalAction({
         message: intake.message,
       });
 
-      const receiptResult = await runEffect(
-        sendEmail({
-          from: config.from,
-          to: intake.replyEmail,
-          subject: receiptSubject,
-          text: receiptText,
-        }).pipe(
-          Effect.match({
-            onFailure: (error) => ({ ok: false as const, error }),
-            onSuccess: (result) => ({ ok: true as const, result }),
-          }),
-        ),
-      );
-
-      if (receiptResult.ok) {
-        await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-          intakeId: args.intakeId,
-          channel: "receipt",
-          status: "sent",
-          providerMessageId: receiptResult.result.id,
-          attemptAtMs: Date.now(),
-        });
-      } else {
-        log.error("feedback_receipt_delivery_failed", {
-          intakeId: args.intakeId,
-          error: receiptResult.error.message,
-        });
-        await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-          intakeId: args.intakeId,
-          channel: "receipt",
-          status: "failed",
-          attemptAtMs: Date.now(),
-          failureClass: failureClassFromError(receiptResult.error),
-        });
-      }
+      await attemptRecipientDelivery(ctx, {
+        intake,
+        channel: "receipt",
+        from: config.from,
+        to: intake.replyEmail,
+        subject: receiptSubject,
+        text: receiptText,
+        nowMs,
+      });
 
       return null;
     }
 
     if (intake.lane !== "support") {
-      const nowMs = Date.now();
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "mailbox",
-        status: "skipped",
-        attemptAtMs: nowMs,
-        failureClass: "unsupported_lane",
-      });
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "receipt",
-        status: "skipped",
-        attemptAtMs: nowMs,
-        failureClass: "unsupported_lane",
-      });
+      const skippedAtMs = Date.now();
+      if (shouldAttemptDelivery(intake.mailboxDelivery, skippedAtMs)) {
+        await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+          intakeId: args.intakeId,
+          channel: "mailbox",
+          outcome: {
+            kind: "skipped",
+            failureClass: "unsupported_lane",
+            attemptAtMs: skippedAtMs,
+          },
+        });
+      }
+      if (shouldAttemptDelivery(intake.receiptDelivery, skippedAtMs)) {
+        await markReceiptSkipped(ctx, args.intakeId, "unsupported_lane", skippedAtMs);
+      }
       return null;
     }
 
     const category = intake.supportCategory ?? "Other";
     const replyEmail = intake.replyEmail;
     if (!replyEmail) {
-      const nowMs = Date.now();
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "mailbox",
-        status: "failed",
-        attemptAtMs: nowMs,
-        failureClass: "missing_reply_email",
-      });
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "receipt",
-        status: "skipped",
-        attemptAtMs: nowMs,
-        failureClass: "missing_reply_email",
-      });
+      const failedAtMs = Date.now();
+      if (shouldAttemptDelivery(intake.mailboxDelivery, failedAtMs)) {
+        await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+          intakeId: args.intakeId,
+          channel: "mailbox",
+          outcome: {
+            kind: "failure",
+            failureClass: "missing_reply_email",
+            retryable: false,
+            attemptAtMs: failedAtMs,
+          },
+        });
+      }
+      if (shouldAttemptDelivery(intake.receiptDelivery, failedAtMs)) {
+        await markReceiptSkipped(ctx, args.intakeId, "missing_reply_email", failedAtMs);
+      }
       return null;
     }
 
@@ -289,47 +353,18 @@ export const deliverIntake = internalAction({
       replyEmail,
       participantId: intake.participantId,
       contextJson: intake.contextJson,
-      includeDiagnostics: intake.includeDiagnostics,
     });
 
-    const attemptAtMs = Date.now();
-
-    const mailboxResult = await runEffect(
-      sendEmail({
-        from: config.from,
-        to: config.mailbox,
-        subject: mailboxSubject,
-        text: mailboxText,
-        replyTo: replyEmail,
-      }).pipe(
-        Effect.match({
-          onFailure: (error) => ({ ok: false as const, error }),
-          onSuccess: (result) => ({ ok: true as const, result }),
-        }),
-      ),
-    );
-
-    if (mailboxResult.ok) {
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "mailbox",
-        status: "sent",
-        providerMessageId: mailboxResult.result.id,
-        attemptAtMs,
-      });
-    } else {
-      log.error("mailbox_delivery_failed", {
-        intakeId: args.intakeId,
-        error: mailboxResult.error.message,
-      });
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "mailbox",
-        status: "failed",
-        attemptAtMs,
-        failureClass: failureClassFromError(mailboxResult.error),
-      });
-    }
+    await attemptRecipientDelivery(ctx, {
+      intake,
+      channel: "mailbox",
+      from: config.from,
+      to: config.mailbox,
+      subject: mailboxSubject,
+      text: mailboxText,
+      replyTo: replyEmail,
+      nowMs,
+    });
 
     const receiptSubject = `Only Pools Support — ${intake.reference}`;
     const receiptText = formatSupportReceiptBody({
@@ -338,41 +373,15 @@ export const deliverIntake = internalAction({
       message: intake.message,
     });
 
-    const receiptResult = await runEffect(
-      sendEmail({
-        from: config.from,
-        to: replyEmail,
-        subject: receiptSubject,
-        text: receiptText,
-      }).pipe(
-        Effect.match({
-          onFailure: (error) => ({ ok: false as const, error }),
-          onSuccess: (result) => ({ ok: true as const, result }),
-        }),
-      ),
-    );
-
-    if (receiptResult.ok) {
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "receipt",
-        status: "sent",
-        providerMessageId: receiptResult.result.id,
-        attemptAtMs: Date.now(),
-      });
-    } else {
-      log.error("receipt_delivery_failed", {
-        intakeId: args.intakeId,
-        error: receiptResult.error.message,
-      });
-      await ctx.runMutation(internal.helpIntake.recordDeliveryResult, {
-        intakeId: args.intakeId,
-        channel: "receipt",
-        status: "failed",
-        attemptAtMs: Date.now(),
-        failureClass: failureClassFromError(receiptResult.error),
-      });
-    }
+    await attemptRecipientDelivery(ctx, {
+      intake,
+      channel: "receipt",
+      from: config.from,
+      to: replyEmail,
+      subject: receiptSubject,
+      text: receiptText,
+      nowMs,
+    });
 
     return null;
   },
