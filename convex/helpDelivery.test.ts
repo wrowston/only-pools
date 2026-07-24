@@ -170,7 +170,7 @@ describe("Help delivery durability (issue #23)", () => {
   }
 
   it("delivers mailbox and receipt on full success", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     const json = await acceptSupport(t, { idempotencyKey: "del-full-success" });
     await finishDelivery(t);
 
@@ -190,7 +190,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("shows partial success when mailbox succeeds and receipt fails transiently then succeeds", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     resendSink.failOnSendNumber(2, {
       status: 500,
       failureClass: "provider_5xx",
@@ -216,7 +216,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("shows partial success when receipt succeeds and mailbox fails transiently then succeeds", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     resendSink.failOnSendNumber(1, { status: 503, failureClass: "provider_5xx" });
 
     const json = await acceptSupport(t, {
@@ -237,7 +237,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("does not retry permanent provider failures", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     resendSink.failPermanently({ status: 400, failureClass: "invalid_request" });
 
     const json = await acceptSupport(t, {
@@ -268,7 +268,7 @@ describe("Help delivery durability (issue #23)", () => {
     process.env.HELP_NETWORK_HASH_SECRET = HELP_TEST_RATE_LIMIT_SECRET;
     process.env.HELP_EMAIL_MODE = "double";
 
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     resendSink.failNext(HELP_DELIVERY_MAX_ATTEMPTS, {
       status: 500,
       failureClass: "provider_5xx",
@@ -322,7 +322,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("does not duplicate emails on idempotent deliverIntake replay after success", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     const json = await acceptSupport(t, {
       idempotencyKey: "del-idempotent-replay",
     });
@@ -339,7 +339,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("uses resend idempotency keys per intake recipient", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     const json = await acceptSupport(t, {
       idempotencyKey: "del-idem-key-header",
     });
@@ -355,7 +355,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("skips receipt for anonymous feedback and only delivers mailbox", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     const response = await t.fetch("/help/intake", {
       method: "POST",
       headers: {
@@ -382,7 +382,7 @@ describe("Help delivery durability (issue #23)", () => {
   });
 
   it("schedules bounded delayed retries via mutation-driven policy", async () => {
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     resendSink.failNext(1, { status: 500, failureClass: "provider_5xx" });
 
     const json = await acceptSupport(t, {
@@ -409,7 +409,7 @@ describe("Help delivery durability (issue #23)", () => {
     delete process.env.RESEND_API_KEY;
     delete process.env.HELP_SUPPORT_MAILBOX;
 
-    const t = convexTest(schema, modules);
+    const t = createHelpTest();
     const response = await t.fetch("/help/intake", {
       method: "POST",
       headers: {

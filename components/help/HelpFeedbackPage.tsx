@@ -40,7 +40,9 @@ export function HelpFeedbackPage() {
     isSignedIn ? {} : "skip",
   );
 
-  const [activeLane, setActiveLane] = useState<HelpLane>("support");
+  const [activeLane, setActiveLane] = useState<HelpLane>(() =>
+    laneParam === "feedback" ? "feedback" : "support",
+  );
   const [category, setCategory] = useState("");
   const clerkEmail = user?.primaryEmailAddress?.emailAddress ?? "";
   const [replyEmailOverride, setReplyEmailOverride] = useState<string | null>(
@@ -51,7 +53,18 @@ export function HelpFeedbackPage() {
   const [honeypot, setHoneypot] = useState("");
   const [feedbackSentiment, setFeedbackSentiment] = useState<
     FeedbackSentiment | ""
-  >("");
+  >(() => {
+    const draft = readHelpPromptDraft();
+    if (draft?.sentiment) return draft.sentiment;
+    if (
+      sentimentParam === "negative" ||
+      sentimentParam === "neutral" ||
+      sentimentParam === "positive"
+    ) {
+      return sentimentParam;
+    }
+    return "";
+  });
   const [feedbackType, setFeedbackType] = useState<FeedbackType | "">("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackReplyEmailOverride, setFeedbackReplyEmailOverride] = useState<
@@ -68,7 +81,9 @@ export function HelpFeedbackPage() {
   const supportIdempotencyKeyRef = useRef<string | null>(null);
   const feedbackIdempotencyKeyRef = useRef<string | null>(null);
   const supportStartedAtMsRef = useRef<number | null>(null);
-  const feedbackStartedAtMsRef = useRef<number | null>(null);
+  const feedbackStartedAtMsRef = useRef<number | null>(
+    readHelpPromptDraft()?.createdAtMs ?? null,
+  );
   const openedRef = useRef(false);
 
   const signedInEmail =
@@ -108,30 +123,11 @@ export function HelpFeedbackPage() {
     if (openedRef.current) return;
     openedRef.current = true;
     supportStartedAtMsRef.current = Date.now();
-    feedbackStartedAtMsRef.current = Date.now();
+    if (feedbackStartedAtMsRef.current === null) {
+      feedbackStartedAtMsRef.current = Date.now();
+    }
     posthog.capture("help_opened", { source: source ?? undefined });
   }, [source]);
-
-  useEffect(() => {
-    if (laneParam === "feedback") {
-      setActiveLane("feedback");
-    }
-
-    const draft = readHelpPromptDraft();
-    if (draft?.sentiment) {
-      setFeedbackSentiment(draft.sentiment);
-      feedbackStartedAtMsRef.current = draft.createdAtMs;
-      return;
-    }
-
-    if (
-      sentimentParam === "negative" ||
-      sentimentParam === "neutral" ||
-      sentimentParam === "positive"
-    ) {
-      setFeedbackSentiment(sentimentParam);
-    }
-  }, [laneParam, sentimentParam]);
 
   const getSupportIdempotencyKey = useCallback(() => {
     if (!supportIdempotencyKeyRef.current) {

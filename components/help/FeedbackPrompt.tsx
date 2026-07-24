@@ -29,7 +29,9 @@ export function FeedbackPrompt() {
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [featureEnabled, setFeatureEnabled] = useState(false);
+  const [featureEnabled, setFeatureEnabled] = useState(() =>
+    isPromptFeatureEnabled(),
+  );
   const [open, setOpen] = useState(false);
   const shownRef = useRef(false);
   const recordingRef = useRef(false);
@@ -44,21 +46,16 @@ export function FeedbackPrompt() {
   );
 
   useEffect(() => {
-    const refreshNow = () => setNowMs(Date.now());
-    refreshNow();
-    const id = window.setInterval(refreshNow, 60_000);
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, [pathname]);
 
   useEffect(() => {
-    if (!posthog.__loaded) {
-      const unsubscribe = posthog.onFeatureFlags(() => {
-        setFeatureEnabled(isPromptFeatureEnabled());
-      });
-      return unsubscribe;
-    }
-    setFeatureEnabled(isPromptFeatureEnabled());
-    return undefined;
+    const syncFlag = () => {
+      setFeatureEnabled(isPromptFeatureEnabled());
+    };
+    syncFlag();
+    return posthog.onFeatureFlags(syncFlag);
   }, []);
 
   const calmPage = isCalmPageForHelpPrompt(pathname);
@@ -73,7 +70,10 @@ export function FeedbackPrompt() {
 
     recordingRef.current = true;
     shownRef.current = true;
-    setOpen(true);
+
+    const frame = window.requestAnimationFrame(() => {
+      setOpen(true);
+    });
 
     void recordShown({ nowMs: Date.now() })
       .catch(() => {
@@ -85,6 +85,7 @@ export function FeedbackPrompt() {
       });
 
     posthog.capture("help_prompt_shown");
+    return () => window.cancelAnimationFrame(frame);
   }, [canShow, recordShown]);
 
   const handleSentiment = useCallback(
