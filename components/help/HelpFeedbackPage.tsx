@@ -25,6 +25,7 @@ import {
   buildHelpClientContextPayload,
   buildHelpContextDisclosure,
 } from "@/lib/helpDiagnostics";
+import { resolveHelpDiagnosticLocation } from "@/lib/helpOriginPath";
 
 export function HelpFeedbackPage() {
   const searchParams = useSearchParams();
@@ -39,6 +40,22 @@ export function HelpFeedbackPage() {
     api.participants.myHelpIdentity,
     isSignedIn ? {} : "skip",
   );
+
+  const [diagnosticLocation, setDiagnosticLocation] = useState(() =>
+    resolveHelpDiagnosticLocation({
+      pathname,
+      search: typeof window !== "undefined" ? window.location.search : "",
+    }),
+  );
+
+  useEffect(() => {
+    setDiagnosticLocation(
+      resolveHelpDiagnosticLocation({
+        pathname,
+        search: window.location.search,
+      }),
+    );
+  }, [pathname]);
 
   const [activeLane, setActiveLane] = useState<HelpLane>(() =>
     laneParam === "feedback" ? "feedback" : "support",
@@ -93,8 +110,8 @@ export function HelpFeedbackPage() {
   const contextInput = useMemo(
     () => ({
       lane: activeLane,
-      pathname,
-      search: typeof window !== "undefined" ? window.location.search : "",
+      pathname: diagnosticLocation.pathname,
+      search: diagnosticLocation.search,
       userAgent:
         typeof navigator !== "undefined" ? navigator.userAgent : "Unknown",
       includeDiagnostics,
@@ -105,7 +122,8 @@ export function HelpFeedbackPage() {
     }),
     [
       activeLane,
-      pathname,
+      diagnosticLocation.pathname,
+      diagnosticLocation.search,
       includeDiagnostics,
       isSignedIn,
       signedInAccountId,
