@@ -6,7 +6,7 @@ import {
   corsHeaders,
   getHelpAllowedOrigin,
 } from "./lib/helpConfig";
-import { validateSupportIntake } from "./helpIntake";
+import { validateFeedbackIntake, validateSupportIntake } from "./helpIntake";
 
 const http = httpRouter();
 
@@ -78,14 +78,71 @@ http.route({
     }
 
     const payload = body as Record<string, unknown>;
+    const lane = payload.lane;
+    const acceptedAtMs = Date.now();
 
-    if (payload.lane === "feedback") {
+    if (lane === "feedback") {
+      const validated = validateFeedbackIntake({
+        lane: payload.lane,
+        idempotencyKey: payload.idempotencyKey,
+        sentiment: payload.sentiment,
+        feedbackType: payload.feedbackType,
+        message: payload.message,
+        replyEmail: payload.replyEmail,
+        anonymous: payload.anonymous,
+        honeypot: payload.honeypot,
+        includeDiagnostics: payload.includeDiagnostics,
+        context: payload.context,
+        participantIdFromClient: payload.participantId,
+      });
+
+      if (!validated.ok) {
+        return jsonResponse({ ok: false, errors: validated.errors }, 400, cors);
+      }
+
+      let participantId = undefined;
+      let replyEmail: string | undefined = validated.value.replyEmail;
+
+      if (validated.value.anonymous) {
+        participantId = undefined;
+        replyEmail = undefined;
+      } else {
+        const identity = await ctx.auth.getUserIdentity();
+        if (identity !== null) {
+          const participant = await ctx.runQuery(
+            internal.helpIntake.lookupParticipantByToken,
+            { tokenIdentifier: identity.tokenIdentifier },
+          );
+          participantId = participant?._id;
+        }
+      }
+
+      const result = await ctx.runMutation(
+        internal.helpIntake.acceptSubmission,
+        {
+          lane: validated.value.lane,
+          idempotencyKey: validated.value.idempotencyKey,
+          sentiment: validated.value.sentiment,
+          feedbackType: validated.value.feedbackType,
+          message: validated.value.message,
+          replyEmail,
+          anonymous: validated.value.anonymous,
+          participantId,
+          contextJson: validated.value.contextJson,
+          includeDiagnostics: validated.value.includeDiagnostics,
+          acceptedAtMs,
+        },
+      );
+
       return jsonResponse(
         {
-          ok: false,
-          errors: { lane: "Feedback lane is not yet available" },
+          ok: true,
+          reference: result.reference,
+          acceptedAtMs: result.acceptedAtMs,
+          lane: result.lane,
+          contactable: Boolean(replyEmail),
         },
-        501,
+        200,
         cors,
       );
     }
@@ -116,8 +173,6 @@ http.route({
       );
       participantId = participant?._id;
     }
-
-    const acceptedAtMs = Date.now();
 
     const result = await ctx.runMutation(
       internal.helpIntake.acceptSubmission,

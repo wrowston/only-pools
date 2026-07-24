@@ -4,9 +4,15 @@ import Link from "next/link";
 import { useEffect, useId, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import {
+  FEEDBACK_SENTIMENT_LABELS,
+  FEEDBACK_SENTIMENTS,
+  FEEDBACK_TYPE_LABELS,
+  FEEDBACK_TYPES,
   HELP_RESPONSE_EXPECTATION,
   SUPPORT_CATEGORIES,
-} from "@/lib/help";
+  type FeedbackSentiment,
+  type FeedbackType,
+} from "@/lib/helpConstants";
 import type { Guide } from "@/lib/guides";
 
 const textareaClassName =
@@ -18,10 +24,22 @@ const selectClassName =
 export type HelpLane = "support" | "feedback";
 
 export type SupportAcceptance = {
+  kind: "support";
   reference: string;
   category: string;
   acceptedAtMs: number;
 };
+
+export type FeedbackAcceptance = {
+  kind: "feedback";
+  reference: string;
+  feedbackType: FeedbackType;
+  sentiment: FeedbackSentiment;
+  contactable: boolean;
+  acceptedAtMs: number;
+};
+
+export type HelpAcceptance = SupportAcceptance | FeedbackAcceptance;
 
 export type HelpFieldErrors = Record<string, string>;
 
@@ -40,13 +58,22 @@ export type HelpFeedbackViewProps = {
   onReplyEmailChange: (value: string) => void;
   onMessageChange: (value: string) => void;
   onHoneypotChange: (value: string) => void;
+  feedbackSentiment: FeedbackSentiment | "";
+  feedbackType: FeedbackType | "";
+  feedbackMessage: string;
+  feedbackReplyEmail: string;
+  feedbackAnonymous: boolean;
+  onFeedbackSentimentChange: (value: FeedbackSentiment) => void;
+  onFeedbackTypeChange: (value: FeedbackType) => void;
+  onFeedbackMessageChange: (value: string) => void;
+  onFeedbackReplyEmailChange: (value: string) => void;
+  onFeedbackAnonymousChange: (value: boolean) => void;
   fieldErrors: HelpFieldErrors;
   formError: string | null;
-  feedbackNotice: string | null;
   submitting: boolean;
   onSupportSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onFeedbackSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  acceptance: SupportAcceptance | null;
+  acceptance: HelpAcceptance | null;
 };
 
 export function HelpFeedbackView({
@@ -64,9 +91,18 @@ export function HelpFeedbackView({
   onReplyEmailChange,
   onMessageChange,
   onHoneypotChange,
+  feedbackSentiment,
+  feedbackType,
+  feedbackMessage,
+  feedbackReplyEmail,
+  feedbackAnonymous,
+  onFeedbackSentimentChange,
+  onFeedbackTypeChange,
+  onFeedbackMessageChange,
+  onFeedbackReplyEmailChange,
+  onFeedbackAnonymousChange,
   fieldErrors,
   formError,
-  feedbackNotice,
   submitting,
   onSupportSubmit,
   onFeedbackSubmit,
@@ -79,6 +115,15 @@ export function HelpFeedbackView({
   const categoryErrorId = useId();
   const replyEmailErrorId = useId();
   const messageErrorId = useId();
+  const sentimentGroupId = useId();
+  const sentimentErrorId = useId();
+  const feedbackTypeId = useId();
+  const feedbackTypeErrorId = useId();
+  const feedbackMessageId = useId();
+  const feedbackMessageErrorId = useId();
+  const feedbackReplyEmailId = useId();
+  const feedbackReplyEmailErrorId = useId();
+  const anonymousId = useId();
 
   useEffect(() => {
     if (acceptance) {
@@ -86,7 +131,7 @@ export function HelpFeedbackView({
     }
   }, [acceptance]);
 
-  if (acceptance) {
+  if (acceptance?.kind === "support") {
     return (
       <div className="px-5 py-10 sm:px-8 sm:py-14">
         <div className="mx-auto max-w-3xl">
@@ -129,6 +174,70 @@ export function HelpFeedbackView({
             Keep your reference handy if you follow up. Support does not pause
             or reopen Pick Locks, guarantee a pre-kickoff response, or mediate
             ordinary private Pool disputes.
+          </p>
+          <Link
+            href="/guides"
+            className="op-btn op-btn-secondary mt-8 inline-flex h-8 items-center px-3 text-[13px]"
+          >
+            Browse guides
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (acceptance?.kind === "feedback") {
+    return (
+      <div className="px-5 py-10 sm:px-8 sm:py-14">
+        <div className="mx-auto max-w-3xl">
+          <p className="op-eyebrow text-op-heat">Help & feedback</p>
+          <h1
+            ref={receiptHeadingRef}
+            tabIndex={-1}
+            className="mt-3 text-3xl font-medium tracking-tight text-op-text sm:text-4xl"
+          >
+            Feedback received
+          </h1>
+          {acceptance.contactable ? (
+            <p className="mt-4 text-[15px] leading-7 text-op-secondary">
+              Thanks for sharing. We read feedback privately. Providing an email
+              does not guarantee a personal reply.
+            </p>
+          ) : (
+            <p className="mt-4 text-[15px] leading-7 text-op-secondary">
+              Thanks for sharing. Your feedback was recorded anonymously and we
+              read all feedback privately.
+            </p>
+          )}
+          <dl className="mt-8 space-y-4 rounded-[14px] border border-op-border bg-op-surface p-5">
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-[0.08em] text-op-muted">
+                Reference
+              </dt>
+              <dd className="mt-1 font-mono text-sm text-op-text">
+                {acceptance.reference}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-[0.08em] text-op-muted">
+                Type
+              </dt>
+              <dd className="mt-1 text-sm text-op-text">
+                {FEEDBACK_TYPE_LABELS[acceptance.feedbackType]}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-[0.08em] text-op-muted">
+                Sentiment
+              </dt>
+              <dd className="mt-1 text-sm text-op-text">
+                {FEEDBACK_SENTIMENT_LABELS[acceptance.sentiment]}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-6 text-sm leading-6 text-op-secondary">
+            Feedback is private by default. We do not publish it as a
+            testimonial or share roadmap status.
           </p>
           <Link
             href="/guides"
@@ -368,37 +477,210 @@ export function HelpFeedbackView({
               Share feedback
             </h2>
             <p className="mt-2 text-sm leading-6 text-op-secondary">
-              Feedback intake is next — use Get support for product help now.
+              Feedback is private by default. We do not publish it as a
+              testimonial or share roadmap status.
             </p>
 
             <form
-              className="mt-6 flex flex-col gap-4 opacity-70"
+              className="mt-6 flex flex-col gap-4"
               onSubmit={onFeedbackSubmit}
+              noValidate
             >
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium text-op-text">Topic</span>
-                <Input disabled placeholder="Coming soon" />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium text-op-text">Your feedback</span>
-                <textarea
-                  disabled
-                  rows={4}
-                  className={textareaClassName}
-                  placeholder="Product feedback form opens next."
+              <div className="absolute -left-[9999px]" aria-hidden>
+                <label htmlFor="feedback_company_website">Company website</label>
+                <input
+                  id="feedback_company_website"
+                  name="company_website"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={honeypot}
+                  onChange={(event) => onHoneypotChange(event.target.value)}
                 />
+              </div>
+
+              <fieldset className="flex flex-col gap-2">
+                <legend className="text-sm font-medium text-op-text">
+                  How do you feel?{" "}
+                  <span className="text-op-muted">(required)</span>
+                </legend>
+                <div
+                  id={sentimentGroupId}
+                  className="flex flex-wrap gap-2"
+                  role="radiogroup"
+                  aria-invalid={Boolean(fieldErrors.sentiment)}
+                  aria-describedby={
+                    fieldErrors.sentiment ? sentimentErrorId : undefined
+                  }
+                >
+                  {FEEDBACK_SENTIMENTS.map((value) => (
+                    <label
+                      key={value}
+                      className={`op-btn h-8 cursor-pointer px-3 text-[13px] ${
+                        feedbackSentiment === value
+                          ? "op-btn-secondary"
+                          : "op-btn-ghost"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="sentiment"
+                        value={value}
+                        checked={feedbackSentiment === value}
+                        onChange={() => onFeedbackSentimentChange(value)}
+                        className="sr-only"
+                      />
+                      {FEEDBACK_SENTIMENT_LABELS[value]}
+                    </label>
+                  ))}
+                </div>
+                {fieldErrors.sentiment ? (
+                  <span
+                    id={sentimentErrorId}
+                    className="text-xs text-destructive"
+                  >
+                    {fieldErrors.sentiment}
+                  </span>
+                ) : null}
+              </fieldset>
+
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-op-text">
+                  Type <span className="text-op-muted">(required)</span>
+                </span>
+                <select
+                  id={feedbackTypeId}
+                  name="feedbackType"
+                  required
+                  value={feedbackType}
+                  onChange={(event) =>
+                    onFeedbackTypeChange(event.target.value as FeedbackType)
+                  }
+                  aria-invalid={Boolean(fieldErrors.feedbackType)}
+                  aria-describedby={
+                    fieldErrors.feedbackType ? feedbackTypeErrorId : undefined
+                  }
+                  className={selectClassName}
+                >
+                  <option value="">Select a type</option>
+                  {FEEDBACK_TYPES.map((value) => (
+                    <option key={value} value={value}>
+                      {FEEDBACK_TYPE_LABELS[value]}
+                    </option>
+                  ))}
+                </select>
+                {fieldErrors.feedbackType ? (
+                  <span
+                    id={feedbackTypeErrorId}
+                    className="text-xs text-destructive"
+                  >
+                    {fieldErrors.feedbackType}
+                  </span>
+                ) : null}
               </label>
-              {feedbackNotice ? (
-                <p className="text-sm text-op-secondary" role="status">
-                  {feedbackNotice}
+
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-op-text">
+                  Details <span className="text-op-muted">(optional)</span>
+                </span>
+                <textarea
+                  id={feedbackMessageId}
+                  name="feedbackMessage"
+                  rows={4}
+                  value={feedbackMessage}
+                  onChange={(event) =>
+                    onFeedbackMessageChange(event.target.value)
+                  }
+                  aria-invalid={Boolean(fieldErrors.message)}
+                  aria-describedby={
+                    fieldErrors.message ? feedbackMessageErrorId : undefined
+                  }
+                  className={textareaClassName}
+                  placeholder="Add context if helpful."
+                />
+                {fieldErrors.message ? (
+                  <span
+                    id={feedbackMessageErrorId}
+                    className="text-xs text-destructive"
+                  >
+                    {fieldErrors.message}
+                  </span>
+                ) : null}
+              </label>
+
+              {!feedbackAnonymous ? (
+                <label className="flex flex-col gap-1.5 text-sm">
+                  <span className="font-medium text-op-text">
+                    Follow-up email{" "}
+                    <span className="text-op-muted">(optional)</span>
+                  </span>
+                  <Input
+                    id={feedbackReplyEmailId}
+                    name="feedbackReplyEmail"
+                    type="email"
+                    autoComplete="email"
+                    value={feedbackReplyEmail}
+                    onChange={(event) =>
+                      onFeedbackReplyEmailChange(event.target.value)
+                    }
+                    aria-invalid={Boolean(fieldErrors.replyEmail)}
+                    aria-describedby={
+                      fieldErrors.replyEmail
+                        ? feedbackReplyEmailErrorId
+                        : undefined
+                    }
+                    placeholder={
+                      signedInEmail ? undefined : "you@example.com"
+                    }
+                  />
+                  <span className="text-xs text-op-muted">
+                    Optional. Does not guarantee a personal reply.
+                  </span>
+                  {fieldErrors.replyEmail ? (
+                    <span
+                      id={feedbackReplyEmailErrorId}
+                      className="text-xs text-destructive"
+                    >
+                      {fieldErrors.replyEmail}
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
+
+              {signedInEmail ? (
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    id={anonymousId}
+                    name="anonymous"
+                    type="checkbox"
+                    checked={feedbackAnonymous}
+                    onChange={(event) =>
+                      onFeedbackAnonymousChange(event.target.checked)
+                    }
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium text-op-text">
+                      Submit anonymously
+                    </span>
+                    <span className="mt-0.5 block text-xs text-op-muted">
+                      We will not store your account, email, or Pool linkage.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+
+              {formError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {formError}
                 </p>
               ) : null}
+
               <button
                 type="submit"
-                disabled
-                className="op-btn op-btn-ghost h-8 self-start px-4 text-[13px]"
+                disabled={submitting}
+                className="op-btn op-btn-secondary h-8 self-start px-4 text-[13px]"
               >
-                Submit feedback
+                {submitting ? "Sending…" : "Submit feedback"}
               </button>
             </form>
           </section>

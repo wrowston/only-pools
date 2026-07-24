@@ -27,9 +27,18 @@ function baseProps(
     onReplyEmailChange: noop,
     onMessageChange: noop,
     onHoneypotChange: noop,
+    feedbackSentiment: "",
+    feedbackType: "",
+    feedbackMessage: "",
+    feedbackReplyEmail: "",
+    feedbackAnonymous: false,
+    onFeedbackSentimentChange: noop,
+    onFeedbackTypeChange: noop,
+    onFeedbackMessageChange: noop,
+    onFeedbackReplyEmailChange: noop,
+    onFeedbackAnonymousChange: noop,
     fieldErrors: {},
     formError: null,
-    feedbackNotice: null,
     submitting: false,
     onSupportSubmit: (event) => event.preventDefault(),
     onFeedbackSubmit: (event) => event.preventDefault(),
@@ -69,15 +78,49 @@ describe("HelpFeedbackView", () => {
     expect(markup).toContain("Pool panel");
   });
 
-  it("shows feedback placeholder when feedback lane is active", () => {
+  it("renders feedback form with sentiment, type, optional fields, and privacy copy", () => {
     const markup = renderView({ activeLane: "feedback" });
-    expect(markup).toContain("Feedback intake is next");
-    expect(markup).toContain("Coming soon");
+    expect(markup).toContain('name="sentiment"');
+    expect(markup).toContain('name="feedbackType"');
+    expect(markup).toContain('name="feedbackMessage"');
+    expect(markup).toContain('name="feedbackReplyEmail"');
+    expect(markup).toContain("private by default");
+    expect(markup).toMatch(/do not publish it as a testimonial/i);
+    expect(markup).toContain("Submit feedback");
+    expect(markup).not.toContain("Coming soon");
   });
 
-  it("shows a receipt when support is accepted", () => {
+  it("shows anonymous checkbox for signed-in users on feedback lane", () => {
+    const markup = renderView({
+      activeLane: "feedback",
+      signedInEmail: "player@example.test",
+    });
+    expect(markup).toContain('name="anonymous"');
+    expect(markup).toContain("Submit anonymously");
+    expect(markup).toContain("will not store your account");
+  });
+
+  it("hides follow-up email when anonymous feedback is selected", () => {
+    const signedIn = renderView({
+      activeLane: "feedback",
+      signedInEmail: "player@example.test",
+      feedbackAnonymous: true,
+    });
+    expect(signedIn).not.toContain('name="feedbackReplyEmail"');
+
+    const publicMarkup = renderView({
+      activeLane: "feedback",
+      signedInEmail: null,
+      feedbackAnonymous: false,
+    });
+    expect(publicMarkup).toContain('name="feedbackReplyEmail"');
+    expect(publicMarkup).not.toContain('name="anonymous"');
+  });
+
+  it("shows support receipt when support is accepted", () => {
     const markup = renderView({
       acceptance: {
+        kind: "support",
         reference: "OP-HELP-TEST-REF",
         category: "Technical problem",
         acceptedAtMs: 1_700_000_000_000,
@@ -89,13 +132,54 @@ describe("HelpFeedbackView", () => {
     expect(markup).toContain("respond within 2 business days");
   });
 
-  it("lists suggested guides without blocking support", () => {
+  it("shows anonymous feedback acknowledgement without personal reply promise", () => {
+    const markup = renderView({
+      acceptance: {
+        kind: "feedback",
+        reference: "OP-HELP-FB-REF",
+        feedbackType: "idea",
+        sentiment: "neutral",
+        contactable: false,
+        acceptedAtMs: 1_700_000_000_000,
+      },
+    });
+    expect(markup).toContain("Feedback received");
+    expect(markup).toContain("recorded anonymously");
+    expect(markup).toContain("OP-HELP-FB-REF");
+    expect(markup).not.toContain("respond within 2 business days");
+  });
+
+  it("shows contactable feedback acknowledgement without guaranteeing personal reply", () => {
+    const markup = renderView({
+      acceptance: {
+        kind: "feedback",
+        reference: "OP-HELP-FB-REF-2",
+        feedbackType: "problem",
+        sentiment: "negative",
+        contactable: true,
+        acceptedAtMs: 1_700_000_000_000,
+      },
+    });
+    expect(markup).toContain("does not guarantee a personal reply");
+    expect(markup).not.toContain("will reply to the email you provided");
+  });
+
+  it("lists suggested guides without blocking support or feedback lanes", () => {
     const suggested = guides.filter((g) =>
       ["week-board-picks-and-locks", "survivor-picks"].includes(g.slug),
     );
-    const markup = renderView({ suggestedGuides: suggested });
-    expect(markup).toContain("Suggested guides");
-    expect(markup).toContain("/guides/week-board-picks-and-locks");
-    expect(markup).toContain("/guides/survivor-picks");
+    const supportMarkup = renderView({
+      suggestedGuides: suggested,
+      activeLane: "support",
+    });
+    expect(supportMarkup).toContain("Suggested guides");
+    expect(supportMarkup).toContain("/guides/week-board-picks-and-locks");
+
+    const feedbackMarkup = renderView({
+      suggestedGuides: suggested,
+      activeLane: "feedback",
+    });
+    expect(feedbackMarkup).toContain("Suggested guides");
+    expect(feedbackMarkup).toContain("Share feedback");
   });
 });

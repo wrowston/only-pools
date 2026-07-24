@@ -13,6 +13,10 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_REPLY_EMAIL_LENGTH,
   SUPPORT_CATEGORY_SET,
+  FEEDBACK_SENTIMENT_SET,
+  FEEDBACK_TYPE_SET,
+  type FeedbackSentiment,
+  type FeedbackType,
   type SupportCategory,
 } from "./lib/helpConstants";
 import { generateHelpReference } from "./lib/helpReference";
@@ -56,6 +60,18 @@ export type ValidatedSupportSubmission = {
   participantId?: Id<"participants">;
 };
 
+export type ValidatedFeedbackSubmission = {
+  lane: "feedback";
+  idempotencyKey: string;
+  sentiment: FeedbackSentiment;
+  feedbackType: FeedbackType;
+  message: string;
+  replyEmail?: string;
+  anonymous: boolean;
+  includeDiagnostics: boolean;
+  contextJson?: string;
+};
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function validateSupportIntake(args: {
@@ -72,10 +88,7 @@ export function validateSupportIntake(args: {
   const errors: FieldErrors = {};
 
   if (args.lane !== "support") {
-    if (args.lane === "feedback") {
-      return { ok: false, errors: { lane: "Feedback lane is not yet available" } };
-    }
-    errors.lane = "lane must be support or feedback";
+    errors.lane = "lane must be support";
   }
 
   if (typeof args.idempotencyKey !== "string" || args.idempotencyKey.trim().length === 0) {
@@ -171,6 +184,140 @@ export function validateSupportIntake(args: {
   };
 }
 
+export function validateFeedbackIntake(args: {
+  lane: unknown;
+  idempotencyKey: unknown;
+  sentiment: unknown;
+  feedbackType: unknown;
+  message: unknown;
+  replyEmail: unknown;
+  anonymous: unknown;
+  honeypot: unknown;
+  includeDiagnostics: unknown;
+  context: unknown;
+  participantIdFromClient?: unknown;
+}):
+  | { ok: true; value: ValidatedFeedbackSubmission }
+  | { ok: false; errors: FieldErrors } {
+  const errors: FieldErrors = {};
+
+  if (args.lane !== "feedback") {
+    errors.lane = "lane must be feedback";
+  }
+
+  if (typeof args.idempotencyKey !== "string" || args.idempotencyKey.trim().length === 0) {
+    errors.idempotencyKey = "idempotencyKey is required";
+  } else if (args.idempotencyKey.trim().length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    errors.idempotencyKey = "idempotencyKey is too long";
+  }
+
+  let sentiment: FeedbackSentiment | undefined;
+  if (typeof args.sentiment !== "string" || args.sentiment.trim().length === 0) {
+    errors.sentiment = "sentiment is required for feedback";
+  } else if (!FEEDBACK_SENTIMENT_SET.has(args.sentiment)) {
+    errors.sentiment = "sentiment is not a valid feedback sentiment";
+  } else {
+    sentiment = args.sentiment as FeedbackSentiment;
+  }
+
+  let feedbackType: FeedbackType | undefined;
+  if (typeof args.feedbackType !== "string" || args.feedbackType.trim().length === 0) {
+    errors.feedbackType = "feedbackType is required for feedback";
+  } else if (!FEEDBACK_TYPE_SET.has(args.feedbackType)) {
+    errors.feedbackType = "feedbackType is not a valid feedback type";
+  } else {
+    feedbackType = args.feedbackType as FeedbackType;
+  }
+
+  let message = "";
+  if (args.message !== undefined && args.message !== null) {
+    if (typeof args.message !== "string") {
+      errors.message = "message must be a string";
+    } else {
+      message = args.message.trim();
+      if (message.length > MAX_MESSAGE_LENGTH) {
+        errors.message = `message must be at most ${MAX_MESSAGE_LENGTH} characters`;
+      }
+    }
+  }
+
+  const anonymous = args.anonymous === true;
+
+  let replyEmail: string | undefined;
+  if (!anonymous && args.replyEmail !== undefined && args.replyEmail !== null) {
+    if (typeof args.replyEmail !== "string") {
+      errors.replyEmail = "replyEmail must be a string";
+    } else {
+      const trimmed = args.replyEmail.trim();
+      if (trimmed.length > 0) {
+        if (trimmed.length > MAX_REPLY_EMAIL_LENGTH) {
+          errors.replyEmail = "replyEmail is too long";
+        } else if (!EMAIL_PATTERN.test(trimmed)) {
+          errors.replyEmail = "replyEmail must be a valid email address";
+        } else {
+          replyEmail = trimmed;
+        }
+      }
+    }
+  }
+
+  if (typeof args.honeypot === "string" && args.honeypot.trim().length > 0) {
+    errors.honeypot = "Invalid submission";
+  }
+
+  const includeDiagnostics = args.includeDiagnostics === true;
+
+  let contextJson: string | undefined;
+  if (args.context !== undefined && args.context !== null) {
+    if (typeof args.context !== "object" || Array.isArray(args.context)) {
+      errors.context = "context must be an object";
+    } else {
+      try {
+        contextJson = sanitizeHelpContext(
+          args.context as Record<string, unknown>,
+          MAX_CONTEXT_FIELD_LENGTH,
+          MAX_CONTEXT_JSON_LENGTH,
+        );
+      } catch (error) {
+        errors.context =
+          error instanceof Error ? error.message : "Invalid context";
+      }
+    }
+  }
+
+  if (message.length > 0) {
+    try {
+      assertTextSafeForHelp(message, "message");
+    } catch (error) {
+      errors.message =
+        error instanceof Error ? error.message : "message contains disallowed content";
+    }
+  }
+
+  if (args.participantIdFromClient !== undefined) {
+    // Silently ignored — never trust client-supplied participant ids.
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      lane: "feedback",
+      idempotencyKey: (args.idempotencyKey as string).trim(),
+      sentiment: sentiment!,
+      feedbackType: feedbackType!,
+      message,
+      replyEmail,
+      anonymous,
+      includeDiagnostics,
+      contextJson,
+    },
+  };
+}
+
 export const lookupParticipantByToken = internalQuery({
   args: { tokenIdentifier: v.string() },
   returns: v.union(
@@ -200,9 +347,20 @@ export const getIntakeById = internalQuery({
       reference: v.string(),
       lane: laneValidator,
       supportCategory: v.optional(v.string()),
+      sentiment: v.optional(
+        v.union(
+          v.literal("negative"),
+          v.literal("neutral"),
+          v.literal("positive"),
+        ),
+      ),
+      feedbackType: v.optional(
+        v.union(v.literal("problem"), v.literal("idea"), v.literal("liked")),
+      ),
       message: v.string(),
       replyEmail: v.optional(v.string()),
       participantId: v.optional(v.id("participants")),
+      anonymous: v.boolean(),
       contextJson: v.optional(v.string()),
       includeDiagnostics: v.boolean(),
       mailboxDelivery: deliveryStateValidator,
@@ -218,9 +376,12 @@ export const getIntakeById = internalQuery({
       reference: doc.reference,
       lane: doc.lane,
       supportCategory: doc.supportCategory,
+      sentiment: doc.sentiment,
+      feedbackType: doc.feedbackType,
       message: doc.message,
       replyEmail: doc.replyEmail,
       participantId: doc.participantId,
+      anonymous: doc.anonymous,
       contextJson: doc.contextJson,
       includeDiagnostics: doc.includeDiagnostics,
       mailboxDelivery: doc.mailboxDelivery,
@@ -234,6 +395,16 @@ export const acceptSubmission = internalMutation({
     lane: laneValidator,
     idempotencyKey: v.string(),
     supportCategory: v.optional(v.string()),
+    sentiment: v.optional(
+      v.union(
+        v.literal("negative"),
+        v.literal("neutral"),
+        v.literal("positive"),
+      ),
+    ),
+    feedbackType: v.optional(
+      v.union(v.literal("problem"), v.literal("idea"), v.literal("liked")),
+    ),
     message: v.string(),
     replyEmail: v.optional(v.string()),
     anonymous: v.boolean(),
@@ -276,6 +447,8 @@ export const acceptSubmission = internalMutation({
       idempotencyKey: args.idempotencyKey,
       lane: args.lane,
       supportCategory: args.supportCategory,
+      sentiment: args.sentiment,
+      feedbackType: args.feedbackType,
       message: args.message,
       replyEmail: args.replyEmail,
       anonymous: args.anonymous,

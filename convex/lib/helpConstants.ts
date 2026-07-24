@@ -22,6 +22,24 @@ export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
 
 export const SUPPORT_CATEGORY_SET = new Set<string>(SUPPORT_CATEGORIES);
 
+/** Feedback sentiment values. */
+export const FEEDBACK_SENTIMENTS = [
+  "negative",
+  "neutral",
+  "positive",
+] as const;
+
+export type FeedbackSentiment = (typeof FEEDBACK_SENTIMENTS)[number];
+
+export const FEEDBACK_SENTIMENT_SET = new Set<string>(FEEDBACK_SENTIMENTS);
+
+/** Feedback type values. */
+export const FEEDBACK_TYPES = ["problem", "idea", "liked"] as const;
+
+export type FeedbackType = (typeof FEEDBACK_TYPES)[number];
+
+export const FEEDBACK_TYPE_SET = new Set<string>(FEEDBACK_TYPES);
+
 export const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 export const MAX_REPLY_EMAIL_LENGTH = 320;
 export const MAX_MESSAGE_LENGTH = 5000;

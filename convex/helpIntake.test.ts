@@ -42,6 +42,22 @@ function supportPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function feedbackPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    lane: "feedback",
+    idempotencyKey: crypto.randomUUID(),
+    sentiment: "negative",
+    feedbackType: "problem",
+    message: "The week board feels cramped on mobile.",
+    honeypot: "",
+    includeDiagnostics: false,
+    context: {
+      pagePath: "/help",
+    },
+    ...overrides,
+  };
+}
+
 function applyHelpTestEnv() {
   process.env.DEPLOYMENT_KIND = "test";
   process.env.HELP_ALLOWED_ORIGIN = "http://localhost:3000";
@@ -305,5 +321,348 @@ describe("Help intake HTTP (issue #19)", () => {
     expect(response.status).toBe(200);
     await finishDelivery(t);
     expect(resendSink.emails.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("Help intake HTTP — Feedback lane (issue #20)", () => {
+  const prevEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of [
+      "DEPLOYMENT_KIND",
+      "HELP_ALLOWED_ORIGIN",
+      "HELP_SUPPORT_MAILBOX",
+      "HELP_FROM_EMAIL",
+      "HELP_EMAIL_MODE",
+      "RESEND_API_KEY",
+    ]) {
+      prevEnv[key] = process.env[key];
+    }
+    applyHelpTestEnv();
+    resendSink.reset();
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resendSink.reset();
+  });
+
+  async function finishDelivery(t: ReturnType<typeof convexTest>) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+  }
+
+  it("accepts valid public feedback, stores record, delivers mailbox only", async () => {
+    const t = convexTest(schema, modules);
+    const body = feedbackPayload({ idempotencyKey: "fb-public-1" });
+
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      ok: boolean;
+      reference: string;
+      lane: string;
+      contactable: boolean;
+    };
+    expect(json.ok).toBe(true);
+    expect(json.lane).toBe("feedback");
+    expect(json.contactable).toBe(false);
+    expect(isOpaqueHelpReference(json.reference)).toBe(true);
+
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored).not.toBeNull();
+    expect(stored!.lane).toBe("feedback");
+    expect(stored!.sentiment).toBe("negative");
+    expect(stored!.feedbackType).toBe("problem");
+    expect(stored!.anonymous).toBe(false);
+    expect(stored!.participantId).toBeUndefined();
+    expect(stored!.replyEmail).toBeUndefined();
+    expect(stored!.poolId).toBeUndefined();
+    expect(stored!.mailboxDelivery.status).toBe("sent");
+    expect(stored!.receiptDelivery.status).toBe("skipped");
+
+    expect(resendSink.emails).toHaveLength(1);
+    expect(resendSink.emails[0]!.subject).toMatch(
+      /^\[Feedback\] problem · negative · /,
+    );
+    expect(resendSink.emails[0]!.subject).toContain(json.reference);
+  });
+
+  it("accepts identified signed-in feedback with optional contact email and receipt", async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId } = await asUser.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "fb-identified-1",
+          sentiment: "positive",
+          feedbackType: "liked",
+          replyEmail: "followup@example.test",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      reference: string;
+      contactable: boolean;
+    };
+    expect(json.contactable).toBe(true);
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.participantId).toEqual(participantId);
+    expect(stored!.replyEmail).toBe("followup@example.test");
+    expect(stored!.anonymous).toBe(false);
+    expect(stored!.mailboxDelivery.status).toBe("sent");
+    expect(stored!.receiptDelivery.status).toBe("sent");
+
+    expect(resendSink.emails).toHaveLength(2);
+    const mailbox = resendSink.emails.find((e) =>
+      e.subject.startsWith("[Feedback]"),
+    );
+    expect(mailbox?.replyTo).toBe("followup@example.test");
+    const receipt = resendSink.emails.find((e) =>
+      e.subject.startsWith("Only Pools Feedback"),
+    );
+    expect(receipt?.text).toMatch(/does not guarantee a personal reply/i);
+    expect(receipt?.text).not.toMatch(/respond within 2 business days/i);
+  });
+
+  it("accepts anonymous signed-in feedback without identity, email, or receipt", async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    await asUser.mutation(api.participants.ensureMyParticipant, {});
+
+    const fakeId = "jh7fakeparticipantid000000000000" as Id<"participants">;
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "fb-anon-1",
+          anonymous: true,
+          replyEmail: "ignored@example.test",
+          participantId: fakeId,
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      reference: string;
+      contactable: boolean;
+    };
+    expect(json.contactable).toBe(false);
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.anonymous).toBe(true);
+    expect(stored!.participantId).toBeUndefined();
+    expect(stored!.replyEmail).toBeUndefined();
+    expect(stored!.poolId).toBeUndefined();
+    expect(stored!.receiptDelivery.status).toBe("skipped");
+    expect(resendSink.emails).toHaveLength(1);
+    expect(resendSink.emails[0]!.text).toContain("Anonymous");
+  });
+
+  it("returns same reference on idempotent feedback replay without duplicate emails", async () => {
+    const t = convexTest(schema, modules);
+    const body = feedbackPayload({ idempotencyKey: "fb-idem-42" });
+
+    const first = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(body),
+    });
+    const firstJson = (await first.json()) as { reference: string };
+    await finishDelivery(t);
+    expect(resendSink.emails).toHaveLength(1);
+
+    resendSink.reset();
+
+    const second = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(body),
+    });
+    const secondJson = (await second.json()) as { reference: string };
+    await finishDelivery(t);
+
+    expect(secondJson.reference).toBe(firstJson.reference);
+    expect(resendSink.emails).toHaveLength(0);
+  });
+
+  it("returns 400 when required feedback fields are missing", async () => {
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify({
+        lane: "feedback",
+        idempotencyKey: "fb-bad-fields",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    const json = (await response.json()) as {
+      ok: false;
+      errors: Record<string, string>;
+    };
+    expect(json.errors.sentiment).toBeTruthy();
+    expect(json.errors.feedbackType).toBeTruthy();
+  });
+
+  it("returns 400 for invalid feedback sentiment and type", async () => {
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "fb-bad-values",
+          sentiment: "angry",
+          feedbackType: "complaint",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(400);
+    const json = (await response.json()) as {
+      ok: false;
+      errors: Record<string, string>;
+    };
+    expect(json.errors.sentiment).toMatch(/not a valid feedback sentiment/i);
+    expect(json.errors.feedbackType).toMatch(/not a valid feedback type/i);
+  });
+
+  it("allows optional message and validates optional reply email", async () => {
+    const t = convexTest(schema, modules);
+
+    const noMessage = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "fb-no-message",
+          message: "",
+        }),
+      ),
+    });
+    expect(noMessage.status).toBe(200);
+
+    const badEmail = await t.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "fb-bad-email",
+          replyEmail: "not-an-email",
+        }),
+      ),
+    });
+    expect(badEmail.status).toBe(400);
+    const badJson = (await badEmail.json()) as {
+      errors: Record<string, string>;
+    };
+    expect(badJson.errors.replyEmail).toMatch(/valid email/i);
+  });
+
+  it("does not attach another participant id from client payload", async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId } = await asUser.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    const fakeId = "jh7fakeparticipantid000000000000" as Id<"participants">;
+
+    const response = await asUser.fetch("/help/intake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify(
+        feedbackPayload({
+          idempotencyKey: "fb-auth-key",
+          participantId: fakeId,
+          replyEmail: "real@example.test",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { reference: string };
+    await finishDelivery(t);
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("helpIntake")
+        .withIndex("by_reference", (q) => q.eq("reference", json.reference))
+        .unique();
+    });
+    expect(stored!.participantId).toEqual(participantId);
+    expect(stored!.participantId).not.toEqual(fakeId);
   });
 });
