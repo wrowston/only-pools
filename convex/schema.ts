@@ -804,4 +804,89 @@ export default defineSchema({
     .index("by_poolId", ["poolId"])
     .index("by_poolId_and_participantId", ["poolId", "participantId"])
     .index("by_poolId_and_entryId", ["poolId", "entryId"]),
+
+  /**
+   * Help & Feedback intake — temporary storage with opaque references.
+   * Support lane fully wired in #19; Feedback schema reserved for #20+.
+   */
+  helpIntake: defineTable({
+    reference: v.string(),
+    idempotencyKey: v.string(),
+    lane: v.union(v.literal("support"), v.literal("feedback")),
+    supportCategory: v.optional(v.string()),
+    sentiment: v.optional(
+      v.union(
+        v.literal("negative"),
+        v.literal("neutral"),
+        v.literal("positive"),
+      ),
+    ),
+    feedbackType: v.optional(
+      v.union(
+        v.literal("problem"),
+        v.literal("idea"),
+        v.literal("liked"),
+      ),
+    ),
+    message: v.string(),
+    replyEmail: v.optional(v.string()),
+    anonymous: v.boolean(),
+    participantId: v.optional(v.id("participants")),
+    poolId: v.optional(v.id("pools")),
+    contextJson: v.optional(v.string()),
+    includeDiagnostics: v.boolean(),
+    acceptedAtMs: v.number(),
+    expiresAtMs: v.number(),
+    mailboxDelivery: v.object({
+      status: v.union(
+        v.literal("pending"),
+        v.literal("sent"),
+        v.literal("failed"),
+        v.literal("skipped"),
+      ),
+      attemptCount: v.number(),
+      nextAttemptAtMs: v.optional(v.number()),
+      providerMessageId: v.optional(v.string()),
+      failureClass: v.optional(v.string()),
+      lastAttemptAtMs: v.optional(v.number()),
+    }),
+    receiptDelivery: v.object({
+      status: v.union(
+        v.literal("pending"),
+        v.literal("sent"),
+        v.literal("failed"),
+        v.literal("skipped"),
+      ),
+      attemptCount: v.number(),
+      nextAttemptAtMs: v.optional(v.number()),
+      providerMessageId: v.optional(v.string()),
+      failureClass: v.optional(v.string()),
+      lastAttemptAtMs: v.optional(v.number()),
+    }),
+  })
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_reference", ["reference"])
+    .index("by_expiresAtMs", ["expiresAtMs"]),
+
+  /** Rate-limit counters for Help intake (account / network keyed). */
+  helpThrottle: defineTable({
+    keyHash: v.string(),
+    keyKind: v.union(v.literal("account"), v.literal("network")),
+    windowStartMs: v.number(),
+    count: v.number(),
+    expiresAtMs: v.number(),
+  })
+    .index("by_keyHash", ["keyHash"])
+    .index("by_expiresAtMs", ["expiresAtMs"]),
+
+  /** In-app feedback prompt eligibility state (reserved for #20+). */
+  feedbackPromptState: defineTable({
+    participantId: v.id("participants"),
+    ownerEligibleAtMs: v.optional(v.number()),
+    memberEligibleAtMs: v.optional(v.number()),
+    displayCount: v.number(),
+    snoozeUntilMs: v.optional(v.number()),
+    retired: v.boolean(),
+    updatedAtMs: v.number(),
+  }).index("by_participantId", ["participantId"]),
 });
