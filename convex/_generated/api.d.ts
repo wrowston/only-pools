@@ -21,6 +21,7 @@ import type * as effect_sportsdb_client from "../effect/sportsdb/client.js";
 import type * as effect_sportsdb_schemas from "../effect/sportsdb/schemas.js";
 import type * as helpDelivery from "../helpDelivery.js";
 import type * as helpIntake from "../helpIntake.js";
+import type * as helpRetention from "../helpRetention.js";
 import type * as http from "../http.js";
 import type * as incidents from "../incidents.js";
 import type * as invites from "../invites.js";
@@ -93,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   "effect/sportsdb/schemas": typeof effect_sportsdb_schemas;
   helpDelivery: typeof helpDelivery;
   helpIntake: typeof helpIntake;
+  helpRetention: typeof helpRetention;
   http: typeof http;
   incidents: typeof incidents;
   invites: typeof invites;
