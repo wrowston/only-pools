@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { markOwnerInviteShared } from "./helpPrompt";
 import {
   generateInviteToken,
   hashInviteCredential,
@@ -290,6 +291,7 @@ export const createOrRetrieveInvite = mutation({
           inviteId: existing._id,
           actorParticipantId: participant._id,
         });
+        await markOwnerInviteShared(ctx, participant._id, nowMs);
         return {
           url: inviteUrlFromToken(existing.credentialSecret),
           expiresAtMs: existing.expiresAtMs,
@@ -323,6 +325,8 @@ export const createOrRetrieveInvite = mutation({
       actorParticipantId: participant._id,
       expiresAtMs,
     });
+
+    await markOwnerInviteShared(ctx, participant._id, nowMs);
 
     return {
       url: inviteUrlFromToken(rawToken),
@@ -390,6 +394,8 @@ export const rotateInvite = mutation({
       priorInviteId: existing?._id ?? null,
       actorParticipantId: participant._id,
     });
+
+    await markOwnerInviteShared(ctx, participant._id, nowMs);
 
     return {
       url: inviteUrlFromToken(rawToken),

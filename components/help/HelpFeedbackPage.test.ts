@@ -256,4 +256,28 @@ describe("HelpFeedbackView", () => {
     expect(markup).toContain("optional diagnostics are turned off");
     expect(markup).not.toContain("Browser and operating system");
   });
+
+  it("preserves anonymous feedback disclosure when opened from prompt draft lane", () => {
+    const anonymousDisclosure = buildHelpContextDisclosure({
+      lane: "feedback",
+      pathname: "/help",
+      search: "?source=prompt&lane=feedback&sentiment=negative",
+      userAgent: "Mozilla/5.0 Chrome Safari",
+      includeDiagnostics: true,
+      signedIn: true,
+      signedInEmail: "player@example.test",
+      signedInAccountId: "participant_abc",
+      anonymousFeedback: true,
+    });
+    const markup = renderView({
+      source: "prompt",
+      activeLane: "feedback",
+      feedbackSentiment: "negative",
+      feedbackAnonymous: true,
+      contextDisclosure: anonymousDisclosure,
+    });
+    expect(markup).toContain('name="sentiment"');
+    expect(markup).toContain("Submit anonymously");
+    expect(markup).not.toContain("Verified account context");
+  });
 });

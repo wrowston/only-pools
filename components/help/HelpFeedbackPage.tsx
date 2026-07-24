@@ -18,6 +18,10 @@ import { convexSiteUrl } from "@/lib/convexSiteUrl";
 import type { FeedbackSentiment, FeedbackType } from "@/lib/helpConstants";
 import { suggestGuidesForHelpContext } from "@/lib/help";
 import {
+  clearHelpPromptDraft,
+  readHelpPromptDraft,
+} from "@/lib/helpPrompt";
+import {
   buildHelpClientContextPayload,
   buildHelpContextDisclosure,
 } from "@/lib/helpDiagnostics";
@@ -26,6 +30,8 @@ export function HelpFeedbackPage() {
   const searchParams = useSearchParams();
   const pathname = usePathname() ?? "/help";
   const source = searchParams.get("source");
+  const laneParam = searchParams.get("lane");
+  const sentimentParam = searchParams.get("sentiment");
   const suggestedGuides = suggestGuidesForHelpContext(source);
   const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
@@ -105,6 +111,27 @@ export function HelpFeedbackPage() {
     feedbackStartedAtMsRef.current = Date.now();
     posthog.capture("help_opened", { source: source ?? undefined });
   }, [source]);
+
+  useEffect(() => {
+    if (laneParam === "feedback") {
+      setActiveLane("feedback");
+    }
+
+    const draft = readHelpPromptDraft();
+    if (draft?.sentiment) {
+      setFeedbackSentiment(draft.sentiment);
+      feedbackStartedAtMsRef.current = draft.createdAtMs;
+      return;
+    }
+
+    if (
+      sentimentParam === "negative" ||
+      sentimentParam === "neutral" ||
+      sentimentParam === "positive"
+    ) {
+      setFeedbackSentiment(sentimentParam);
+    }
+  }, [laneParam, sentimentParam]);
 
   const getSupportIdempotencyKey = useCallback(() => {
     if (!supportIdempotencyKeyRef.current) {
@@ -322,6 +349,10 @@ export function HelpFeedbackPage() {
             sentiment,
             lane: "feedback",
           });
+          if (source === "prompt") {
+            posthog.capture("help_prompt_submitted", { outcome: "success" });
+            clearHelpPromptDraft();
+          }
           const nextAcceptance: FeedbackAcceptance = {
             kind: "feedback",
             reference: json.reference,
@@ -375,6 +406,7 @@ export function HelpFeedbackPage() {
       getToken,
       honeypot,
       isSignedIn,
+      source,
     ],
   );
 

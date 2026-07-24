@@ -879,9 +879,11 @@ export default defineSchema({
     .index("by_keyHash", ["keyHash"])
     .index("by_expiresAtMs", ["expiresAtMs"]),
 
-  /** In-app feedback prompt eligibility state (reserved for #20+). */
+  /** In-app feedback prompt eligibility state (issue #25). */
   feedbackPromptState: defineTable({
     participantId: v.id("participants"),
+    /** Set when the Participant creates a Pool (Owner milestone step 1). */
+    ownerCreatedPoolAtMs: v.optional(v.number()),
     ownerEligibleAtMs: v.optional(v.number()),
     memberEligibleAtMs: v.optional(v.number()),
     displayCount: v.number(),
