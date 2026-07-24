@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { markOwnerPoolCreated } from "./helpPrompt";
 import {
   generateInviteToken,
   hashInviteCredential,
@@ -435,6 +436,8 @@ export const createPoolFromTemplate = mutation({
       createdByParticipantId: participant._id,
       nowMs,
     });
+
+    await markOwnerPoolCreated(ctx, participant._id, nowMs);
 
     return {
       poolId,

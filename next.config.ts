@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
       { source: "/", headers: publicHtmlCache },
       { source: "/guides", headers: publicHtmlCache },
       { source: "/guides/:slug", headers: publicHtmlCache },
+      { source: "/help", headers: publicHtmlCache },
       { source: "/sitemap.xml", headers: publicHtmlCache },
     ];
   },

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
+import { HelpOriginPathTracker } from "@/components/help/HelpOriginPathTracker";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
 import { clerkAppearance } from "@/lib/clerkAppearance";
 import { siteUrl } from "@/lib/siteUrl";
@@ -81,6 +82,7 @@ export default function RootLayout({
           // Avoid unhandled NetworkErrors when ad blockers drop clerk-telemetry.com
           telemetry={false}
         >
+          <HelpOriginPathTracker />
           {children}
         </ClerkProvider>
       </body>

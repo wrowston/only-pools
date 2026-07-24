@@ -4,6 +4,7 @@ import { PostHogUserContext } from "@/components/PostHogUserContext";
 import { SentryUserContext } from "@/components/SentryUserContext";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatusBanner } from "@/components/StatusBanner";
+import { FeedbackPrompt } from "@/components/help/FeedbackPrompt";
 
 /**
  * Authenticated product shell: Convex session, status banner, and user
@@ -16,6 +17,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <PostHogUserContext />
       <SiteHeader variant="app" />
       <StatusBanner />
+      <FeedbackPrompt />
       <div id="main" className="flex min-h-0 flex-1 flex-col">
         {children}
       </div>

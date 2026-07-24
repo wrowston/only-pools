@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/item";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { HELP_FEEDBACK_LABEL } from "@/lib/helpNav";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
 import type { FunctionReturnType } from "convex/server";
 
@@ -297,9 +298,17 @@ function MyPoolsHome() {
   return (
     <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
       <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-medium tracking-tight text-op-text">
-          My Pools
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-3xl font-medium tracking-tight text-op-text">
+            My Pools
+          </h1>
+          <Link
+            href="/help?source=account"
+            className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+          >
+            {HELP_FEEDBACK_LABEL}
+          </Link>
+        </div>
         <p className="text-[15px] text-op-secondary">
           {includeArchived
             ? "Including archived Pools in this list."

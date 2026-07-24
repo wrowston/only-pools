@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { maybeMarkConfidencePlayingMilestone } from "./helpPrompt";
 import {
   CONFIDENCE_SCALE_MAX,
   defaultConfidenceRanking,
@@ -653,6 +654,16 @@ export const autosaveConfidence = mutation({
         tiebreakerUpdated: args.tiebreakerPrediction !== undefined,
         saveStatus: submittedAnything ? saveTrust.status : "saved",
       });
+    }
+
+    if (anyAccepted && allOk) {
+      await maybeMarkConfidencePlayingMilestone(
+        ctx,
+        participant._id,
+        pool._id,
+        args.week,
+        nowMs,
+      );
     }
 
     return {

@@ -20,4 +20,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "purge-expired-help-data",
+  { hours: 1 },
+  internal.helpRetention.purgeExpiredHelpDataCron,
+  {},
+);
+
 export default crons;
