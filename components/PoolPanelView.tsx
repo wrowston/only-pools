@@ -173,7 +173,8 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const [abuseDescription, setAbuseDescription] = useState("");
   const [abuseSent, setAbuseSent] = useState(false);
   const [maxEntriesDraft, setMaxEntriesDraft] = useState<number | null>(null);
-  const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [editingDescription, setEditingDescription] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
@@ -328,15 +329,23 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const isAdmin =
     members.callerRole === "owner" || members.callerRole === "admin";
   const canEditDescription = isAdmin && !members.archived;
-  const descriptionValue = descriptionDraft ?? members.description ?? "";
   const descriptionDirty =
-    descriptionDraft !== null &&
     descriptionDraft.trim() !== (members.description ?? "").trim();
   const needsReason =
     confirm?.kind === "remove" || confirm?.kind === "reinstate";
   const auditNameByParticipantId = new Map(
     members.members.map((m) => [m.participantId as string, m.displayName]),
   );
+
+  function beginEditDescription() {
+    setDescriptionDraft(members.description ?? "");
+    setEditingDescription(true);
+  }
+
+  function cancelEditDescription() {
+    setEditingDescription(false);
+    setDescriptionDraft("");
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
@@ -367,22 +376,14 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
 
       <div className="flex flex-col gap-4">
         {members.description || canEditDescription ? (
-          <PoolPanelSection
-            id="pool-description"
-            title="About this Pool"
-            description={
-              canEditDescription
-                ? "Visible to every member. Owner and Admin can update."
-                : undefined
-            }
-          >
-            {canEditDescription ? (
+          <PoolPanelSection id="pool-description" title="About this Pool">
+            {editingDescription && canEditDescription ? (
               <div className="flex flex-col gap-2">
                 <textarea
                   id="pool-description-input"
                   maxLength={2000}
                   rows={3}
-                  value={descriptionValue}
+                  value={descriptionDraft}
                   onChange={(e) => setDescriptionDraft(e.target.value)}
                   placeholder="Optional notes for the group — buy-in, chat link, house rules…"
                   aria-label="Pool description"
@@ -397,24 +398,50 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
                       void runAdminAction(async () => {
                         await updatePoolDescription({
                           poolId,
-                          description: descriptionValue,
+                          description: descriptionDraft,
                         });
-                        setDescriptionDraft(null);
+                        setEditingDescription(false);
+                        setDescriptionDraft("");
                       })
                     }
                   >
-                    Save description
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={cancelEditDescription}
+                  >
+                    Cancel
                   </Button>
                   <span className="text-xs text-op-secondary">
-                    {descriptionValue.trim().length}/2000
+                    {descriptionDraft.trim().length}/2000
                   </span>
                 </div>
               </div>
-            ) : members.description ? (
-              <p className="whitespace-pre-wrap text-sm text-op-text">
-                {members.description}
-              </p>
-            ) : null}
+            ) : (
+              <div className="flex flex-col gap-3">
+                {members.description ? (
+                  <p className="whitespace-pre-wrap text-sm text-op-text">
+                    {members.description}
+                  </p>
+                ) : (
+                  <p className="text-sm text-op-secondary">No description yet.</p>
+                )}
+                {canEditDescription ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="self-start"
+                    disabled={busy}
+                    onClick={beginEditDescription}
+                  >
+                    Edit
+                  </Button>
+                ) : null}
+              </div>
+            )}
           </PoolPanelSection>
         ) : null}
 
