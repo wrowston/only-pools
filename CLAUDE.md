@@ -1,5 +1,19 @@
 @AGENTS.md
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `wrowston/only-pools`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The project uses the five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository using the root `CONTEXT.md` glossary and relevant ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
 <!-- convex-ai-start -->
 
 This project uses [Convex](https://convex.dev) as its backend.

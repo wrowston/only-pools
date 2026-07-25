@@ -12,11 +12,14 @@
 
 # testing
 /coverage
+/e2e/.auth
+/playwright-report
 /scripts/bench-results/*.json
 !/scripts/bench-results/.gitkeep
 
 # next.js
 /.next/
+/.next-e2e/
 /out/
 
 # production
