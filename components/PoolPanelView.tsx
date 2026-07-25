@@ -329,8 +329,8 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const isAdmin =
     members.callerRole === "owner" || members.callerRole === "admin";
   const canEditDescription = isAdmin && !members.archived;
-  const descriptionDirty =
-    descriptionDraft.trim() !== (members.description ?? "").trim();
+  const poolDescription = members.description ?? "";
+  const descriptionDirty = descriptionDraft.trim() !== poolDescription.trim();
   const needsReason =
     confirm?.kind === "remove" || confirm?.kind === "reinstate";
   const auditNameByParticipantId = new Map(
@@ -338,7 +338,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   );
 
   function beginEditDescription() {
-    setDescriptionDraft(members.description ?? "");
+    setDescriptionDraft(poolDescription);
     setEditingDescription(true);
   }
 
@@ -375,7 +375,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       ) : null}
 
       <div className="flex flex-col gap-4">
-        {members.description || canEditDescription ? (
+        {poolDescription || canEditDescription ? (
           <PoolPanelSection id="pool-description" title="About this Pool">
             {editingDescription && canEditDescription ? (
               <div className="flex flex-col gap-2">
@@ -422,9 +422,9 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {members.description ? (
+                {poolDescription ? (
                   <p className="whitespace-pre-wrap text-sm text-op-text">
-                    {members.description}
+                    {poolDescription}
                   </p>
                 ) : (
                   <p className="text-sm text-op-secondary">No description yet.</p>
