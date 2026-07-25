@@ -398,6 +398,53 @@ export const rotateInvite = mutation({
   },
 });
 
+const inviteSharePreviewValidator = v.object({
+  poolName: v.string(),
+  poolType: v.union(v.literal("survivor"), v.literal("confidence")),
+  startWeek: v.number(),
+});
+
+/**
+ * Unauthenticated share card for invite URLs (iMessage / Open Graph).
+ * Returns only public pool labels — never membership, contacts, or secrets.
+ * Invalid / expired / rotated tokens return null.
+ */
+export const sharePreview = query({
+  args: { token: v.string() },
+  returns: v.union(inviteSharePreviewValidator, v.null()),
+  handler: async (ctx, args) => {
+    const rawToken = parseInviteToken(args.token);
+    if (!rawToken) return null;
+
+    const credentialHash = await hashInviteCredential(rawToken);
+    const invite = await ctx.db
+      .query("poolInvites")
+      .withIndex("by_credentialHash", (q) =>
+        q.eq("credentialHash", credentialHash),
+      )
+      .unique();
+
+    if (
+      !invite ||
+      invite.status !== "active" ||
+      invite.expiresAtMs <= Date.now()
+    ) {
+      return null;
+    }
+
+    const pool = await ctx.db.get(invite.poolId);
+    if (!pool || pool.status !== "active" || isPoolArchived(pool)) {
+      return null;
+    }
+
+    return {
+      poolName: pool.name,
+      poolType: pool.type,
+      startWeek: pool.startWeek,
+    };
+  },
+});
+
 /**
  * Preview a Pool Invite without creating membership. Opening the URL alone
  * must not enroll — this query is the safe read path.

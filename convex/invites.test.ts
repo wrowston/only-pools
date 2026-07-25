@@ -132,6 +132,15 @@ describe("acceptInvite (acceptance scenario 2)", () => {
     );
     await asBlake.mutation(api.participants.ensureMyParticipant, {});
 
+    const share = await t.query(api.invites.sharePreview, {
+      token: rawToken,
+    });
+    expect(share).toEqual({
+      poolName: "Invite Pool",
+      poolType: "survivor",
+      startWeek: 1,
+    });
+
     const preview = await asBlake.query(api.invites.previewInvite, {
       token: rawToken,
     });
@@ -364,6 +373,32 @@ describe("invite credential security + step-up", () => {
         rotated.url.replace("/join/", ""),
       );
     }
+  });
+});
+
+describe("sharePreview (invite link cards)", () => {
+  it("returns public pool labels without auth and null for bad tokens", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, poolId } = await createOwnedPool(t);
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    const invite = await asAlex.mutation(api.invites.createOrRetrieveInvite, {
+      poolId,
+    });
+    const rawToken = invite.url.replace("/join/", "");
+
+    await expect(
+      t.query(api.invites.sharePreview, { token: rawToken }),
+    ).resolves.toEqual({
+      poolName: "Invite Pool",
+      poolType: "survivor",
+      startWeek: 1,
+    });
+
+    await expect(
+      t.query(api.invites.sharePreview, {
+        token: "0".repeat(64),
+      }),
+    ).resolves.toBeNull();
   });
 });
 
