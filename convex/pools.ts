@@ -39,6 +39,7 @@ import {
   loadEarliestKickoffByWeek,
   resolveBoardWeek,
 } from "./lib/myPoolsStatus";
+import { normalizePoolDescription } from "./lib/poolDescription";
 
 const log = createLogger("pools");
 
@@ -112,6 +113,42 @@ async function requirePoolOwner(
   }
 }
 
+async function requirePoolOwnerOrAdmin(
+  ctx: QueryCtx | MutationCtx,
+  poolId: Id<"pools">,
+  participantId: Id<"participants">,
+): Promise<Doc<"poolMemberships">> {
+  const membership = await requirePoolMembership(ctx, poolId, participantId);
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new AuthError(
+      "Only the Pool Owner or Pool Admin may update the Pool description",
+    );
+  }
+  return membership;
+}
+
+/** Patch description, or replace to clear when undefined. */
+async function writePoolDescription(
+  ctx: MutationCtx,
+  pool: Doc<"pools">,
+  description: string | undefined,
+): Promise<void> {
+  if (description === undefined) {
+    if (pool.description === undefined) return;
+    const {
+      _id,
+      _creationTime: _ct,
+      description: _cleared,
+      ...rest
+    } = pool;
+    void _ct;
+    void _cleared;
+    await ctx.db.replace(_id, rest);
+    return;
+  }
+  await ctx.db.patch(pool._id, { description });
+}
+
 /**
  * Create an immediately Active Survivor or Confidence Pool for the Available
  * Season. Caller becomes Pool Owner via membership — never trust client role.
@@ -123,6 +160,7 @@ export const createPool = mutation({
     startWeek: v.number(),
     pickLockMode: pickLockModeValidator,
     maxEntriesPerUser: v.optional(v.number()),
+    description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -134,6 +172,14 @@ export const createPool = mutation({
     }
     if (args.startWeek < 1 || args.startWeek > 18) {
       throw new PoolError("Start Week must be a regular-season week 1–18");
+    }
+
+    let description: string | undefined;
+    try {
+      description = normalizePoolDescription(args.description);
+    } catch (err) {
+      if (err instanceof Error) throw new PoolError(err.message);
+      throw err;
     }
 
     const maxEntriesPerUser = args.maxEntriesPerUser ?? 1;
@@ -181,6 +227,7 @@ export const createPool = mutation({
 
     const poolId = await ctx.db.insert("pools", {
       name: trimmed,
+      ...(description !== undefined ? { description } : {}),
       type: args.type,
       seasonId: season._id,
       startWeek: args.startWeek,
@@ -222,6 +269,7 @@ export const createPool = mutation({
       ownerParticipantId: participant._id,
       maxEntriesPerUser,
       pickLockMode: args.pickLockMode,
+      hasDescription: description !== undefined,
     });
 
     return {
@@ -558,6 +606,50 @@ export const updatePoolRules = mutation({
 
     await ctx.db.patch(pool._id, patch);
     return { poolId: pool._id };
+  },
+});
+
+/**
+ * Owner or Admin may set/clear the member-visible Pool description.
+ * Not outcome-affecting — allowed after rules freeze; blocked while archived.
+ */
+export const updatePoolDescription = mutation({
+  args: {
+    poolId: v.id("pools"),
+    description: v.string(),
+  },
+  returns: v.object({
+    poolId: v.id("pools"),
+    description: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) {
+      throw new PoolError("Pool not found");
+    }
+
+    await requirePoolOwnerOrAdmin(ctx, pool._id, participant._id);
+
+    if (isPoolArchived(pool)) {
+      throw new PoolError(
+        "Archived Pools are read-only — restore before editing",
+      );
+    }
+
+    let description: string | undefined;
+    try {
+      description = normalizePoolDescription(args.description);
+    } catch (err) {
+      if (err instanceof Error) throw new PoolError(err.message);
+      throw err;
+    }
+
+    await writePoolDescription(ctx, pool, description);
+    return {
+      poolId: pool._id,
+      description: description ?? null,
+    };
   },
 });
 

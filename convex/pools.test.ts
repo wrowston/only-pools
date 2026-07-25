@@ -502,3 +502,118 @@ describe("getWeekBoard", () => {
     ).rejects.toThrow(/Not a member/);
   });
 });
+
+describe("updatePoolDescription", () => {
+  async function createPoolWithMember(t: ReturnType<typeof convexTest>) {
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Described Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+      description: "Initial blurb",
+    });
+    const poolId = created.poolId as Id<"pools">;
+
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    const invite = await asAlex.mutation(api.invites.createOrRetrieveInvite, {
+      poolId,
+    });
+    const rawToken = invite.url.replace("/join/", "");
+
+    const asBlake = t.withIdentity(
+      fullyVerifiedIdentity({
+        subject: "clerk_blake",
+        email: "blake@example.com",
+        name: "Blake Adult",
+        phoneNumber: "+15559876543",
+        sid: "sess_blake_1",
+      }),
+    );
+    await asBlake.mutation(api.participants.ensureMyParticipant, {});
+    await asBlake.mutation(api.invites.acceptInvite, {
+      token: rawToken,
+      acknowledgedContactVisibility: true,
+    });
+    const blakeId = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("participants").collect();
+      const match = rows.find((p) => p.clerkUserId === "clerk_blake");
+      return match!._id;
+    });
+
+    return { asAlex, asBlake, poolId, blakeId };
+  }
+
+  it("stores description on create and exposes it to all members", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, asBlake, poolId } = await createPoolWithMember(t);
+
+    const asOwner = await asAlex.query(api.invites.listPoolMembers, { poolId });
+    expect(asOwner.description).toBe("Initial blurb");
+
+    const asMember = await asBlake.query(api.invites.listPoolMembers, {
+      poolId,
+    });
+    expect(asMember.description).toBe("Initial blurb");
+  });
+
+  it("lets Owner set and clear description", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, poolId } = await createPoolWithMember(t);
+
+    const updated = await asAlex.mutation(api.pools.updatePoolDescription, {
+      poolId,
+      description: "  Buy-in $20, Slack #office-pool  ",
+    });
+    expect(updated.description).toBe("Buy-in $20, Slack #office-pool");
+
+    const cleared = await asAlex.mutation(api.pools.updatePoolDescription, {
+      poolId,
+      description: "   ",
+    });
+    expect(cleared.description).toBeNull();
+
+    const pool = await t.run(async (ctx) => ctx.db.get(poolId));
+    expect(pool!.description).toBeUndefined();
+  });
+
+  it("lets Admin update description; Members cannot", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, asBlake, poolId, blakeId } = await createPoolWithMember(t);
+
+    await expect(
+      asBlake.mutation(api.pools.updatePoolDescription, {
+        poolId,
+        description: "Member rewrite",
+      }),
+    ).rejects.toThrow(/Owner or Pool Admin/);
+
+    await asAlex.mutation(api.membershipAdmin.promoteAdmin, {
+      poolId,
+      participantId: blakeId,
+    });
+
+    const asAdmin = await asBlake.mutation(api.pools.updatePoolDescription, {
+      poolId,
+      description: "Admin notes",
+    });
+    expect(asAdmin.description).toBe("Admin notes");
+  });
+
+  it("blocks description edits while archived", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, poolId } = await createPoolWithMember(t);
+
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    await asAlex.mutation(api.membershipAdmin.archivePool, { poolId });
+
+    await expect(
+      asAlex.mutation(api.pools.updatePoolDescription, {
+        poolId,
+        description: "Should fail",
+      }),
+    ).rejects.toThrow(/Archived/);
+  });
+});

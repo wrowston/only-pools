@@ -157,6 +157,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const updateMaxEntriesPerUser = useMutation(
     api.pools.updateMaxEntriesPerUser,
   );
+  const updatePoolDescription = useMutation(api.pools.updatePoolDescription);
   const [entriesNowMs] = useState(() => Date.now());
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
@@ -172,6 +173,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const [abuseDescription, setAbuseDescription] = useState("");
   const [abuseSent, setAbuseSent] = useState(false);
   const [maxEntriesDraft, setMaxEntriesDraft] = useState<number | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
@@ -325,6 +327,11 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const isOwner = members.callerRole === "owner";
   const isAdmin =
     members.callerRole === "owner" || members.callerRole === "admin";
+  const canEditDescription = isAdmin && !members.archived;
+  const descriptionValue = descriptionDraft ?? members.description ?? "";
+  const descriptionDirty =
+    descriptionDraft !== null &&
+    descriptionDraft.trim() !== (members.description ?? "").trim();
   const needsReason =
     confirm?.kind === "remove" || confirm?.kind === "reinstate";
   const auditNameByParticipantId = new Map(
@@ -359,6 +366,58 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       ) : null}
 
       <div className="flex flex-col gap-4">
+        {members.description || canEditDescription ? (
+          <PoolPanelSection
+            id="pool-description"
+            title="About this Pool"
+            description={
+              canEditDescription
+                ? "Visible to every member. Owner and Admin can update."
+                : undefined
+            }
+          >
+            {canEditDescription ? (
+              <div className="flex flex-col gap-2">
+                <textarea
+                  id="pool-description-input"
+                  maxLength={2000}
+                  rows={3}
+                  value={descriptionValue}
+                  onChange={(e) => setDescriptionDraft(e.target.value)}
+                  placeholder="Optional notes for the group — buy-in, chat link, house rules…"
+                  aria-label="Pool description"
+                  className={textareaClassName}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy || !descriptionDirty}
+                    onClick={() =>
+                      void runAdminAction(async () => {
+                        await updatePoolDescription({
+                          poolId,
+                          description: descriptionValue,
+                        });
+                        setDescriptionDraft(null);
+                      })
+                    }
+                  >
+                    Save description
+                  </Button>
+                  <span className="text-xs text-op-secondary">
+                    {descriptionValue.trim().length}/2000
+                  </span>
+                </div>
+              </div>
+            ) : members.description ? (
+              <p className="whitespace-pre-wrap text-sm text-op-text">
+                {members.description}
+              </p>
+            ) : null}
+          </PoolPanelSection>
+        ) : null}
+
         {isOwner && myEntries && !myEntries.admissionClosed && !members.archived ? (
           <PoolPanelSection
             id="pool-max-entries"
