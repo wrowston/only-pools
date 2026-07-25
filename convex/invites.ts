@@ -780,6 +780,7 @@ export const listPoolMembers = query({
     return {
       poolId: pool._id,
       poolName: pool.name,
+      description: pool.description ?? null,
       callerRole: callerMembership.role,
       canManageInvites: canSeeContacts,
       admissionClosed: await poolAdmissionClosed(ctx, pool, args.nowMs),

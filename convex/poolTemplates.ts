@@ -320,6 +320,9 @@ export const createPoolFromTemplate = mutation({
 
     const poolId = await ctx.db.insert("pools", {
       name,
+      ...(source.description !== undefined
+        ? { description: source.description }
+        : {}),
       type: source.type,
       seasonId: availableSeason._id,
       startWeek,

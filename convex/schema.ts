@@ -173,6 +173,11 @@ export default defineSchema({
    */
   pools: defineTable({
     name: v.string(),
+    /**
+     * Optional blurb visible to all members. Owner/Admin may edit anytime
+     * (not outcome-affecting). Absent/empty = no description.
+     */
+    description: v.optional(v.string()),
     type: poolType,
     seasonId: v.id("poolSeasons"),
     startWeek: v.number(),

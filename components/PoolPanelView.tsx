@@ -158,6 +158,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const updateMaxEntriesPerUser = useMutation(
     api.pools.updateMaxEntriesPerUser,
   );
+  const updatePoolDescription = useMutation(api.pools.updatePoolDescription);
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
     isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
@@ -172,6 +173,8 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const [abuseDescription, setAbuseDescription] = useState("");
   const [abuseSent, setAbuseSent] = useState(false);
   const [maxEntriesDraft, setMaxEntriesDraft] = useState<number | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [editingDescription, setEditingDescription] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
@@ -325,11 +328,24 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const isOwner = members.callerRole === "owner";
   const isAdmin =
     members.callerRole === "owner" || members.callerRole === "admin";
+  const canEditDescription = isAdmin && !members.archived;
+  const poolDescription = members.description ?? "";
+  const descriptionDirty = descriptionDraft.trim() !== poolDescription.trim();
   const needsReason =
     confirm?.kind === "remove" || confirm?.kind === "reinstate";
   const auditNameByParticipantId = new Map(
     members.members.map((m) => [m.participantId as string, m.displayName]),
   );
+
+  function beginEditDescription() {
+    setDescriptionDraft(poolDescription);
+    setEditingDescription(true);
+  }
+
+  function cancelEditDescription() {
+    setEditingDescription(false);
+    setDescriptionDraft("");
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
@@ -359,6 +375,76 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       ) : null}
 
       <div className="flex flex-col gap-4">
+        {poolDescription || canEditDescription ? (
+          <PoolPanelSection id="pool-description" title="About this Pool">
+            {editingDescription && canEditDescription ? (
+              <div className="flex flex-col gap-2">
+                <textarea
+                  id="pool-description-input"
+                  maxLength={2000}
+                  rows={3}
+                  value={descriptionDraft}
+                  onChange={(e) => setDescriptionDraft(e.target.value)}
+                  placeholder="Optional notes for the group — buy-in, chat link, house rules…"
+                  aria-label="Pool description"
+                  className={textareaClassName}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy || !descriptionDirty}
+                    onClick={() =>
+                      void runAdminAction(async () => {
+                        await updatePoolDescription({
+                          poolId,
+                          description: descriptionDraft,
+                        });
+                        setEditingDescription(false);
+                        setDescriptionDraft("");
+                      })
+                    }
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={cancelEditDescription}
+                  >
+                    Cancel
+                  </Button>
+                  <span className="text-xs text-op-secondary">
+                    {descriptionDraft.trim().length}/2000
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {poolDescription ? (
+                  <p className="whitespace-pre-wrap text-sm text-op-text">
+                    {poolDescription}
+                  </p>
+                ) : (
+                  <p className="text-sm text-op-secondary">No description yet.</p>
+                )}
+                {canEditDescription ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="self-start"
+                    disabled={busy}
+                    onClick={beginEditDescription}
+                  >
+                    Edit
+                  </Button>
+                ) : null}
+              </div>
+            )}
+          </PoolPanelSection>
+        ) : null}
+
         {isOwner && myEntries && !myEntries.admissionClosed && !members.archived ? (
           <PoolPanelSection
             id="pool-max-entries"
