@@ -288,6 +288,23 @@ describe("helpPrompt member milestones", () => {
 });
 
 describe("helpPrompt display, snooze, and retirement", () => {
+  it("stays inert while a verified first session establishes its Participant", async () => {
+    const t = convexTest(schema, modules);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+
+    const state = await asAlex.query(api.helpPrompt.getPromptState, {
+      nowMs: Date.now(),
+    });
+
+    expect(state).toEqual({
+      canShow: false,
+      displayCount: 0,
+      snoozeUntilMs: null,
+      retired: false,
+      eligible: false,
+    });
+  });
+
   it("does not increment displayCount before eligibility", async () => {
     const t = convexTest(schema, modules);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());

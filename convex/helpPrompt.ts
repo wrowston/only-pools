@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { requireParticipant } from "./lib/auth";
+import { AuthError, requireParticipant } from "./lib/auth";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -16,6 +16,16 @@ const promptStateReturnValidator = v.object({
 });
 
 type PromptCtx = QueryCtx | MutationCtx;
+
+function inertPromptState() {
+  return {
+    canShow: false,
+    displayCount: 0,
+    snoozeUntilMs: null,
+    retired: false,
+    eligible: false,
+  };
+}
 
 async function loadPromptState(
   ctx: PromptCtx,
@@ -305,17 +315,19 @@ export const getPromptState = query({
   args: { nowMs: v.number() },
   returns: promptStateReturnValidator,
   handler: async (ctx, args) => {
-    const participant = await requireParticipant(ctx);
+    let participant;
+    try {
+      participant = await requireParticipant(ctx);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return inertPromptState();
+      }
+      throw error;
+    }
     const state = await loadPromptState(ctx, participant._id);
 
     if (!state) {
-      return {
-        canShow: false,
-        displayCount: 0,
-        snoozeUntilMs: null,
-        retired: false,
-        eligible: false,
-      };
+      return inertPromptState();
     }
 
     return {
