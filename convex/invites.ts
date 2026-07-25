@@ -16,6 +16,7 @@ import {
 } from "./lib/inviteThrottle";
 import {
   earliestStartWeekKickoffMs,
+  isAdmissionClosed,
   resolveAdmissionClosedAtMs,
 } from "./lib/membershipCutoff";
 import { isPoolArchived } from "./lib/poolArchive";
@@ -155,24 +156,30 @@ async function ensureAdmissionLatch(
   return true;
 }
 
+/** Admission closed from latch or Start Week earliest kickoff. */
+async function poolAdmissionClosed(
+  ctx: QueryCtx | MutationCtx,
+  pool: Doc<"pools">,
+  nowMs: number,
+): Promise<boolean> {
+  if (pool.admissionClosedAtMs !== undefined) {
+    return true;
+  }
+  const games = await loadStartWeekGames(ctx, pool.seasonId, pool.startWeek);
+  return isAdmissionClosed({
+    nowMs,
+    admissionClosedAtMs: undefined,
+    earliestKickoffMs: earliestStartWeekKickoffMs(games),
+  });
+}
+
 /** Read-only admission check for paths that throw (create/rotate). */
 async function assertAdmissionOpen(
   ctx: MutationCtx,
   pool: Doc<"pools">,
   nowMs: number,
 ): Promise<void> {
-  if (pool.admissionClosedAtMs !== undefined) {
-    throw new InviteError("Membership admission is closed for this Pool");
-  }
-  const games = await loadStartWeekGames(ctx, pool.seasonId, pool.startWeek);
-  const earliest = earliestStartWeekKickoffMs(games);
-  if (
-    resolveAdmissionClosedAtMs({
-      nowMs,
-      admissionClosedAtMs: undefined,
-      earliestKickoffMs: earliest,
-    }) !== null
-  ) {
+  if (await poolAdmissionClosed(ctx, pool, nowMs)) {
     throw new InviteError("Membership admission is closed for this Pool");
   }
 }
@@ -666,7 +673,11 @@ export const acceptInvite = mutation({
  * Owner/Admin see email/phone; Members see displayName/avatar only.
  */
 export const listPoolMembers = query({
-  args: { poolId: v.id("pools") },
+  args: {
+    poolId: v.id("pools"),
+    /** Client wall clock for admission-open checks (queries must not use Date.now). */
+    nowMs: v.number(),
+  },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
     const pool = await ctx.db.get(args.poolId);
@@ -724,7 +735,7 @@ export const listPoolMembers = query({
       poolName: pool.name,
       callerRole: callerMembership.role,
       canManageInvites: canSeeContacts,
-      admissionClosed: pool.admissionClosedAtMs !== undefined,
+      admissionClosed: await poolAdmissionClosed(ctx, pool, args.nowMs),
       archived: isPoolArchived(pool),
       members,
     };
@@ -735,7 +746,11 @@ export const listPoolMembers = query({
  * Invite metadata for the Pool panel (no raw credential without step-up retrieve).
  */
 export const getInviteStatus = query({
-  args: { poolId: v.id("pools") },
+  args: {
+    poolId: v.id("pools"),
+    /** Client wall clock for admission-open checks (queries must not use Date.now). */
+    nowMs: v.number(),
+  },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
     const pool = await ctx.db.get(args.poolId);
@@ -745,15 +760,14 @@ export const getInviteStatus = query({
     await requireOwnerOrAdmin(ctx, pool._id, participant._id);
 
     const invite = await loadActiveInvite(ctx, pool._id);
-    const nowMs = Date.now();
     const stepUpFresh =
       participant.stepUpVerifiedAtMs !== undefined &&
-      nowMs - participant.stepUpVerifiedAtMs <= STEP_UP_TTL_MS;
+      args.nowMs - participant.stepUpVerifiedAtMs <= STEP_UP_TTL_MS;
 
     return {
-      hasActiveInvite: invite !== null && invite.expiresAtMs > nowMs,
+      hasActiveInvite: invite !== null && invite.expiresAtMs > args.nowMs,
       expiresAtMs: invite?.expiresAtMs ?? null,
-      admissionClosed: pool.admissionClosedAtMs !== undefined,
+      admissionClosed: await poolAdmissionClosed(ctx, pool, args.nowMs),
       stepUpFresh,
     };
   },

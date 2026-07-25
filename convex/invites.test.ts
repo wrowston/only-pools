@@ -474,7 +474,10 @@ describe("listPoolMembers privacy", () => {
       acknowledgedContactVisibility: true,
     });
 
-    const asOwner = await asAlex.query(api.invites.listPoolMembers, { poolId });
+    const asOwner = await asAlex.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs: Date.now(),
+    });
     const blakeAsOwner = asOwner.members.find(
       (m) => m.displayName === "Member Blake",
     );
@@ -483,6 +486,7 @@ describe("listPoolMembers privacy", () => {
 
     const asMember = await asBlake.query(api.invites.listPoolMembers, {
       poolId,
+      nowMs: Date.now(),
     });
     const alexAsMember = asMember.members.find(
       (m) => m.displayName === "Alex Adult",
@@ -490,5 +494,43 @@ describe("listPoolMembers privacy", () => {
     expect(alexAsMember?.email).toBeUndefined();
     expect(alexAsMember?.phone).toBeUndefined();
     expect(alexAsMember?.displayName).toBe("Alex Adult");
+  });
+
+  it("reports admissionClosed once Start Week kickoff has passed even before latch", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, poolId } = await createOwnedPool(t);
+    const nowMs = Date.now();
+
+    const open = await asAlex.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs,
+    });
+    expect(open.admissionClosed).toBe(false);
+
+    await t.run(async (ctx) => {
+      const pool = await ctx.db.get(poolId);
+      expect(pool).not.toBeNull();
+      const games = await ctx.db
+        .query("nflGames")
+        .withIndex("by_seasonId_and_week", (q) =>
+          q.eq("seasonId", pool!.seasonId).eq("week", pool!.startWeek),
+        )
+        .take(8);
+      for (const g of games) {
+        await ctx.db.patch(g._id, { scheduledKickoffMs: nowMs - 1_000 });
+      }
+    });
+
+    const closed = await asAlex.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs,
+    });
+    expect(closed.admissionClosed).toBe(true);
+
+    const status = await asAlex.query(api.invites.getInviteStatus, {
+      poolId,
+      nowMs,
+    });
+    expect(status.admissionClosed).toBe(true);
   });
 });
