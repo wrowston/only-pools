@@ -118,14 +118,15 @@ type ConfirmState =
 
 export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const [panelNowMs] = useState(() => Date.now());
   const members = useQuery(
     api.invites.listPoolMembers,
-    isAuthenticated ? { poolId } : "skip",
+    isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
   );
   const inviteStatus = useQuery(
     api.invites.getInviteStatus,
     isAuthenticated && members?.canManageInvites && !members.archived
-      ? { poolId }
+      ? { poolId, nowMs: panelNowMs }
       : "skip",
   );
   const ownership = useQuery(
@@ -157,10 +158,9 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const updateMaxEntriesPerUser = useMutation(
     api.pools.updateMaxEntriesPerUser,
   );
-  const [entriesNowMs] = useState(() => Date.now());
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
-    isAuthenticated ? { poolId, nowMs: entriesNowMs } : "skip",
+    isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
   );
 
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
@@ -421,62 +421,64 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               <Alert>
                 <AlertTitle>Admission closed</AlertTitle>
                 <AlertDescription>
-                  Membership admission is closed for this Pool.
+                  Membership admission is closed for this Pool. Invite controls
+                  are locked.
                 </AlertDescription>
               </Alert>
-            ) : (
-              <>
-                <Alert>
-                  <AlertTitle>Invite status</AlertTitle>
-                  <AlertDescription>
-                    {inviteStatus?.hasActiveInvite
-                      ? "An active invite already exists."
-                      : "No active invite yet."}
-                  </AlertDescription>
-                </Alert>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void withStepUpRetrieve()}
-                  >
-                    {busy ? "Working…" : "Create / retrieve invite"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={busy || !inviteStatus?.hasActiveInvite}
-                    onClick={() => void withStepUpRotate()}
-                  >
-                    Rotate invite
-                  </Button>
-                </div>
-                {inviteUrl ? (
-                  <div className="flex flex-col gap-2 rounded-[10px] border border-op-border bg-op-canvas p-3">
-                    <code className="break-all text-xs text-op-text">
-                      {inviteUrl}
-                    </code>
-                    {expiresAtMs ? (
-                      <p className="text-xs text-op-muted">
-                        Expires{" "}
-                        {new Intl.DateTimeFormat(undefined, {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        }).format(new Date(expiresAtMs))}
-                      </p>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="h-auto self-start px-0"
-                      onClick={() => void copyLink()}
-                    >
-                      {copied ? "Copied" : "Copy link"}
-                    </Button>
-                  </div>
+            ) : null}
+            <Alert>
+              <AlertTitle>Invite status</AlertTitle>
+              <AlertDescription>
+                {inviteStatus?.hasActiveInvite
+                  ? "An active invite already exists."
+                  : "No active invite yet."}
+              </AlertDescription>
+            </Alert>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={busy || members.admissionClosed}
+                onClick={() => void withStepUpRetrieve()}
+              >
+                {busy ? "Working…" : "Create / retrieve invite"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={
+                  busy ||
+                  members.admissionClosed ||
+                  !inviteStatus?.hasActiveInvite
+                }
+                onClick={() => void withStepUpRotate()}
+              >
+                Rotate invite
+              </Button>
+            </div>
+            {!members.admissionClosed && inviteUrl ? (
+              <div className="flex flex-col gap-2 rounded-[10px] border border-op-border bg-op-canvas p-3">
+                <code className="break-all text-xs text-op-text">
+                  {inviteUrl}
+                </code>
+                {expiresAtMs ? (
+                  <p className="text-xs text-op-muted">
+                    Expires{" "}
+                    {new Intl.DateTimeFormat(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    }).format(new Date(expiresAtMs))}
+                  </p>
                 ) : null}
-              </>
-            )}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto self-start px-0"
+                  onClick={() => void copyLink()}
+                >
+                  {copied ? "Copied" : "Copy link"}
+                </Button>
+              </div>
+            ) : null}
           </PoolPanelSection>
         ) : null}
 
