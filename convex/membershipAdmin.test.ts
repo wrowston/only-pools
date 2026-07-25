@@ -285,7 +285,10 @@ describe("removal preserves history (acceptance scenario 5)", () => {
       }),
     ).rejects.toThrow(/Not a member/);
 
-    const members = await asAlex.query(api.invites.listPoolMembers, { poolId });
+    const members = await asAlex.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs: Date.now(),
+    });
     const blakeRow = members.members.find((m) => m.participantId === blakeId);
     expect(blakeRow?.status).toBe("removed");
     expect(blakeRow).not.toHaveProperty("email");

@@ -50,10 +50,11 @@ const PAGES = [
   { path: "/guides/faq", name: "guides-faq" },
   { path: "/sign-in", name: "sign-in" },
   { path: "/sign-up", name: "sign-up" },
+  // Invite join stays public for Open Graph / iMessage previews.
+  { path: "/join", name: "join" },
+  { path: "/join/bench-fixture-token", name: "join-token" },
   // Protected shells (unauthenticated → redirect). Still part of the suite.
   { path: "/my-pools", name: "my-pools", allowRedirect: true },
-  { path: "/join", name: "join", allowRedirect: true },
-  { path: "/join/bench-fixture-token", name: "join-token", allowRedirect: true },
   { path: "/return/bench-fixture-token", name: "return-token", allowRedirect: true },
   { path: "/pools/benchfixture000000000000000", name: "pool-week", allowRedirect: true },
   {

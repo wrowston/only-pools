@@ -56,8 +56,8 @@ export const config = {
   matcher: [
     "/my-pools/:path*",
     "/pools/:path*",
-    "/join",
-    "/join/:path*",
+    // /join stays public so invite link previews (iMessage OG) are not
+    // redirected to sign-in. Accept still requires an authenticated Participant.
     "/return/:path*",
     "/operator/:path*",
     "/prototype/:path*",

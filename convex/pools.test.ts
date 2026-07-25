@@ -550,11 +550,15 @@ describe("updatePoolDescription", () => {
     const t = convexTest(schema, modules);
     const { asAlex, asBlake, poolId } = await createPoolWithMember(t);
 
-    const asOwner = await asAlex.query(api.invites.listPoolMembers, { poolId });
+    const asOwner = await asAlex.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs: Date.now(),
+    });
     expect(asOwner.description).toBe("Initial blurb");
 
     const asMember = await asBlake.query(api.invites.listPoolMembers, {
       poolId,
+      nowMs: Date.now(),
     });
     expect(asMember.description).toBe("Initial blurb");
   });

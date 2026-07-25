@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { poolTypeLabel } from "@/lib/inviteShareMetadata";
 import { EmptyState } from "./EmptyState";
 import { InviteSkeleton } from "./InviteSkeleton";
 
@@ -15,6 +16,10 @@ export function JoinInviteView({ token }: { token: string }) {
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const sharePreview = useQuery(
+    api.invites.sharePreview,
+    token ? { token } : "skip",
+  );
   const preview = useQuery(
     api.invites.previewInvite,
     isAuthenticated && token ? { token } : "skip",
@@ -61,17 +66,55 @@ export function JoinInviteView({ token }: { token: string }) {
   }
 
   if (!isSignedIn) {
+    if (sharePreview === undefined) {
+      return <InviteSkeleton />;
+    }
+
+    if (sharePreview === null) {
+      return (
+        <EmptyState
+          title="Invite unavailable"
+          description="This invite link is invalid, expired, or no longer active."
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <SignInButton mode="modal" forceRedirectUrl={`/join/${token}`}>
+                <button type="button" className="op-btn op-btn-primary">
+                  Sign in
+                </button>
+              </SignInButton>
+              <Link href="/guides/invites-and-joining" className="op-btn op-btn-ghost">
+                Troubleshoot invites
+              </Link>
+            </div>
+          }
+        />
+      );
+    }
+
     return (
-      <EmptyState
-        title="Join a Pool"
-        description="Sign in with a verified email and phone to preview this Pool Invite. Opening the link alone does not enroll you."
-        action={
-          <div className="flex flex-wrap justify-center gap-2">
-            <SignInButton mode="modal"><button type="button" className="op-btn op-btn-primary">Sign in to continue</button></SignInButton>
-            <Link href="/guides/invites-and-joining" className="op-btn op-btn-ghost">Joining guide</Link>
-          </div>
-        }
-      />
+      <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-6 py-16">
+        <h1 className="text-2xl font-semibold tracking-tight text-op-text">
+          Join {sharePreview.poolName}
+        </h1>
+        <p className="text-sm text-op-secondary">
+          {poolTypeLabel(sharePreview.poolType)} · Start Week{" "}
+          {sharePreview.startWeek}
+        </p>
+        <p className="text-sm text-op-secondary">
+          Sign in with a verified email and phone to accept this Pool Invite.
+          Opening the link alone does not enroll you.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <SignInButton mode="modal" forceRedirectUrl={`/join/${token}`}>
+            <button type="button" className="op-btn op-btn-primary">
+              Sign in to continue
+            </button>
+          </SignInButton>
+          <Link href="/guides/invites-and-joining" className="op-btn op-btn-ghost">
+            Joining guide
+          </Link>
+        </div>
+      </div>
     );
   }
 
