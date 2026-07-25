@@ -21,12 +21,25 @@ import { HelpContextDisclosurePanel } from "@/components/help/HelpContextDisclos
 const HELP_SENSITIVE_DATA_WARNING =
   "Do not include passwords, current Hidden Picks, or raw Pool Invite credentials.";
 
-const textareaClassName =
-  "flex min-h-24 w-full rounded-lg border border-op-border bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
+const fieldClassName =
+  "border-op-border-strong bg-op-canvas text-op-text placeholder:text-op-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
 
-const selectClassName =
-  "h-8 w-full rounded-lg border border-op-border bg-transparent px-2.5 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
+const textareaClassName = `flex min-h-24 w-full rounded-lg border px-2.5 py-2 text-base transition-colors outline-none ${fieldClassName}`;
 
+const selectClassName = `h-8 w-full rounded-lg border px-2.5 text-base transition-colors outline-none ${fieldClassName}`;
+
+const inputClassName = fieldClassName;
+
+const lanePanelClassName =
+  "mt-6 overflow-hidden rounded-[16px] border border-op-border bg-op-surface";
+
+const laneHeaderClassName =
+  "border-b border-op-border px-5 py-5 sm:px-6";
+
+const laneFormClassName = "flex flex-col gap-5 px-5 py-5 sm:px-6";
+
+const noticeClassName =
+  "mt-4 rounded-[10px] border border-op-border-strong bg-op-canvas px-3.5 py-3 text-sm leading-6 text-op-text";
 export type HelpLane = "support" | "feedback";
 
 export type SupportAcceptance = {
@@ -276,7 +289,10 @@ export function HelpFeedbackView({
         </p>
 
         {suggestedGuides.length > 0 ? (
-          <section aria-labelledby="suggested-guides-heading" className="mt-8">
+          <section
+            aria-labelledby="suggested-guides-heading"
+            className="mt-8 rounded-[16px] border border-op-border bg-op-surface p-5"
+          >
             <h2
               id="suggested-guides-heading"
               className="text-sm font-medium text-op-text"
@@ -292,7 +308,7 @@ export function HelpFeedbackView({
                   <Link
                     href={`/guides/${guide.slug}`}
                     onClick={() => onGuideSelect?.(guide.slug)}
-                    className="block rounded-[10px] border border-op-border bg-op-surface px-4 py-3 text-sm font-medium text-op-text transition-colors hover:border-op-heat-20 hover:bg-op-heat-4"
+                    className="block rounded-[10px] border border-op-border-strong bg-op-canvas px-4 py-3 text-sm font-medium text-op-text transition-colors hover:border-op-heat-20 hover:bg-op-heat-4"
                   >
                     {guide.title}
                   </Link>
@@ -303,16 +319,16 @@ export function HelpFeedbackView({
         ) : null}
 
         <div
-          className="mt-10 flex flex-wrap gap-2"
+          className="mt-10 inline-flex h-9 w-full max-w-md items-center rounded-[8px] border border-op-border bg-op-control p-0.5"
           role="group"
           aria-label="Contact lane"
         >
           <button
             type="button"
-            className={`op-btn h-8 px-3 text-[13px] ${
+            className={`flex h-full flex-1 items-center justify-center rounded-[6px] px-3 text-[13px] font-medium transition-colors ${
               activeLane === "support"
-                ? "op-btn-secondary"
-                : "op-btn-ghost"
+                ? "bg-op-surface text-op-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-op-border"
+                : "text-op-secondary hover:text-op-text"
             }`}
             aria-pressed={activeLane === "support"}
             onClick={() => onLaneChange("support")}
@@ -321,10 +337,10 @@ export function HelpFeedbackView({
           </button>
           <button
             type="button"
-            className={`op-btn h-8 px-3 text-[13px] ${
+            className={`flex h-full flex-1 items-center justify-center rounded-[6px] px-3 text-[13px] font-medium transition-colors ${
               activeLane === "feedback"
-                ? "op-btn-secondary"
-                : "op-btn-ghost"
+                ? "bg-op-surface text-op-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-op-border"
+                : "text-op-secondary hover:text-op-text"
             }`}
             aria-pressed={activeLane === "feedback"}
             onClick={() => onLaneChange("feedback")}
@@ -334,36 +350,38 @@ export function HelpFeedbackView({
         </div>
 
         {activeLane === "support" ? (
-          <section aria-labelledby="support-form-heading" className="mt-8">
-            <h2
-              id="support-form-heading"
-              className="text-lg font-medium text-op-text"
-            >
-              Get support
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-op-secondary">
-              {HELP_RESPONSE_EXPECTATION} Support does not pause or reopen Pick
-              Locks, guarantee a pre-kickoff response, or mediate ordinary
-              private Pool disputes.
-            </p>
-            <p className="mt-3 text-sm leading-6 text-op-secondary">
-              For Pool conduct or safety concerns, see the{" "}
-              <Link
-                href="/guides/archive-audit-and-reports#abuse-report"
-                className="font-medium text-op-selected-fg underline"
+          <section
+            aria-labelledby="support-form-heading"
+            className={lanePanelClassName}
+          >
+            <div className={laneHeaderClassName}>
+              <h2
+                id="support-form-heading"
+                className="text-lg font-medium tracking-tight text-op-text"
               >
-                Abuse Report
-              </Link>{" "}
-              section in our guides, or use the in-app Abuse Report form in your
-              Pool panel.
-            </p>
-
-            <p className="mt-3 text-sm leading-6 text-op-secondary">
-              {HELP_SENSITIVE_DATA_WARNING}
-            </p>
+                Get support
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-op-secondary">
+                {HELP_RESPONSE_EXPECTATION} Support does not pause or reopen Pick
+                Locks, guarantee a pre-kickoff response, or mediate ordinary
+                private Pool disputes.
+              </p>
+              <p className="mt-3 text-sm leading-6 text-op-secondary">
+                For Pool conduct or safety concerns, see the{" "}
+                <Link
+                  href="/guides/archive-audit-and-reports#abuse-report"
+                  className="font-medium text-op-selected-fg underline"
+                >
+                  Abuse Report
+                </Link>{" "}
+                section in our guides, or use the in-app Abuse Report form in
+                your Pool panel.
+              </p>
+              <p className={noticeClassName}>{HELP_SENSITIVE_DATA_WARNING}</p>
+            </div>
 
             <form
-              className="mt-6 flex flex-col gap-4"
+              className={laneFormClassName}
               onSubmit={onSupportSubmit}
               noValidate
             >
@@ -381,7 +399,10 @@ export function HelpFeedbackView({
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium text-op-text">
-                  Category <span className="text-op-muted">(required)</span>
+                  Category{" "}
+                  <span className="font-normal text-op-secondary">
+                    (required)
+                  </span>
                 </span>
                 <select
                   id={categoryId}
@@ -414,7 +435,10 @@ export function HelpFeedbackView({
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium text-op-text">
-                  Reply email <span className="text-op-muted">(required)</span>
+                  Reply email{" "}
+                  <span className="font-normal text-op-secondary">
+                    (required)
+                  </span>
                 </span>
                 <Input
                   id={replyEmailId}
@@ -428,6 +452,7 @@ export function HelpFeedbackView({
                   aria-describedby={
                     fieldErrors.replyEmail ? replyEmailErrorId : undefined
                   }
+                  className={inputClassName}
                   placeholder={
                     signedInEmail ? undefined : "you@example.com"
                   }
@@ -444,7 +469,10 @@ export function HelpFeedbackView({
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium text-op-text">
-                  Message <span className="text-op-muted">(required)</span>
+                  Message{" "}
+                  <span className="font-normal text-op-secondary">
+                    (required)
+                  </span>
                 </span>
                 <textarea
                   id={messageId}
@@ -486,30 +514,33 @@ export function HelpFeedbackView({
               <button
                 type="submit"
                 disabled={submitting}
-                className="op-btn op-btn-secondary h-8 self-start px-4 text-[13px]"
+                className="op-btn op-btn-primary self-start px-4 text-[13px]"
               >
                 {submitting ? "Sending…" : "Send support request"}
               </button>
             </form>
           </section>
         ) : (
-          <section aria-labelledby="feedback-form-heading" className="mt-8">
-            <h2
-              id="feedback-form-heading"
-              className="text-lg font-medium text-op-text"
-            >
-              Share feedback
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-op-secondary">
-              Feedback is private by default. We do not publish it as a
-              testimonial or share roadmap status.
-            </p>
-            <p className="mt-3 text-sm leading-6 text-op-secondary">
-              {HELP_SENSITIVE_DATA_WARNING}
-            </p>
+          <section
+            aria-labelledby="feedback-form-heading"
+            className={lanePanelClassName}
+          >
+            <div className={laneHeaderClassName}>
+              <h2
+                id="feedback-form-heading"
+                className="text-lg font-medium tracking-tight text-op-text"
+              >
+                Share feedback
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-op-secondary">
+                Feedback is private by default. We do not publish it as a
+                testimonial or share roadmap status.
+              </p>
+              <p className={noticeClassName}>{HELP_SENSITIVE_DATA_WARNING}</p>
+            </div>
 
             <form
-              className="mt-6 flex flex-col gap-4"
+              className={laneFormClassName}
               onSubmit={onFeedbackSubmit}
               noValidate
             >
@@ -528,11 +559,13 @@ export function HelpFeedbackView({
               <fieldset className="flex flex-col gap-2">
                 <legend className="text-sm font-medium text-op-text">
                   How do you feel?{" "}
-                  <span className="text-op-muted">(required)</span>
+                  <span className="font-normal text-op-secondary">
+                    (required)
+                  </span>
                 </legend>
                 <div
                   id={sentimentGroupId}
-                  className="flex flex-wrap gap-2"
+                  className="inline-flex h-9 w-full flex-wrap items-center gap-0.5 rounded-[8px] border border-op-border bg-op-control p-0.5 sm:flex-nowrap"
                   role="radiogroup"
                   aria-invalid={Boolean(fieldErrors.sentiment)}
                   aria-describedby={
@@ -542,10 +575,10 @@ export function HelpFeedbackView({
                   {FEEDBACK_SENTIMENTS.map((value) => (
                     <label
                       key={value}
-                      className={`op-btn h-8 cursor-pointer px-3 text-[13px] ${
+                      className={`flex h-full min-h-8 flex-1 cursor-pointer items-center justify-center rounded-[6px] px-2.5 text-[13px] font-medium transition-colors ${
                         feedbackSentiment === value
-                          ? "op-btn-secondary"
-                          : "op-btn-ghost"
+                          ? "bg-op-surface text-op-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-op-border"
+                          : "text-op-secondary hover:text-op-text"
                       }`}
                     >
                       <input
@@ -572,7 +605,10 @@ export function HelpFeedbackView({
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium text-op-text">
-                  Type <span className="text-op-muted">(required)</span>
+                  Type{" "}
+                  <span className="font-normal text-op-secondary">
+                    (required)
+                  </span>
                 </span>
                 <select
                   id={feedbackTypeId}
@@ -607,7 +643,10 @@ export function HelpFeedbackView({
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium text-op-text">
-                  Details <span className="text-op-muted">(optional)</span>
+                  Details{" "}
+                  <span className="font-normal text-op-secondary">
+                    (optional)
+                  </span>
                 </span>
                 <textarea
                   id={feedbackMessageId}
@@ -638,7 +677,9 @@ export function HelpFeedbackView({
                 <label className="flex flex-col gap-1.5 text-sm">
                   <span className="font-medium text-op-text">
                     Follow-up email{" "}
-                    <span className="text-op-muted">(optional)</span>
+                    <span className="font-normal text-op-secondary">
+                      (optional)
+                    </span>
                   </span>
                   <Input
                     id={feedbackReplyEmailId}
@@ -655,11 +696,12 @@ export function HelpFeedbackView({
                         ? feedbackReplyEmailErrorId
                         : undefined
                     }
+                    className={inputClassName}
                     placeholder={
                       signedInEmail ? undefined : "you@example.com"
                     }
                   />
-                  <span className="text-xs text-op-muted">
+                  <span className="text-xs text-op-secondary">
                     Optional. Does not guarantee a personal reply.
                   </span>
                   {fieldErrors.replyEmail ? (
@@ -674,7 +716,7 @@ export function HelpFeedbackView({
               ) : null}
 
               {signedInEmail ? (
-                <label className="flex items-start gap-2 text-sm">
+                <label className="flex items-start gap-2.5 rounded-[10px] border border-op-border-strong bg-op-canvas px-3.5 py-3 text-sm">
                   <input
                     id={anonymousId}
                     name="anonymous"
@@ -689,7 +731,7 @@ export function HelpFeedbackView({
                     <span className="font-medium text-op-text">
                       Submit anonymously
                     </span>
-                    <span className="mt-0.5 block text-xs text-op-muted">
+                    <span className="mt-0.5 block text-xs text-op-secondary">
                       We will not store your account, email, or Pool linkage.
                     </span>
                   </span>
@@ -712,7 +754,7 @@ export function HelpFeedbackView({
               <button
                 type="submit"
                 disabled={submitting}
-                className="op-btn op-btn-secondary h-8 self-start px-4 text-[13px]"
+                className="op-btn op-btn-primary self-start px-4 text-[13px]"
               >
                 {submitting ? "Sending…" : "Submit feedback"}
               </button>

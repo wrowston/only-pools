@@ -206,6 +206,7 @@ describe("HelpFeedbackView", () => {
   it("shows context disclosure summary with optional diagnostics toggle on support", () => {
     const markup = renderView({ activeLane: "support" });
     expect(markup).toContain("Context we may include");
+    expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain('name="includeDiagnostics"');
     expect(markup).toContain("Optional diagnostics");
     expect(markup).toContain("Current page");
