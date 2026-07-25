@@ -22,6 +22,11 @@ describe("PUBLIC_ROUTE_PATTERNS", () => {
   it("lets link-preview crawlers fetch the Open Graph image", () => {
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/opengraph-image(.*)");
   });
+
+  it("keeps invite join URLs public so Messages can render rich previews", () => {
+    expect(PUBLIC_ROUTE_PATTERNS).toContain("/join(.*)");
+    expect(PROTECTED_ROUTE_PATTERNS).not.toContain("/join(.*)");
+  });
 });
 
 describe("PROTECTED_ROUTE_PATTERNS", () => {
@@ -30,7 +35,6 @@ describe("PROTECTED_ROUTE_PATTERNS", () => {
       expect.arrayContaining([
         "/my-pools(.*)",
         "/pools(.*)",
-        "/join(.*)",
         "/return(.*)",
         "/operator(.*)",
         "/prototype(.*)",
