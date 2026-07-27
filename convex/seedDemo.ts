@@ -15,6 +15,17 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { resolveDeploymentKind } from "./lib/syncGate";
+import {
+  canonicalNflTeam,
+  nflGameStableKey,
+} from "./providers/sportsData/identity";
+import type { NflTeamStableKey } from "./providers/sportsData/catalog";
+import {
+  attachNflTeamAlias,
+  persistReconciledNflGame,
+  reconcileStoredNflGame,
+  reconcileStoredNflTeam,
+} from "./providers/sportsData/identityStore";
 
 const SEED_POOL_PREFIX = "Seed · ";
 const SEED_TEAM_PREFIX = "seed:team:";
@@ -155,14 +166,6 @@ function assertDevDeployment(): void {
   }
 }
 
-function teamStableKey(abbr: string): string {
-  return `${SEED_TEAM_PREFIX}${abbr.toLowerCase()}`;
-}
-
-function gameStableKey(week: number, away: string, home: string): string {
-  return `${SEED_GAME_PREFIX}${SEASON_LABEL}:w${week}:${away.toLowerCase()}@${home.toLowerCase()}`;
-}
-
 /** Deterministic shuffle for stable seed memberships across re-runs. */
 function rotateSlice<T>(items: ReadonlyArray<T>, offset: number, count: number): T[] {
   const n = items.length;
@@ -255,33 +258,53 @@ export const seedDemoWorld = internalMutation({
     }
 
     const teamIds: Id<"nflTeams">[] = [];
-    const abbrToId = new Map<string, Id<"nflTeams">>();
+    const abbrToIdentity = new Map<
+      string,
+      { id: Id<"nflTeams">; stableKey: NflTeamStableKey }
+    >();
     for (const team of NFL_TEAMS) {
-      const stableKey = teamStableKey(team.abbr);
-      const existing = await ctx.db
-        .query("nflTeams")
-        .withIndex("by_stableKey", (q) => q.eq("stableKey", stableKey))
-        .unique();
+      const canonicalTeam = canonicalNflTeam(team.abbr);
+      if (!canonicalTeam) {
+        throw new Error(`Unknown canonical NFL Team: ${team.abbr}`);
+      }
+      const alias = {
+        provider: "in-memory",
+        externalId: `seed-team-${team.abbr}`,
+      } as const;
+      const reconciliation = await reconcileStoredNflTeam(ctx, {
+        alias,
+        stableKey: canonicalTeam.stableKey,
+        legacySportsDbTeamId: team.sportsDbTeamId,
+      });
       let id: Id<"nflTeams">;
-      if (existing) {
-        await ctx.db.patch(existing._id, {
+      if (reconciliation.kind === "resolved") {
+        id = reconciliation.nflTeamId;
+        await ctx.db.patch(id, {
+          stableKey: canonicalTeam.stableKey,
           name: team.name,
-          abbreviation: team.abbr,
+          abbreviation: canonicalTeam.abbreviation,
           logoUrl: NFL_TEAM_LOGO_URLS[team.abbr],
           sportsDbTeamId: team.sportsDbTeamId,
         });
-        id = existing._id;
       } else {
         id = await ctx.db.insert("nflTeams", {
-          stableKey,
+          stableKey: canonicalTeam.stableKey,
           name: team.name,
-          abbreviation: team.abbr,
+          abbreviation: canonicalTeam.abbreviation,
           logoUrl: NFL_TEAM_LOGO_URLS[team.abbr],
           sportsDbTeamId: team.sportsDbTeamId,
         });
       }
+      await attachNflTeamAlias(ctx, {
+        nflTeamId: id,
+        alias,
+        observedAtMs: nowMs,
+      });
       teamIds.push(id);
-      abbrToId.set(team.abbr, id);
+      abbrToIdentity.set(team.abbr, {
+        id,
+        stableKey: canonicalTeam.stableKey,
+      });
     }
 
     let gameCount = 0;
@@ -293,9 +316,12 @@ export const seedDemoWorld = internalMutation({
       for (let i = 0; i + 1 < order.length; i += 2) {
         const home = order[i]!;
         const away = order[i + 1]!;
-        const homeId = abbrToId.get(home.abbr);
-        const awayId = abbrToId.get(away.abbr);
-        if (!homeId || !awayId) continue;
+        const homeTeam = abbrToIdentity.get(home.abbr);
+        const awayTeam = abbrToIdentity.get(away.abbr);
+        if (!homeTeam || !awayTeam) continue;
+        const homeCanonical = canonicalNflTeam(home.abbr);
+        const awayCanonical = canonicalNflTeam(away.abbr);
+        if (!homeCanonical || !awayCanonical) continue;
 
         const slot = i / 2;
         // Past weeks: entire slate finished days/weeks ago so kickoff locks hold.
@@ -313,17 +339,34 @@ export const seedDemoWorld = internalMutation({
         const homeScore = pastWeek ? 21 + (slot % 14) : null;
         const awayScore = pastWeek ? 14 + (slot % 11) : null;
 
-        const stableKey = gameStableKey(week, away.abbr, home.abbr);
-        const existing = await ctx.db
-          .query("nflGames")
-          .withIndex("by_stableKey", (q) => q.eq("stableKey", stableKey))
-          .unique();
+        const stableKey = nflGameStableKey({
+          seasonYear: Number(SEASON_LABEL),
+          week,
+          awayTeamAbbreviation: awayCanonical.abbreviation,
+          homeTeamAbbreviation: homeCanonical.abbreviation,
+        });
+        const externalId = `seed_evt_w${week}_${away.abbr}_${home.abbr}`;
+        const alias = {
+          provider: "in-memory",
+          externalId,
+        } as const;
+        const reconciliation = await reconcileStoredNflGame(ctx, {
+          alias,
+          seasonId: season._id,
+          week,
+          homeTeamId: homeTeam.id,
+          awayTeamId: awayTeam.id,
+          homeTeamStableKey: homeTeam.stableKey,
+          awayTeamStableKey: awayTeam.stableKey,
+          scheduledKickoffMs,
+        });
         const fields = {
+          stableKey,
           seasonId: season._id,
           seasonLabel: SEASON_LABEL,
           week,
-          homeTeamId: homeId,
-          awayTeamId: awayId,
+          homeTeamId: homeTeam.id,
+          awayTeamId: awayTeam.id,
           scheduledKickoffMs,
           lifecycle: pastWeek
             ? ("terminal" as const)
@@ -332,7 +375,7 @@ export const seedDemoWorld = internalMutation({
               : ("scheduled" as const),
           homeScore,
           awayScore,
-          sportsDbEventId: `seed_evt_w${week}_${away.abbr}_${home.abbr}`,
+          sportsDbEventId: externalId,
           ...(kickoffReached
             ? { kickoffLockReachedAtMs: scheduledKickoffMs }
             : {}),
@@ -348,14 +391,12 @@ export const seedDemoWorld = internalMutation({
               }
             : { resultAuthority: "none" as const }),
         };
-        if (existing) {
-          await ctx.db.patch(existing._id, fields);
-        } else {
-          await ctx.db.insert("nflGames", {
-            stableKey,
-            ...fields,
-          });
-        }
+        await persistReconciledNflGame(ctx, {
+          reconciliation,
+          fields,
+          alias,
+          observedAtMs: nowMs,
+        });
         gameCount += 1;
       }
     }

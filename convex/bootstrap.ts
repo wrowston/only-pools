@@ -28,6 +28,19 @@ import {
   fetchSeasonEvents,
   sportsDbApiKey,
 } from "./providers/thesportsdb/client";
+import {
+  canonicalNflTeam,
+  nflGameStableKey,
+} from "./providers/sportsData/identity";
+import type { NflTeamStableKey } from "./providers/sportsData/catalog";
+import {
+  attachNflTeamAlias,
+  LEGACY_SPORTS_DB_PROVIDER,
+  persistReconciledNflGame,
+  reconcileStoredNflGame,
+  reconcileStoredNflTeam,
+  SportsIdentityConflict,
+} from "./providers/sportsData/identityStore";
 
 const log = createLogger("bootstrap");
 
@@ -141,53 +154,115 @@ export const applyNormalizedBootstrap = internalMutation({
       }
     }
 
-    const teamDocIds = new Map<string, Id<"nflTeams">>();
+    const teamIdentities = new Map<
+      string,
+      {
+        id: Id<"nflTeams">;
+        stableKey: NflTeamStableKey;
+      }
+    >();
 
     for (const team of args.teams as NormalizedNflTeam[]) {
-      const existing = await ctx.db
-        .query("nflTeams")
-        .withIndex("by_stableKey", (q) => q.eq("stableKey", team.stableKey))
-        .unique();
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          name: team.name,
-          abbreviation: team.abbreviation,
-          logoUrl: team.logoUrl,
-          sportsDbTeamId: team.aliases.sportsDbTeamId,
-        });
-        teamDocIds.set(team.stableKey, existing._id);
-      } else {
-        const id = await ctx.db.insert("nflTeams", {
-          stableKey: team.stableKey,
-          name: team.name,
-          abbreviation: team.abbreviation,
-          logoUrl: team.logoUrl,
-          sportsDbTeamId: team.aliases.sportsDbTeamId,
-        });
-        teamDocIds.set(team.stableKey, id);
+      const canonicalTeam = canonicalNflTeam(team.abbreviation);
+      if (!canonicalTeam) {
+        throw new SportsIdentityConflict(
+          "alias_identity_mismatch",
+          `Unknown canonical NFL Team abbreviation: ${team.abbreviation}`,
+        );
       }
+      const alias = {
+        provider: LEGACY_SPORTS_DB_PROVIDER,
+        externalId: team.aliases.sportsDbTeamId,
+      } as const;
+      const reconciliation = await reconcileStoredNflTeam(ctx, {
+        alias,
+        stableKey: canonicalTeam.stableKey,
+        legacySportsDbTeamId: team.aliases.sportsDbTeamId,
+      });
+
+      let teamId: Id<"nflTeams">;
+      if (reconciliation.kind === "resolved") {
+        teamId = reconciliation.nflTeamId;
+        await ctx.db.patch(teamId, {
+          stableKey: canonicalTeam.stableKey,
+          name: team.name,
+          abbreviation: canonicalTeam.abbreviation,
+          logoUrl: team.logoUrl,
+          sportsDbTeamId: team.aliases.sportsDbTeamId,
+        });
+      } else {
+        teamId = await ctx.db.insert("nflTeams", {
+          stableKey: canonicalTeam.stableKey,
+          name: team.name,
+          abbreviation: canonicalTeam.abbreviation,
+          logoUrl: team.logoUrl,
+          sportsDbTeamId: team.aliases.sportsDbTeamId,
+        });
+      }
+      await attachNflTeamAlias(ctx, {
+        nflTeamId: teamId,
+        alias,
+        observedAtMs: nowMs,
+      });
+      teamIdentities.set(team.stableKey, {
+        id: teamId,
+        stableKey: canonicalTeam.stableKey,
+      });
     }
 
     for (const game of args.games as NormalizedNflGame[]) {
-      const homeTeamId = teamDocIds.get(game.homeTeamStableKey);
-      const awayTeamId = teamDocIds.get(game.awayTeamStableKey);
-      if (!homeTeamId || !awayTeamId) {
+      const homeTeam = teamIdentities.get(game.homeTeamStableKey);
+      const awayTeam = teamIdentities.get(game.awayTeamStableKey);
+      if (!homeTeam || !awayTeam) {
         throw new Error(
           `Missing NFL Team for game ${game.aliases.sportsDbEventId}`,
         );
       }
 
-      const existing = await ctx.db
-        .query("nflGames")
-        .withIndex("by_stableKey", (q) => q.eq("stableKey", game.stableKey))
-        .unique();
+      const homeCanonical = canonicalNflTeam(
+        (args.teams as NormalizedNflTeam[]).find(
+          (team) => team.stableKey === game.homeTeamStableKey,
+        )?.abbreviation ?? "",
+      );
+      const awayCanonical = canonicalNflTeam(
+        (args.teams as NormalizedNflTeam[]).find(
+          (team) => team.stableKey === game.awayTeamStableKey,
+        )?.abbreviation ?? "",
+      );
+      if (!homeCanonical || !awayCanonical) {
+        throw new SportsIdentityConflict(
+          "alias_identity_mismatch",
+          `Missing canonical NFL Team identity for game ${game.aliases.sportsDbEventId}`,
+        );
+      }
+      const stableKey = nflGameStableKey({
+        seasonYear: year,
+        week: game.week,
+        homeTeamAbbreviation: homeCanonical.abbreviation,
+        awayTeamAbbreviation: awayCanonical.abbreviation,
+      });
+      const alias = {
+        provider: LEGACY_SPORTS_DB_PROVIDER,
+        externalId: game.aliases.sportsDbEventId,
+      } as const;
+      const reconciliation = await reconcileStoredNflGame(ctx, {
+        alias,
+        seasonId: season._id,
+        week: game.week,
+        homeTeamId: homeTeam.id,
+        awayTeamId: awayTeam.id,
+        homeTeamStableKey: homeTeam.stableKey,
+        awayTeamStableKey: awayTeam.stableKey,
+        scheduledKickoffMs: game.scheduledKickoffMs,
+      });
 
       const fields = {
+        stableKey,
         seasonId: season._id,
         seasonLabel: args.seasonLabel,
         week: game.week,
-        homeTeamId,
-        awayTeamId,
+        homeTeamId: homeTeam.id,
+        awayTeamId: awayTeam.id,
         scheduledKickoffMs: game.scheduledKickoffMs,
         lifecycle: game.lifecycle,
         homeScore: game.homeScore,
@@ -195,14 +270,12 @@ export const applyNormalizedBootstrap = internalMutation({
         sportsDbEventId: game.aliases.sportsDbEventId,
       };
 
-      if (existing) {
-        await ctx.db.patch(existing._id, fields);
-      } else {
-        await ctx.db.insert("nflGames", {
-          stableKey: game.stableKey,
-          ...fields,
-        });
-      }
+      await persistReconciledNflGame(ctx, {
+        reconciliation,
+        fields,
+        alias,
+        observedAtMs: nowMs,
+      });
     }
 
     const availability = evaluateBootstrapAvailability(

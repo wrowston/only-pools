@@ -1,9 +1,32 @@
 import {
   CANONICAL_NFL_TEAMS,
+  type CanonicalNflTeam,
   type CanonicalNflTeamAbbreviation,
   type NflTeamStableKey,
 } from "./catalog";
 import type { NflGameStableKey } from "./types";
+
+export function isNflTeamStableKey(
+  value: string,
+): value is NflTeamStableKey {
+  return /^nfl-team:franchise-\d+$/.test(value);
+}
+
+export function canonicalNflTeam(
+  abbreviation: string,
+): CanonicalNflTeam | null {
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      CANONICAL_NFL_TEAMS,
+      abbreviation,
+    )
+  ) {
+    return null;
+  }
+  return CANONICAL_NFL_TEAMS[
+    abbreviation as CanonicalNflTeamAbbreviation
+  ];
+}
 
 export function nflTeamStableKey<
   Abbreviation extends CanonicalNflTeamAbbreviation,

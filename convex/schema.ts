@@ -162,8 +162,67 @@ export default defineSchema({
   })
     .index("by_stableKey", ["stableKey"])
     .index("by_seasonId_and_week", ["seasonId", "week"])
+    .index(
+      "by_seasonId_and_week_and_homeTeamId_and_awayTeamId",
+      ["seasonId", "week", "homeTeamId", "awayTeamId"],
+    )
     .index("by_sportsDbEventId", ["sportsDbEventId"])
     .index("by_seasonId", ["seasonId"]),
+
+  /**
+   * Replaceable provider aliases. Legacy SportsDB columns remain temporarily
+   * on the owning rows while the expand/contract migration is in progress.
+   */
+  nflTeamAliases: defineTable({
+    nflTeamId: v.id("nflTeams"),
+    provider: v.string(),
+    externalId: v.string(),
+    isCurrent: v.boolean(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+  })
+    .index(
+      "by_provider_and_externalId_and_nflTeamId",
+      ["provider", "externalId", "nflTeamId"],
+    )
+    .index(
+      "by_nflTeamId_and_provider_and_isCurrent",
+      ["nflTeamId", "provider", "isCurrent"],
+    ),
+
+  nflGameAliases: defineTable({
+    nflGameId: v.id("nflGames"),
+    provider: v.string(),
+    externalId: v.string(),
+    isCurrent: v.boolean(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+  })
+    .index(
+      "by_provider_and_externalId_and_nflGameId",
+      ["provider", "externalId", "nflGameId"],
+    )
+    .index(
+      "by_nflGameId_and_provider_and_isCurrent",
+      ["nflGameId", "provider", "isCurrent"],
+    ),
+
+  /** Historical schedule facts used to reconcile replacement provider rows. */
+  nflGameScheduleHistory: defineTable({
+    nflGameId: v.id("nflGames"),
+    seasonId: v.id("poolSeasons"),
+    week: v.number(),
+    homeTeamId: v.id("nflTeams"),
+    awayTeamId: v.id("nflTeams"),
+    scheduledKickoffMs: v.number(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+  })
+    .index(
+      "by_nflGameId_and_scheduledKickoffMs",
+      ["nflGameId", "scheduledKickoffMs"],
+    )
+    .index("by_seasonId_and_week", ["seasonId", "week"]),
 
   /**
    * Active Pool competitive container. Pool Type and Pool Season are immutable

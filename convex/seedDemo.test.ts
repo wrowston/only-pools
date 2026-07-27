@@ -3,6 +3,10 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import {
+  inspectNflGameIdentityByAlias,
+  inspectNflTeamIdentityByAlias,
+} from "./providers/sportsData/identityStore";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -105,6 +109,33 @@ describe("seedDemoWorld (browse-ready)", () => {
     });
     expect(season?.status).toBe("available");
     expect(season?.usableStartWeek).toBe(1);
+
+    const demoTeamIdentity = await t.run(async (ctx) =>
+      await inspectNflTeamIdentityByAlias(ctx, {
+        provider: "in-memory",
+        externalId: "seed-team-DET",
+      }),
+    );
+    const demoGameIdentity = await t.run(async (ctx) =>
+      await inspectNflGameIdentityByAlias(ctx, {
+        provider: "in-memory",
+        externalId: "seed_evt_w1_BAL_ATL",
+      }),
+    );
+    expect(demoTeamIdentity.stableKey).toBe(
+      "nfl-team:franchise-11",
+    );
+    expect(demoGameIdentity).toMatchObject({
+      stableKey: "nfl-game:2025:w1:franchise-3@franchise-2",
+      aliases: [
+        {
+          provider: "in-memory",
+          externalId: "seed_evt_w1_BAL_ATL",
+          isCurrent: true,
+        },
+      ],
+    });
+    expect(demoGameIdentity.scheduleHistoryMs).toHaveLength(1);
 
     const slate = await t.run(async (ctx) => {
       const games = await ctx.db

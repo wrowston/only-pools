@@ -88,6 +88,42 @@ async function seedPoolWithBoard(
 }
 
 describe("sync live → Verified Results (scenarios 24, 28–31)", () => {
+  it("records kickoff movement without changing NFL Game identity", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId } = await seedGame(t);
+    const before = await t.run(async (ctx) => await ctx.db.get(gameId));
+    const movedKickoffMs = Date.parse("2025-09-14T20:25:00Z");
+
+    await t.mutation(internal.syncLive.applyScheduleObservation, {
+      observation: {
+        gameId,
+        observedAtMs: Date.parse("2025-09-01T12:00:00Z"),
+        scheduledKickoffMs: movedKickoffMs,
+        lifecycle: "scheduled",
+      },
+    });
+
+    const after = await t.run(async (ctx) => {
+      const game = await ctx.db.get(gameId);
+      const history = await ctx.db
+        .query("nflGameScheduleHistory")
+        .withIndex("by_nflGameId_and_scheduledKickoffMs", (q) =>
+          q
+            .eq("nflGameId", gameId)
+            .eq("scheduledKickoffMs", movedKickoffMs),
+        )
+        .unique();
+      return { game, history };
+    });
+
+    expect(after.game?.stableKey).toBe(before?.stableKey);
+    expect(after.game?.scheduledKickoffMs).toBe(movedKickoffMs);
+    expect(after.history).toMatchObject({
+      nflGameId: gameId,
+      scheduledKickoffMs: movedKickoffMs,
+    });
+  });
+
   it("scenario 24: provisional FT is not official; Verified Result is", async () => {
     const t = convexTest(schema, modules);
     const { gameId } = await seedGame(t);

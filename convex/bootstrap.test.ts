@@ -110,7 +110,7 @@ describe("Season Bootstrap (acceptance scenarios 7, 28, 50)", () => {
       return await ctx.db
         .query("nflTeams")
         .withIndex("by_stableKey", (q) =>
-          q.eq("stableKey", "nfl-team:134939"),
+          q.eq("stableKey", "nfl-team:franchise-11"),
         )
         .unique();
     });

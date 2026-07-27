@@ -48,6 +48,12 @@ import {
   liveObservationValidator,
   scheduleObservationValidator,
 } from "./lib/syncObservations";
+import {
+  LEGACY_SPORTS_DB_PROVIDER,
+  recordNflGameSchedule,
+  resolveNflGameAlias,
+  SportsIdentityConflict,
+} from "./providers/sportsData/identityStore";
 
 const log = createLogger("syncLive");
 
@@ -483,6 +489,15 @@ export const applyScheduleObservation = internalMutation({
       kickoffLockReachedAtMs: schedule.kickoffLockReachedAtMs ?? undefined,
       lastObservedAtMs: observation.observedAtMs,
       revision,
+    });
+    await recordNflGameSchedule(ctx, {
+      nflGameId: game._id,
+      seasonId: game.seasonId,
+      week: game.week,
+      homeTeamId: game.homeTeamId,
+      awayTeamId: game.awayTeamId,
+      scheduledKickoffMs: schedule.scheduledKickoffMs,
+      observedAtMs: observation.observedAtMs,
     });
     return {
       gameId: game._id,
@@ -1318,13 +1333,40 @@ export const getWorkItemMeta = internalQuery({
 export const findGameBySportsDbEventId = internalQuery({
   args: { sportsDbEventId: v.string() },
   handler: async (ctx, args) => {
-    const game = await ctx.db
+    const genericOwnership = await resolveNflGameAlias(ctx, {
+      provider: LEGACY_SPORTS_DB_PROVIDER,
+      externalId: args.sportsDbEventId,
+    });
+    if (genericOwnership.kind === "owned") {
+      return genericOwnership.ownerId;
+    }
+    if (genericOwnership.kind === "duplicate") {
+      throw new SportsIdentityConflict(
+        "duplicate_alias",
+        `Duplicate NFL Game alias ownership for ${args.sportsDbEventId}`,
+      );
+    }
+    if (genericOwnership.kind === "ambiguous") {
+      throw new SportsIdentityConflict(
+        "ambiguous_alias",
+        `Ambiguous NFL Game alias ownership for ${args.sportsDbEventId}`,
+      );
+    }
+
+    // Temporary compatibility bridge for pre-expansion records.
+    const legacyGames = await ctx.db
       .query("nflGames")
       .withIndex("by_sportsDbEventId", (q) =>
         q.eq("sportsDbEventId", args.sportsDbEventId),
       )
-      .unique();
-    return game?._id ?? null;
+      .take(2);
+    if (legacyGames.length > 1) {
+      throw new SportsIdentityConflict(
+        "ambiguous_alias",
+        `Ambiguous legacy NFL Game alias: ${args.sportsDbEventId}`,
+      );
+    }
+    return legacyGames[0]?._id ?? null;
   },
 });
 
@@ -1356,7 +1398,26 @@ export const getGameProviderAlias = internalQuery({
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
     if (!game) return null;
-    return { sportsDbEventId: game.sportsDbEventId, seasonId: game.seasonId };
+    const currentAliases = await ctx.db
+      .query("nflGameAliases")
+      .withIndex("by_nflGameId_and_provider_and_isCurrent", (q) =>
+        q
+          .eq("nflGameId", args.gameId)
+          .eq("provider", LEGACY_SPORTS_DB_PROVIDER)
+          .eq("isCurrent", true),
+      )
+      .take(2);
+    if (currentAliases.length > 1) {
+      throw new SportsIdentityConflict(
+        "duplicate_alias",
+        `Multiple current NFL Game aliases for ${args.gameId}`,
+      );
+    }
+    return {
+      sportsDbEventId:
+        currentAliases[0]?.externalId ?? game.sportsDbEventId,
+      seasonId: game.seasonId,
+    };
   },
 });
 

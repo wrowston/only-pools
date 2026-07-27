@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { nflGameStableKey, nflTeamStableKey } from "./identity";
+import {
+  canonicalNflTeam,
+  isNflTeamStableKey,
+  nflGameStableKey,
+  nflTeamStableKey,
+} from "./identity";
 
 describe("provider-independent competitive identity", () => {
   it("keys an NFL Team only by its canonical abbreviation", () => {
     expect(nflTeamStableKey("DET")).toBe("nfl-team:franchise-11");
+  });
+
+  it("matches canonical teams exactly without fuzzy abbreviation fallback", () => {
+    expect(canonicalNflTeam("DET")?.stableKey).toBe(
+      "nfl-team:franchise-11",
+    );
+    expect(canonicalNflTeam("det")).toBeNull();
+    expect(canonicalNflTeam("LIONS")).toBeNull();
+    expect(isNflTeamStableKey("nfl-team:franchise-11")).toBe(true);
+    expect(isNflTeamStableKey("nfl-team:134939")).toBe(false);
   });
 
   it("keys an NFL Game by season, week, and canonical teams", () => {
