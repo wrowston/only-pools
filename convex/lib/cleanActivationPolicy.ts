@@ -61,6 +61,14 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "rebuild",
     reason: "Replace stored NFL Games from the validated regular-season stage.",
   },
+  nflGameResultHistory: {
+    disposition: "delete",
+    reason: "Superseded results belong to NFL Games in the replaced sports dataset.",
+  },
+  nflGameResultReconciliationObservations: {
+    disposition: "delete",
+    reason: "Result reconciliation evidence belongs to the replaced sports dataset.",
+  },
   nflTeamAliases: {
     disposition: "rebuild",
     reason: "Replace provider aliases with generic API-Sports aliases.",
@@ -244,6 +252,8 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "liveGameIngestionState",
   "sportsDataStatusEvidence",
   "nflGameScheduleHistory",
+  "nflGameResultReconciliationObservations",
+  "nflGameResultHistory",
   "nflGameAliases",
   "nflTeamAliases",
   "nflGames",

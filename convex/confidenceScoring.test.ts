@@ -174,6 +174,93 @@ async function createPoolWithBlake(t: ReturnType<typeof convexTest>) {
 }
 
 describe("Confidence scoring (scenarios 15–18, 32–33)", () => {
+  it("does not create future revisions solely because games are scheduled", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedConfidenceWorld(t);
+    const { poolId } = await createPoolWithBlake(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w2:buf@kc",
+        seasonId: s.seasonId,
+        seasonLabel: "2025",
+        week: 2,
+        homeTeamId: s.kc,
+        awayTeamId: s.buf,
+        scheduledKickoffMs: s.week1Kickoff + 7 * 24 * 60 * 60_000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "evt_w2a",
+        resultAuthority: "none",
+      });
+    });
+    await verifyGame(t, s.game1Id, 27, 24);
+
+    await t.mutation(
+      internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+      {
+        gameId: s.game1Id,
+        replayLaterWeeks: true,
+      },
+    );
+
+    const revisions = await t.run(async (ctx) =>
+      ctx.db
+        .query("scoringRevisions")
+        .filter((q) => q.eq(q.field("poolId"), poolId))
+        .collect(),
+    );
+    expect(revisions.map((revision) => revision.week)).toEqual([1]);
+  });
+
+  it("replays only existing dependent Pool Weeks in order for a corrected result", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedConfidenceWorld(t);
+    const { poolId } = await createPoolWithBlake(t);
+    await t.run(async (ctx) => {
+      for (const week of [2, 3]) {
+        await ctx.db.insert("nflGames", {
+          stableKey: `nfl:2025:w${week}:buf@kc`,
+          seasonId: s.seasonId,
+          seasonLabel: "2025",
+          week,
+          homeTeamId: s.kc,
+          awayTeamId: s.buf,
+          scheduledKickoffMs:
+            s.week1Kickoff + (week - 1) * 7 * 24 * 60 * 60_000,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          sportsDbEventId: `evt_w${week}a`,
+          resultAuthority: "none",
+        });
+        await ctx.db.insert("poolWeeks", {
+          poolId,
+          week,
+          settled: false,
+          updatedAtMs: Date.now(),
+        });
+      }
+    });
+    await verifyGame(t, s.game1Id, 27, 24);
+
+    await t.mutation(
+      internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+      {
+        gameId: s.game1Id,
+        replayLaterWeeks: true,
+      },
+    );
+
+    const revisions = await t.run(async (ctx) =>
+      ctx.db
+        .query("scoringRevisions")
+        .filter((q) => q.eq(q.field("poolId"), poolId))
+        .collect(),
+    );
+    expect(revisions.map((revision) => revision.week)).toEqual([1, 2, 3]);
+  });
+
   it("scores unique values correctly without redistributing (scenario 15)", async () => {
     const t = convexTest(schema, modules);
     const s = await seedConfidenceWorld(t);

@@ -952,6 +952,15 @@ export const dispatchSyncWork = internalMutation({
           internal.syncApiSportsLive.runClaimedTargetedRecovery,
           { workItemId: item._id, gameId: item.gameId },
         );
+      } else if (
+        item.surface === "correction" &&
+        item.gameId !== undefined
+      ) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.syncApiSportsLive.runClaimedResultReconciliation,
+          { workItemId: item._id, gameId: item.gameId },
+        );
       } else if (item.surface === "live") {
         await ctx.scheduler.runAfter(
           0,

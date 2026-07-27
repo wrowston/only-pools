@@ -336,6 +336,7 @@ export const autosaveSurvivorPick = mutation({
         provenance: "authored",
         invalidated: undefined,
         invalidatedAtMs: undefined,
+        invalidationReason: undefined,
         updatedAtMs: nowMs,
       });
     } else {

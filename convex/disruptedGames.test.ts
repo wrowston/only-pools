@@ -4,7 +4,7 @@
  */
 
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
@@ -264,11 +264,29 @@ describe("scenario 26 — Survivor and Confidence cancellation paths", () => {
       });
     });
 
-    const handled = await t.mutation(
-      internal.survivorScoring.handleVerifiedCancellation,
-      { gameId: s.week1GameId },
-    );
-    expect(handled.invalidated).toBe(1);
+    vi.useFakeTimers();
+    try {
+      const handled = await t.mutation(
+        internal.survivorScoring.handleVerifiedCancellation,
+        { gameId: s.week1GameId },
+      );
+      expect(handled).toEqual({ scheduledPools: 1 });
+      const beforeDrain = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("survivorPicks")
+          .withIndex("by_poolId_and_participantId_and_week", (q) =>
+            q
+              .eq("poolId", poolId)
+              .eq("participantId", memberIds.alex)
+              .eq("week", 1),
+          )
+          .unique();
+      });
+      expect(beforeDrain?.invalidated).toBeFalsy();
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
 
     const pick = await t.run(async (ctx) => {
       return await ctx.db
@@ -295,6 +313,8 @@ describe("scenario 26 — Survivor and Confidence cancellation paths", () => {
         .unique();
     });
     expect(reservation?.released).toBe(true);
+    const pool = await t.run(async (ctx) => ctx.db.get(poolId));
+    expect(pool?.status).toBe("active");
 
     // Replace with another week-1 game.
     await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
@@ -315,6 +335,319 @@ describe("scenario 26 — Survivor and Confidence cancellation paths", () => {
     });
     expect(replaced?.invalidated).toBeFalsy();
     expect(replaced?.nflTeamId).toBe(s.phi);
+  });
+
+  it("keeps a provisional future-week canceled pick invalidated until replacement", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedWorld(t);
+    const { asAlex, poolId, memberIds } = await createSurvivorPool(t, []);
+    const canceledGameId = await t.run(async (ctx) => {
+      const kickoffMs = s.week1Kickoff + 7 * 24 * 60 * 60 * 1000;
+      const gameId = await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w2:dal@phi",
+        seasonId: s.seasonId,
+        seasonLabel: "2025",
+        week: 2,
+        homeTeamId: s.phi,
+        awayTeamId: s.dal,
+        scheduledKickoffMs: kickoffMs,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "evt_w2_canceled",
+        resultAuthority: "none",
+      });
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w2:buf@kc",
+        seasonId: s.seasonId,
+        seasonLabel: "2025",
+        week: 2,
+        homeTeamId: s.kc,
+        awayTeamId: s.buf,
+        scheduledKickoffMs: kickoffMs + 3 * 60 * 60 * 1000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "evt_w2_replacement",
+        resultAuthority: "none",
+      });
+      return gameId;
+    });
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: s.phi,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(canceledGameId, {
+        resultAuthority: "verified",
+        lifecycle: "canceled",
+        homeScore: 0,
+        awayScore: 0,
+        verifiedResult: {
+          homeScore: 0,
+          awayScore: 0,
+          verifiedAtMs: Date.now(),
+          status: "CANC",
+        },
+      });
+    });
+
+    vi.useFakeTimers();
+    try {
+      await t.mutation(
+        internal.survivorScoring.handleVerifiedCancellation,
+        { gameId: canceledGameId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const canceledState = await t.run(async (ctx) => ({
+      pick: await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 2),
+        )
+        .unique(),
+      reservations: await ctx.db
+        .query("survivorTeamReservations")
+        .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("nflTeamId", s.phi),
+        )
+        .collect(),
+      outcome: await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 2),
+        )
+        .unique(),
+      pool: await ctx.db.get(poolId),
+    }));
+    expect(canceledState.pick).toMatchObject({
+      invalidated: true,
+      invalidationReason: "pre_lock_cancellation",
+      provisional: true,
+    });
+    expect(canceledState.reservations).toHaveLength(1);
+    expect(canceledState.reservations[0]?.released).toBe(true);
+    expect(canceledState.outcome?.outcome).toBe("pending");
+    expect(canceledState.pool?.status).toBe("active");
+
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: s.kc,
+    });
+    const replacement = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 2),
+        )
+        .unique();
+    });
+    expect(replacement?.nflTeamId).toBe(s.kc);
+    expect(replacement?.invalidated).toBeUndefined();
+    expect(replacement?.invalidationReason).toBeUndefined();
+  });
+
+  it("eliminates an unreplaced cancellation invalidation after the week locks", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedWorld(t);
+    const { asAlex, poolId, memberIds } = await createSurvivorPool(t, [
+      "blake",
+    ]);
+    const asBlake = t.withIdentity(blakeIdentity());
+    const week2 = await t.run(async (ctx) => {
+      const kickoffMs = s.week1Kickoff + 7 * 24 * 60 * 60 * 1000;
+      const canceledGameId = await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w2:dal@phi",
+        seasonId: s.seasonId,
+        seasonLabel: "2025",
+        week: 2,
+        homeTeamId: s.phi,
+        awayTeamId: s.dal,
+        scheduledKickoffMs: kickoffMs,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "evt_w2_canceled_unreplaced",
+        resultAuthority: "none",
+      });
+      const otherGameId = await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w2:buf@kc",
+        seasonId: s.seasonId,
+        seasonLabel: "2025",
+        week: 2,
+        homeTeamId: s.kc,
+        awayTeamId: s.buf,
+        scheduledKickoffMs: kickoffMs + 3 * 60 * 60 * 1000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "evt_w2_other_locked",
+        resultAuthority: "none",
+      });
+      return { canceledGameId, otherGameId };
+    });
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: s.kc,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: s.kc,
+    });
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: s.phi,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: s.buf,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.week1GameId, {
+        scheduledKickoffMs: Date.now() - 2 * 60 * 60 * 1000,
+        lifecycle: "terminal",
+        homeScore: 27,
+        awayScore: 24,
+        resultAuthority: "verified",
+        verifiedResult: {
+          homeScore: 27,
+          awayScore: 24,
+          verifiedAtMs: Date.now(),
+          status: "FT",
+        },
+      });
+    });
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId, week: 1 },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(week2.canceledGameId, {
+        resultAuthority: "verified",
+        lifecycle: "canceled",
+        homeScore: 0,
+        awayScore: 0,
+        verifiedResult: {
+          homeScore: 0,
+          awayScore: 0,
+          verifiedAtMs: Date.now(),
+          status: "CANC",
+        },
+      });
+    });
+
+    vi.useFakeTimers();
+    try {
+      await t.mutation(
+        internal.survivorScoring.handleVerifiedCancellation,
+        { gameId: week2.canceledGameId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+    const beforeLock = await t.run(async (ctx) => ({
+      pool: await ctx.db.get(poolId),
+      outcome: await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 2),
+        )
+        .unique(),
+    }));
+    expect(beforeLock.pool?.status).toBe("active");
+    expect(beforeLock.outcome?.outcome).toBe("pending");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(week2.canceledGameId, {
+        scheduledKickoffMs: Date.now() - 2 * 60 * 60 * 1000,
+      });
+      await ctx.db.patch(week2.otherGameId, {
+        scheduledKickoffMs: Date.now() - 60 * 60 * 1000,
+        lifecycle: "terminal",
+        homeScore: 20,
+        awayScore: 24,
+        resultAuthority: "verified",
+        verifiedResult: {
+          homeScore: 20,
+          awayScore: 24,
+          verifiedAtMs: Date.now(),
+          status: "FT",
+        },
+      });
+    });
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 2,
+    });
+    vi.useFakeTimers();
+    try {
+      await t.mutation(
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId: week2.otherGameId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const afterLock = await t.run(async (ctx) => ({
+      pool: await ctx.db.get(poolId),
+      outcome: await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 2),
+        )
+        .unique(),
+      standing: await ctx.db
+        .query("seasonStandings")
+        .withIndex("by_poolId_and_participantId", (q) =>
+          q.eq("poolId", poolId).eq("participantId", memberIds.alex),
+        )
+        .unique(),
+    }));
+    expect(afterLock.outcome?.outcome).toBe("missing_pick");
+    expect(afterLock.standing).toMatchObject({
+      eligibility: "eliminated",
+      eliminatedWeek: 2,
+      eliminationReason: "missing_pick",
+    });
+    expect(afterLock.pool).toMatchObject({
+      status: "completed",
+      completedWeek: 2,
+    });
   });
 
   it("post-lock Survivor cancel yields No-Contest Advance consuming the team", async () => {
@@ -374,16 +707,17 @@ describe("scenario 26 — Survivor and Confidence cancellation paths", () => {
       });
     });
 
-    const handled = await t.mutation(
-      internal.survivorScoring.handleVerifiedCancellation,
-      { gameId: s.week1GameId },
-    );
-    expect(handled.invalidated).toBe(0);
-
-    await t.mutation(internal.survivorScoring.applySurvivorScoringRevision, {
-      poolId,
-      week: 1,
-    });
+    vi.useFakeTimers();
+    try {
+      const handled = await t.mutation(
+        internal.survivorScoring.handleVerifiedCancellation,
+        { gameId: s.week1GameId },
+      );
+      expect(handled).toEqual({ scheduledPools: 1 });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
 
     const outcome = await t.run(async (ctx) => {
       return await ctx.db
@@ -606,9 +940,16 @@ describe("scenario 27 — Corrected Result replay and authz", () => {
     expect(game?.verifiedResult?.awayScore).toBe(28);
     expect(game?.priorVerifiedResult?.homeScore).toBe(27);
 
-    await t.mutation(internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame, {
-      gameId: s.week1GameId,
-    });
+    vi.useFakeTimers();
+    try {
+      await t.mutation(
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId: s.week1GameId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
 
     pool = await t.run(async (ctx) => ctx.db.get(poolId));
     // Blake (BUF) now sole Alive → still Completed with Blake as winner,

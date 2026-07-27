@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import { computeWeeklyCutoffMs } from "./lib/pickLock";
 import { ApiSportsProvider } from "./providers/apiSports";
 import schema from "./schema";
 
@@ -240,6 +241,16 @@ describe("API-Sports live slate ingestion", () => {
     expect(source).not.toMatch(/ctx\.runAction\s*\(/);
   });
 
+  it("dispatches correction work through the API-Sports targeted reconciliation action", () => {
+    const source = readFileSync(
+      join(import.meta.dirname, "syncLive.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /item\.surface === "correction"[\s\S]*runClaimedResultReconciliation/,
+    );
+  });
+
   it("coalesces all active seasons into one global live:nfl work item and none outside the window", async () => {
     const t = convexTest(schema, modules);
     await seed(t);
@@ -351,6 +362,38 @@ describe("API-Sports live slate ingestion", () => {
           .collect(),
       );
       expect(confirmationWork).toEqual([]);
+      const correctionWork = await t.run(async (ctx) =>
+        ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .collect(),
+      );
+      expect(
+        correctionWork
+          .map((item) => ({ purpose: item.purpose, dueAtMs: item.dueAtMs }))
+          .sort((a, b) => a.dueAtMs - b.dueAtMs),
+      ).toEqual([
+        {
+          purpose: "result_reconciliation_15m",
+          dueAtMs: terminal.observedAtMs + 15 * 60_000,
+        },
+        {
+          purpose: "result_reconciliation_30m",
+          dueAtMs: terminal.observedAtMs + 30 * 60_000,
+        },
+        {
+          purpose: "result_reconciliation_60m",
+          dueAtMs: terminal.observedAtMs + 60 * 60_000,
+        },
+        {
+          purpose: "result_reconciliation_120m",
+          dueAtMs: terminal.observedAtMs + 120 * 60_000,
+        },
+        {
+          purpose: "result_reconciliation_next_morning",
+          dueAtMs: Date.UTC(2026, 8, 14, 14),
+        },
+      ]);
 
       await t.finishAllScheduledFunctions(() => vi.runAllTimers());
       await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
@@ -372,6 +415,810 @@ describe("API-Sports live slate ingestion", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("records unchanged reconciliation evidence without another scoring revision", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { gameId } = await seed(t);
+      const terminal = terminalObservation();
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const workItemId = await t.run(async (ctx) => {
+        const [item] = await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .collect();
+        return item!._id;
+      });
+
+      const result = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs: terminal.observedAtMs + 15 * 60_000,
+          }),
+          nowMs: terminal.observedAtMs + 15 * 60_000,
+        },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      expect(result).toMatchObject({ ok: true, result: "unchanged" });
+      const stale = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs: terminal.observedAtMs + 10 * 60_000,
+            homeScore: 99,
+          }),
+          nowMs: terminal.observedAtMs + 16 * 60_000,
+        },
+      );
+      expect(stale).toMatchObject({ ok: true, result: "stale" });
+      const state = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        revisions: await ctx.db.query("scoringRevisions").collect(),
+        observations: await ctx.db
+          .query("nflGameResultReconciliationObservations")
+          .withIndex("by_nflGameId", (q) => q.eq("nflGameId", gameId))
+          .collect(),
+      }));
+      expect(state.game?.verifiedResult?.verifiedAtMs).toBe(
+        terminal.observedAtMs,
+      );
+      expect(state.observations.map((row) => row.disposition)).toEqual([
+        "unchanged",
+        "stale",
+      ]);
+      expect(state.game?.correctionCandidate).toBeUndefined();
+      expect(state.revisions).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains every coherent reconciliation observation beyond the former document bound", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId } = await seed(t);
+    const terminal = terminalObservation();
+    await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+      observations: [terminal],
+      nowMs: terminal.observedAtMs,
+    });
+
+    for (let minute = 1; minute <= 20; minute++) {
+      const result = await t.mutation(
+        internal.syncApiSportsLive.applyReconciliationObservation,
+        {
+          gameId,
+          observation: terminalObservation({
+            observedAtMs: terminal.observedAtMs + minute * 60_000,
+          }),
+        },
+      );
+      expect(result.result).toBe("unchanged");
+    }
+
+    const observations = await t.run(async (ctx) =>
+      ctx.db
+        .query("nflGameResultReconciliationObservations")
+        .withIndex("by_nflGameId", (q) => q.eq("nflGameId", gameId))
+        .collect(),
+    );
+    expect(observations).toHaveLength(20);
+  });
+
+  it("auto-applies a safe changed terminal result and preserves the prior audit timestamps", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { gameId } = await seed(t);
+      const terminal = terminalObservation();
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const workItemId = await t.run(async (ctx) => {
+        const [item] = await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .collect();
+        return item!._id;
+      });
+      const correctedAtMs = terminal.observedAtMs + 15 * 60_000;
+
+      const result = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs: correctedAtMs,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+          nowMs: correctedAtMs,
+        },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      expect(result).toMatchObject({ ok: true, result: "corrected" });
+      const state = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        revisions: await ctx.db.query("scoringRevisions").collect(),
+      }));
+      expect(state.game).toMatchObject({
+        resultAuthority: "verified",
+        homeScore: 20,
+        awayScore: 28,
+        verifiedResult: {
+          homeScore: 20,
+          awayScore: 28,
+          verifiedAtMs: correctedAtMs,
+          status: "FT",
+        },
+        priorVerifiedResult: {
+          homeScore: 27,
+          awayScore: 24,
+          verifiedAtMs: terminal.observedAtMs,
+          status: "FT",
+          supersededAtMs: correctedAtMs,
+        },
+      });
+      expect(state.game?.correctionCandidate).toBeUndefined();
+      expect(state.revisions).toHaveLength(2);
+
+      const secondWorkItemId = await t.run(async (ctx) => {
+        const items = await ctx.db
+          .query("syncWorkItems")
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("surface"), "correction"),
+              q.eq(q.field("status"), "due"),
+            ),
+          )
+          .collect();
+        return items.sort((a, b) => a.dueAtMs - b.dueAtMs)[0]!._id;
+      });
+      const correctedAgainAtMs = terminal.observedAtMs + 30 * 60_000;
+      const correctedAgain = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId: secondWorkItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs: correctedAgainAtMs,
+            homeScore: 17,
+            awayScore: 10,
+          }),
+          nowMs: correctedAgainAtMs,
+        },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(correctedAgain).toMatchObject({
+        ok: true,
+        result: "corrected",
+      });
+
+      const afterSecond = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        history: await ctx.db
+          .query("nflGameResultHistory")
+          .withIndex("by_nflGameId_and_supersededAtMs", (q) =>
+            q.eq("nflGameId", gameId),
+          )
+          .collect(),
+        observations: await ctx.db
+          .query("nflGameResultReconciliationObservations")
+          .withIndex("by_nflGameId_and_observedAtMs", (q) =>
+            q.eq("nflGameId", gameId),
+          )
+          .collect(),
+        revisions: await ctx.db.query("scoringRevisions").collect(),
+      }));
+      expect(afterSecond.history).toMatchObject([
+        {
+          homeScore: 27,
+          awayScore: 24,
+          verifiedAtMs: terminal.observedAtMs,
+          supersededAtMs: correctedAtMs,
+        },
+        {
+          homeScore: 20,
+          awayScore: 28,
+          verifiedAtMs: correctedAtMs,
+          supersededAtMs: correctedAgainAtMs,
+        },
+      ]);
+      expect(afterSecond.observations.map((row) => row.disposition)).toEqual([
+        "corrected",
+        "corrected",
+      ]);
+      expect(afterSecond.game?.priorVerifiedResult).toMatchObject({
+        homeScore: 20,
+        awayScore: 28,
+        verifiedAtMs: correctedAtMs,
+        supersededAtMs: correctedAgainAtMs,
+      });
+      expect(afterSecond.game?.verifiedResult).toMatchObject({
+        homeScore: 17,
+        awayScore: 10,
+        verifiedAtMs: correctedAgainAtMs,
+      });
+      expect(afterSecond.revisions).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not materialize an empty scheduled Survivor week or block a safe correction", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const {
+        asOwner,
+        poolId,
+        gameId,
+        seasonId,
+        homeTeamId,
+        awayTeamId,
+      } = await seed(t);
+      await t.run(async (ctx) => {
+        await ctx.db.patch(poolId, { maxEntriesPerUser: 2 });
+        await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2026:w2:det@gb",
+          seasonId,
+          seasonLabel: "2026",
+          week: 2,
+          homeTeamId,
+          awayTeamId,
+          scheduledKickoffMs: NOW_MS + 7 * 24 * 60 * 60_000,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          sportsDbEventId: "legacy-game-week-2-without-picks",
+          resultAuthority: "none",
+        });
+      });
+      const secondEntry = await asOwner.mutation(api.pools.addPoolEntry, {
+        poolId,
+      });
+      const entries = await asOwner.query(api.pools.listMyPoolEntries, {
+        poolId,
+        nowMs: Date.now(),
+      });
+      const primaryEntryId = entries.entries.find(
+        (entry) => entry.entryId !== secondEntry.entryId,
+      )!.entryId;
+      for (const entryId of [primaryEntryId, secondEntry.entryId]) {
+        await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+          poolId,
+          week: 1,
+          nflTeamId: homeTeamId,
+          entryId,
+        });
+      }
+
+      const terminal = terminalObservation();
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const before = await t.run(async (ctx) => ({
+        revisions: await ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect(),
+        work: await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .first(),
+      }));
+      expect(before.revisions.map((revision) => revision.week)).toEqual([1]);
+
+      const correctedAtMs = terminal.observedAtMs + 15 * 60_000;
+      const result = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId: before.work!._id,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs: correctedAtMs,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+          nowMs: correctedAtMs,
+        },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      expect(result).toMatchObject({ ok: true, result: "corrected" });
+      const after = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        revisions: await ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect(),
+      }));
+      expect(after.game?.verifiedResult).toMatchObject({
+        homeScore: 20,
+        awayScore: 28,
+        verifiedAtMs: correctedAtMs,
+      });
+      expect(after.revisions.map((revision) => revision.week)).toEqual([1, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("replays Pool Weeks in order and restores valid later provisional Survivor picks", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const {
+        asOwner,
+        poolId,
+        gameId,
+        seasonId,
+        homeTeamId,
+        awayTeamId,
+      } = await seed(t);
+      await t.run(async (ctx) => {
+        await ctx.db.patch(poolId, { maxEntriesPerUser: 2 });
+        await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2026:w2:det@gb",
+          seasonId,
+          seasonLabel: "2026",
+          week: 2,
+          homeTeamId,
+          awayTeamId,
+          scheduledKickoffMs: NOW_MS + 7 * 24 * 60 * 60_000,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          sportsDbEventId: "legacy-game-week-2",
+          resultAuthority: "none",
+        });
+      });
+      const secondEntry = await asOwner.mutation(api.pools.addPoolEntry, {
+        poolId,
+      });
+      const entries = await asOwner.query(api.pools.listMyPoolEntries, {
+        poolId,
+        nowMs: Date.now(),
+      });
+      const primaryEntryId = entries.entries.find(
+        (entry) => entry.entryId !== secondEntry.entryId,
+      )!.entryId;
+      for (const entryId of [primaryEntryId, secondEntry.entryId]) {
+        await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+          poolId,
+          week: 1,
+          nflTeamId: homeTeamId,
+          entryId,
+        });
+        await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+          poolId,
+          week: 2,
+          nflTeamId: awayTeamId,
+          entryId,
+        });
+      }
+
+      const terminal = terminalObservation({
+        homeScore: 20,
+        awayScore: 28,
+      });
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const before = await t.run(async (ctx) => ({
+        picks: await ctx.db
+          .query("survivorPicks")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", poolId).eq("week", 2),
+          )
+          .collect(),
+        work: await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .first(),
+      }));
+      expect(before.picks).toHaveLength(2);
+      expect(before.picks.every((pick) => pick.invalidated)).toBe(true);
+      expect(
+        before.picks.every(
+          (pick) => pick.invalidationReason === "earlier_elimination",
+        ),
+      ).toBe(true);
+
+      const correctedAtMs = terminal.observedAtMs + 15 * 60_000;
+      await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId: before.work!._id,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs: correctedAtMs,
+            homeScore: 28,
+            awayScore: 20,
+          }),
+          nowMs: correctedAtMs,
+        },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      const after = await t.run(async (ctx) => ({
+        picks: await ctx.db
+          .query("survivorPicks")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", poolId).eq("week", 2),
+          )
+          .collect(),
+        reservations: await ctx.db
+          .query("survivorTeamReservations")
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("poolId"), poolId),
+              q.eq(q.field("week"), 2),
+            ),
+          )
+          .collect(),
+        revisions: await ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect(),
+      }));
+      expect(after.picks.every((pick) => !pick.invalidated)).toBe(true);
+      expect(
+        after.picks.every((pick) => pick.invalidationReason === undefined),
+      ).toBe(true);
+      expect(after.reservations.every((row) => !row.released)).toBe(true);
+      expect(after.revisions.slice(-2).map((revision) => revision.week)).toEqual(
+        [1, 2],
+      );
+
+      await t.mutation(
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const afterIdenticalReplay = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect();
+      });
+      expect(afterIdenticalReplay).toHaveLength(after.revisions.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains an unsafe correction candidate after a later Pool Week lock", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { gameId, poolId } = await seed(t);
+      const terminal = terminalObservation();
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const workItemId = await t.run(async (ctx) => {
+        const pool = (await ctx.db.get(poolId))!;
+        const entry = (await ctx.db
+          .query("poolEntries")
+          .withIndex("by_poolId", (q) => q.eq("poolId", poolId))
+          .first())!;
+        await ctx.db.insert("survivorPicks", {
+          poolId,
+          participantId: pool.ownerParticipantId,
+          entryId: entry._id,
+          week: 2,
+          locked: true,
+          lockedAtMs: terminal.observedAtMs,
+          provenance: "omission",
+          provisional: true,
+          updatedAtMs: terminal.observedAtMs,
+        });
+        const [item] = await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .collect();
+        return item!._id;
+      });
+      const observedAtMs = terminal.observedAtMs + 15 * 60_000;
+
+      const result = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+          nowMs: observedAtMs,
+        },
+      );
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      expect(result).toMatchObject({ ok: true, result: "candidate" });
+      const state = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        revisions: await ctx.db.query("scoringRevisions").collect(),
+      }));
+      expect(state.game).toMatchObject({
+        resultAuthority: "verified",
+        homeScore: 27,
+        awayScore: 24,
+        verifiedResult: {
+          homeScore: 27,
+          awayScore: 24,
+          verifiedAtMs: terminal.observedAtMs,
+        },
+        correctionCandidate: {
+          homeScore: 20,
+          awayScore: 28,
+          observedAtMs,
+          status: "FT",
+        },
+      });
+      expect(state.game?.priorVerifiedResult).toBeUndefined();
+      expect(state.revisions).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains an unsafe correction candidate after a later Pool Week settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { gameId, poolId } = await seed(t);
+      const terminal = terminalObservation();
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const workItemId = await t.run(async (ctx) => {
+        await ctx.db.insert("poolWeeks", {
+          poolId,
+          week: 2,
+          settled: true,
+          updatedAtMs: terminal.observedAtMs,
+        });
+        const [item] = await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .collect();
+        return item!._id;
+      });
+      const observedAtMs = terminal.observedAtMs + 15 * 60_000;
+
+      const result = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+          nowMs: observedAtMs,
+        },
+      );
+
+      expect(result).toMatchObject({ ok: true, result: "candidate" });
+      const game = await t.run(async (ctx) => ctx.db.get(gameId));
+      expect(game).toMatchObject({
+        resultAuthority: "verified",
+        homeScore: 27,
+        awayScore: 24,
+        correctionCandidate: {
+          homeScore: 20,
+          awayScore: 28,
+          observedAtMs,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { lockMode: "gameKickoff" as const, label: "scheduled kickoff" },
+    { lockMode: "weeklyCutoff" as const, label: "weekly cutoff" },
+  ])(
+    "derives an unmaterialized later $label lock at correction receipt time",
+    async ({ lockMode }) => {
+      const t = convexTest(schema, modules);
+      const {
+        gameId,
+        poolId,
+        seasonId,
+        homeTeamId,
+        awayTeamId,
+      } = await seed(t);
+      const laterKickoffMs = NOW_MS + 7 * 24 * 60 * 60_000 + 3 * 60 * 60_000;
+      const observedAtMs =
+        lockMode === "weeklyCutoff"
+          ? computeWeeklyCutoffMs(laterKickoffMs) + 1
+          : laterKickoffMs + 1;
+      await t.run(async (ctx) => {
+        await ctx.db.patch(poolId, { pickLockMode: lockMode });
+        await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2026:w2:det@gb",
+          seasonId,
+          seasonLabel: "2026",
+          week: 2,
+          homeTeamId,
+          awayTeamId,
+          scheduledKickoffMs: laterKickoffMs,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          sportsDbEventId: "legacy-game-week-2-derived-lock",
+          resultAuthority: "none",
+        });
+      });
+      const terminal = terminalObservation();
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      const workItemId = await t.run(async (ctx) => {
+        const [item] = await ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "correction"))
+          .collect();
+        return item!._id;
+      });
+
+      const result = await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: terminalObservation({
+            observedAtMs,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+          nowMs: observedAtMs,
+        },
+      );
+
+      expect(result).toMatchObject({ ok: true, result: "candidate" });
+      const game = await t.run(async (ctx) => ctx.db.get(gameId));
+      expect(game?.verifiedResult).toMatchObject({
+        homeScore: 27,
+        awayScore: 24,
+      });
+      expect(game?.correctionCandidate).toMatchObject({
+        homeScore: 20,
+        awayScore: 28,
+        observedAtMs,
+      });
+    },
+  );
+
+  it("fails closed when correction dependency scope exceeds its bounded Pool read", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId, poolId, seasonId } = await seed(t);
+    await t.run(async (ctx) => {
+      const ownerParticipantId = (await ctx.db.get(poolId))!.ownerParticipantId;
+      for (let index = 0; index < 200; index++) {
+        await ctx.db.insert("pools", {
+          name: `Bounded Pool ${index}`,
+          type: "survivor",
+          seasonId,
+          startWeek: 1,
+          pickLockMode: "gameKickoff",
+          status: "active",
+          rulesFrozen: false,
+          ownerParticipantId,
+          createdAtMs: NOW_MS,
+        });
+      }
+    });
+    const terminal = terminalObservation();
+    await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+      observations: [terminal],
+      nowMs: terminal.observedAtMs,
+    });
+
+    const result = await t.mutation(
+      internal.syncApiSportsLive.applyReconciliationObservation,
+      {
+        gameId,
+        observation: terminalObservation({
+          observedAtMs: terminal.observedAtMs + 15 * 60_000,
+          homeScore: 20,
+          awayScore: 28,
+        }),
+      },
+    );
+
+    expect(result.result).toBe("candidate");
+    const game = await t.run(async (ctx) => ctx.db.get(gameId));
+    expect(game?.verifiedResult).toMatchObject({
+      homeScore: 27,
+      awayScore: 24,
+    });
+  });
+
+  it("preserves the Verified Result and upserts one incident when reconciliation fails", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId } = await seed(t);
+    const terminal = terminalObservation();
+    await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+      observations: [terminal],
+      nowMs: terminal.observedAtMs,
+    });
+    const workItemId = await t.run(async (ctx) => {
+      const [item] = await ctx.db
+        .query("syncWorkItems")
+        .filter((q) => q.eq(q.field("surface"), "correction"))
+        .collect();
+      return item!._id;
+    });
+
+    for (const nowMs of [
+      terminal.observedAtMs + 15 * 60_000,
+      terminal.observedAtMs + 16 * 60_000,
+    ]) {
+      await t.action(
+        internal.syncApiSportsLive.applyReconciliationLookupResult,
+        {
+          workItemId,
+          gameId,
+          requestedExternalId: "77779",
+          observation: null,
+          nowMs,
+        },
+      );
+    }
+
+    const state = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      incidents: await ctx.db
+        .query("operatorIncidents")
+        .filter((q) => q.eq(q.field("scopeKey"), `correction:${gameId}`))
+        .collect(),
+    }));
+    expect(state.game?.verifiedResult).toMatchObject({
+      homeScore: 27,
+      awayScore: 24,
+      verifiedAtMs: terminal.observedAtMs,
+    });
+    expect(state.incidents).toHaveLength(1);
   });
 
   it("preserves the last trusted state and opens an incident for incoherent terminal scores", async () => {
@@ -510,7 +1357,7 @@ describe("API-Sports live slate ingestion", () => {
       });
       expect(state.reservations[0]?.released).toBe(true);
       expect(state.outcomes).toHaveLength(1);
-      expect(state.outcomes[0]?.outcome).toBe("invalidated");
+      expect(state.outcomes[0]?.outcome).toBe("missing_pick");
     } finally {
       vi.useRealTimers();
     }

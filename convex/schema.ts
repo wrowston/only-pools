@@ -157,6 +157,19 @@ export default defineSchema({
         supersededAtMs: v.number(),
       }),
     ),
+    /** Changed terminal evidence retained when downstream dependencies block auto-apply. */
+    correctionCandidate: v.optional(
+      v.object({
+        homeScore: v.number(),
+        awayScore: v.number(),
+        observedAtMs: v.number(),
+        status: v.union(
+          v.literal("FT"),
+          v.literal("AOT"),
+          v.literal("CANC"),
+        ),
+      }),
+    ),
     lastObservedAtMs: v.optional(v.number()),
     revision: v.optional(v.number()),
   })
@@ -168,6 +181,50 @@ export default defineSchema({
     )
     .index("by_sportsDbEventId", ["sportsDbEventId"])
     .index("by_seasonId", ["seasonId"]),
+
+  /** Immutable history: one row for every Verified Result superseded by correction. */
+  nflGameResultHistory: defineTable({
+    nflGameId: v.id("nflGames"),
+    homeScore: v.number(),
+    awayScore: v.number(),
+    status: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    verifiedAtMs: v.number(),
+    supersededAtMs: v.number(),
+  })
+    .index("by_nflGameId", ["nflGameId"])
+    .index("by_nflGameId_and_supersededAtMs", [
+      "nflGameId",
+      "supersededAtMs",
+    ]),
+
+  /** Immutable provider evidence from every coherent correction lookup. */
+  nflGameResultReconciliationObservations: defineTable({
+    nflGameId: v.id("nflGames"),
+    observedAtMs: v.number(),
+    homeScore: v.number(),
+    awayScore: v.number(),
+    status: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    matchesVerified: v.boolean(),
+    disposition: v.union(
+      v.literal("unchanged"),
+      v.literal("candidate"),
+      v.literal("corrected"),
+      v.literal("stale"),
+    ),
+  })
+    .index("by_nflGameId", ["nflGameId"])
+    .index("by_nflGameId_and_observedAtMs", [
+      "nflGameId",
+      "observedAtMs",
+    ]),
 
   /**
    * Replaceable provider aliases. Legacy SportsDB columns remain temporarily
@@ -751,11 +808,17 @@ export default defineSchema({
     /** Advance / future-week pick while earlier weeks are unsettled. */
     provisional: v.boolean(),
     /**
-     * Set when earlier elimination invalidates a later Provisional Survivor
-     * Pick — team reservation is released and the team is not consumed.
+     * Set when an earlier elimination or pre-lock cancellation invalidates a
+     * Survivor Pick — reservation is released and the team is not consumed.
      */
     invalidated: v.optional(v.boolean()),
     invalidatedAtMs: v.optional(v.number()),
+    invalidationReason: v.optional(
+      v.union(
+        v.literal("earlier_elimination"),
+        v.literal("pre_lock_cancellation"),
+      ),
+    ),
     updatedAtMs: v.number(),
   })
     .index("by_poolId_and_participantId_and_week", [
@@ -765,6 +828,12 @@ export default defineSchema({
     ])
     .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
     .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_locked_and_week", ["poolId", "locked", "week"])
+    .index("by_poolId_and_provisional_and_week", [
+      "poolId",
+      "provisional",
+      "week",
+    ])
     .index("by_poolId_and_participantId", ["poolId", "participantId"])
     .index("by_entryId", ["entryId"]),
 
@@ -870,6 +939,7 @@ export default defineSchema({
     .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
     .index("by_poolId_and_week_and_gameId", ["poolId", "week", "gameId"])
     .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_locked_and_week", ["poolId", "locked", "week"])
     .index("by_entryId", ["entryId"]),
 
   /**
@@ -884,7 +954,9 @@ export default defineSchema({
     currentScoringRevisionId: v.optional(v.id("scoringRevisions")),
     currentRevisionNumber: v.optional(v.number()),
     updatedAtMs: v.number(),
-  }).index("by_poolId_and_week", ["poolId", "week"]),
+  })
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_settled_and_week", ["poolId", "settled", "week"]),
 
   /**
    * Immutable official Scoring Revision for one Pool Week.

@@ -178,6 +178,7 @@ async function invalidateLaterProvisionals(
     await ctx.db.patch(pick._id, {
       invalidated: true,
       invalidatedAtMs: args.nowMs,
+      invalidationReason: "earlier_elimination",
       updatedAtMs: args.nowMs,
     });
     if (pick.nflTeamId) {
@@ -204,17 +205,25 @@ async function invalidateLaterProvisionals(
 
 /**
  * Corrected Result restoring eligibility also reinstates later Provisional
- * Survivor Picks accepted before their own lock (team re-reserved).
+ * Survivor Picks invalidated by that earlier elimination (team re-reserved).
+ * Cancellation invalidations remain released so the participant can replace.
  */
 async function reinstateProvisionalIfNeeded(
   ctx: MutationCtx,
   pick: Doc<"survivorPicks">,
   nowMs: number,
 ): Promise<Doc<"survivorPicks">> {
-  if (!pick.invalidated || !pick.provisional) return pick;
+  if (
+    !pick.invalidated ||
+    !pick.provisional ||
+    pick.invalidationReason !== "earlier_elimination"
+  ) {
+    return pick;
+  }
   await ctx.db.patch(pick._id, {
     invalidated: undefined,
     invalidatedAtMs: undefined,
+    invalidationReason: undefined,
     updatedAtMs: nowMs,
   });
   if (pick.nflTeamId && pick.entryId !== undefined) {
@@ -262,6 +271,15 @@ type PublishResult =
       revisionNumber: number;
       weekSettled: boolean;
       poolStatus: "active" | "completed";
+    };
+
+type SurvivorWeekContinuationResult =
+  | { scored: false; continuationScheduled: false }
+  | {
+      scored: true;
+      week: number;
+      resultStatus: PublishResult["status"];
+      continuationScheduled: boolean;
     };
 
 /**
@@ -420,6 +438,7 @@ export const applySurvivorScoringRevision = internalMutation({
                 provenance: pick.provenance,
                 provisional: pick.provisional,
                 invalidated: pick.invalidated,
+                invalidationReason: pick.invalidationReason,
                 locked: pick.locked,
               }
             : null,
@@ -462,13 +481,20 @@ export const applySurvivorScoringRevision = internalMutation({
         poolId: pool._id,
         week: w,
         priorEligibility,
-        picks: picks.map((p) => ({
-          participantId: (p.entryId ?? p.participantId) as string,
-          nflTeamId: p.nflTeamId,
-          gameId: p.gameId,
-          provenance: p.provenance,
-          invalidated: p.invalidated,
-        })),
+        picks: picks.map((originalPick) => {
+          const pick =
+            originalPick.entryId === undefined
+              ? originalPick
+              : (pickByEntry.get(originalPick.entryId) ?? originalPick);
+          return {
+            participantId: (pick.entryId ?? pick.participantId) as string,
+            nflTeamId: pick.nflTeamId,
+            gameId: pick.gameId,
+            provenance: pick.provenance,
+            invalidated: pick.invalidated,
+            invalidationReason: pick.invalidationReason,
+          };
+        }),
         verifiedGames: games
           .filter((g) => g.resultAuthority === "verified" && g.verifiedResult)
           .map((g) => ({
@@ -482,12 +508,23 @@ export const applySurvivorScoringRevision = internalMutation({
 
       if (w === args.week) {
         targetFingerprint = fingerprint;
-        // Settled when every Alive entrant has a non-pending outcome.
+        const enteredAliveOutcomes = weekOutcomes.filter(
+          (outcome) => outcome.enteredAlive,
+        );
+        // Resolved picked games may settle before the rest of the slate locks.
+        // A pre-lock invalidation is different: it remains replaceable, so it
+        // cannot settle the week until the full lock closes that opportunity.
+        const hasReplaceableInvalidation =
+          !locked &&
+          enteredAliveOutcomes.some(
+            (outcome) => outcome.outcome === "invalidated",
+          );
         targetWeekSettled =
-          enteredAlive.length === 0 ||
-          weekOutcomes
-            .filter((o) => o.enteredAlive)
-            .every((o) => o.outcome !== "pending");
+          !hasReplaceableInvalidation &&
+          (enteredAlive.length === 0 ||
+            enteredAliveOutcomes.every(
+              (outcome) => outcome.outcome !== "pending",
+            ));
         for (const o of weekOutcomes) {
           targetOutcomes.set(o.entryId, o);
         }
@@ -713,9 +750,11 @@ export const handleVerifiedCancellation = internalMutation({
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
-    if (!game) return { invalidated: 0 };
-    if (game.resultAuthority !== "verified") return { invalidated: 0 };
-    if (game.verifiedResult?.status !== "CANC") return { invalidated: 0 };
+    if (!game) return { scheduledPools: 0 };
+    if (game.resultAuthority !== "verified") return { scheduledPools: 0 };
+    if (game.verifiedResult?.status !== "CANC") {
+      return { scheduledPools: 0 };
+    }
 
     const nowMs = args.nowMs ?? Date.now();
     const pools = await ctx.db
@@ -723,58 +762,112 @@ export const handleVerifiedCancellation = internalMutation({
       .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
       .take(200);
 
-    let invalidated = 0;
+    let scheduledPools = 0;
     for (const pool of pools) {
       if (pool.type !== "survivor") continue;
-      const picks = await ctx.db
-        .query("survivorPicks")
-        .withIndex("by_poolId_and_week", (q) =>
-          q.eq("poolId", pool._id).eq("week", game.week),
-        )
-        .take(MAX_POOL_ENTRIES);
-
-      for (const pick of picks) {
-        if (pick.gameId !== game._id) continue;
-        if (pick.invalidated) continue;
-        if (pick.locked) continue; // No-Contest Advance path
-
-        await ctx.db.patch(pick._id, {
-          invalidated: true,
-          invalidatedAtMs: nowMs,
-          updatedAtMs: nowMs,
-        });
-        if (pick.nflTeamId && pick.entryId !== undefined) {
-          const reservations = await ctx.db
-            .query("survivorTeamReservations")
-            .withIndex("by_poolId_and_entryId_and_nflTeamId", (q) =>
-              q
-                .eq("poolId", pool._id)
-                .eq("entryId", pick.entryId)
-                .eq("nflTeamId", pick.nflTeamId!),
-            )
-            .take(8);
-          for (const res of reservations) {
-            if (res.week === pick.week && !res.released) {
-              await ctx.db.patch(res._id, {
-                released: true,
-                updatedAtMs: nowMs,
-              });
-            }
-          }
-        }
-        invalidated += 1;
+      if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
+        continue;
       }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.handleVerifiedCancellationForPool,
+        {
+          gameId: game._id,
+          poolId: pool._id,
+          nowMs,
+        },
+      );
+      scheduledPools += 1;
+    }
+    return { scheduledPools };
+  },
+});
+
+/**
+ * Clean up one Pool after a verified cancellation, then schedule that same
+ * Pool's replay. The scheduled replay cannot observe partial cleanup because
+ * it is enqueued only after this mutation commits.
+ */
+export const handleVerifiedCancellationForPool = internalMutation({
+  args: {
+    gameId: v.id("nflGames"),
+    poolId: v.id("pools"),
+    nowMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const [game, pool] = await Promise.all([
+      ctx.db.get(args.gameId),
+      ctx.db.get(args.poolId),
+    ]);
+    if (
+      !game ||
+      game.resultAuthority !== "verified" ||
+      game.verifiedResult?.status !== "CANC" ||
+      !pool ||
+      pool.type !== "survivor" ||
+      pool.seasonId !== game.seasonId ||
+      game.week < pool.startWeek ||
+      game.week > SURVIVOR_FINAL_WEEK
+    ) {
+      return { invalidated: 0, replayScheduled: false };
     }
 
-    // Survivor scoring must observe every pre-lock invalidation and released
-    // reservation. Scheduling it from this mutation establishes that order;
-    // callers must not schedule a competing scoring job for cancellations.
+    const picks = await ctx.db
+      .query("survivorPicks")
+      .withIndex("by_poolId_and_week", (q) =>
+        q.eq("poolId", pool._id).eq("week", game.week),
+      )
+      .take(MAX_POOL_ENTRIES);
+
+    let invalidated = 0;
+    for (const pick of picks) {
+      if (pick.gameId !== game._id) continue;
+      if (pick.locked) continue; // No-Contest Advance path
+
+      const newlyInvalidated = !pick.invalidated;
+      if (
+        newlyInvalidated ||
+        pick.invalidationReason !== "pre_lock_cancellation"
+      ) {
+        await ctx.db.patch(pick._id, {
+          invalidated: true,
+          invalidatedAtMs: args.nowMs,
+          invalidationReason: "pre_lock_cancellation",
+          updatedAtMs: args.nowMs,
+        });
+      }
+      if (pick.nflTeamId && pick.entryId !== undefined) {
+        const reservations = await ctx.db
+          .query("survivorTeamReservations")
+          .withIndex("by_poolId_and_entryId_and_nflTeamId", (q) =>
+            q
+              .eq("poolId", pool._id)
+              .eq("entryId", pick.entryId)
+              .eq("nflTeamId", pick.nflTeamId!),
+          )
+          .take(8);
+        for (const reservation of reservations) {
+          if (reservation.week === pick.week && !reservation.released) {
+            await ctx.db.patch(reservation._id, {
+              released: true,
+              updatedAtMs: args.nowMs,
+            });
+          }
+        }
+      }
+      if (newlyInvalidated) invalidated += 1;
+    }
+
     await ctx.scheduler.runAfter(
       0,
-      internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
-      { gameId: game._id, nowMs },
+      internal.survivorScoring.scoreSurvivorPoolForVerifiedGame,
+      {
+        gameId: game._id,
+        poolId: pool._id,
+        nowMs: args.nowMs,
+      },
     );
-    return { invalidated };
+    return { invalidated, replayScheduled: true };
   },
 });
 
@@ -789,40 +882,187 @@ export const scoreSurvivorPoolsForVerifiedGame = internalMutation({
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
-    if (!game) return { scoredPools: 0 };
-    if (game.resultAuthority !== "verified") return { scoredPools: 0 };
+    if (!game) return { scheduledPools: 0 };
+    if (game.resultAuthority !== "verified") return { scheduledPools: 0 };
 
     const pools = await ctx.db
       .query("pools")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
       .take(200);
 
-    let scoredPools = 0;
+    let scheduledPools = 0;
     for (const pool of pools) {
       if (pool.type !== "survivor") continue;
       if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
         continue;
       }
-      // Replay from the verified week through later weeks so provisional
-      // invalidation, corrections, and terminal outcomes cascade.
-      for (let w = game.week; w <= SURVIVOR_FINAL_WEEK; w++) {
-        const weekGames = await loadWeekGames(ctx, pool.seasonId, w);
-        if (weekGames.length === 0 && w > game.week) break;
-        const result = await ctx.runMutation(
-          internal.survivorScoring.applySurvivorScoringRevision,
-          {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.scoreSurvivorPoolForVerifiedGame,
+        args.nowMs === undefined
+          ? { gameId: game._id, poolId: pool._id }
+          : { gameId: game._id, poolId: pool._id, nowMs: args.nowMs },
+      );
+      scheduledPools += 1;
+    }
+    return { scheduledPools };
+  },
+});
+
+/**
+ * Discover one Pool's affected weeks, then start a commit-ordered continuation
+ * chain. Discovery performs no scoring or entry-scaled work.
+ */
+export const scoreSurvivorPoolForVerifiedGame = internalMutation({
+  args: {
+    gameId: v.id("nflGames"),
+    poolId: v.id("pools"),
+    nowMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const [game, pool] = await Promise.all([
+      ctx.db.get(args.gameId),
+      ctx.db.get(args.poolId),
+    ]);
+    if (!game || game.resultAuthority !== "verified") {
+      return { scored: false };
+    }
+    if (
+      !pool ||
+      pool.type !== "survivor" ||
+      pool.seasonId !== game.seasonId ||
+      game.week < pool.startWeek ||
+      game.week > SURVIVOR_FINAL_WEEK
+    ) {
+      return { scored: false };
+    }
+
+    // Replay the corrected week plus later weeks that already carry Pool
+    // state. A scheduled NFL slate alone must not materialize an empty
+    // Pool Week, while a provisional pick still needs correction replay so
+    // its invalidation/reservation can be restored.
+    const replayWeeks = new Set([game.week]);
+    const laterPoolWeeks = await ctx.db
+      .query("poolWeeks")
+      .withIndex("by_poolId_and_week", (q) =>
+        q.eq("poolId", pool._id).gt("week", game.week),
+      )
+      .take(SURVIVOR_FINAL_WEEK);
+    for (const poolWeek of laterPoolWeeks) {
+      if (poolWeek.week <= SURVIVOR_FINAL_WEEK) {
+        replayWeeks.add(poolWeek.week);
+      }
+    }
+    for (let week = game.week + 1; week <= SURVIVOR_FINAL_WEEK; week++) {
+      const existingPick = await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", pool._id).eq("week", week),
+        )
+        .first();
+      if (existingPick) replayWeeks.add(week);
+    }
+
+    const weeks = [...replayWeeks].sort((a, b) => a - b);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.survivorScoring.scoreSurvivorPoolWeekContinuation,
+      args.nowMs === undefined
+        ? { gameId: game._id, poolId: pool._id, weeks }
+        : {
+            gameId: game._id,
             poolId: pool._id,
-            week: w,
+            weeks,
             nowMs: args.nowMs,
           },
-        );
-        if (result.status === "published" && result.poolStatus === "completed") {
-          break;
-        }
-      }
-      scoredPools += 1;
+    );
+    return { scored: true, scheduledWeeks: weeks.length };
+  },
+});
+
+/**
+ * Apply exactly one Pool Week, then enqueue the next week only after this
+ * transaction commits. This bounds entry-scaled scoring work per transaction.
+ */
+export const scoreSurvivorPoolWeekContinuation = internalMutation({
+  args: {
+    gameId: v.id("nflGames"),
+    poolId: v.id("pools"),
+    weeks: v.array(v.number()),
+    nowMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<SurvivorWeekContinuationResult> => {
+    const week = args.weeks[0];
+    if (week === undefined) {
+      return { scored: false, continuationScheduled: false };
     }
-    return { scoredPools };
+    const [game, pool] = await Promise.all([
+      ctx.db.get(args.gameId),
+      ctx.db.get(args.poolId),
+    ]);
+    if (
+      !game ||
+      game.resultAuthority !== "verified" ||
+      !pool ||
+      pool.type !== "survivor" ||
+      pool.seasonId !== game.seasonId ||
+      game.week < pool.startWeek ||
+      game.week > SURVIVOR_FINAL_WEEK ||
+      week < game.week ||
+      week > SURVIVOR_FINAL_WEEK
+    ) {
+      return { scored: false, continuationScheduled: false };
+    }
+
+    const result = await ctx.runMutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      args.nowMs === undefined
+        ? { poolId: pool._id, week }
+        : { poolId: pool._id, week, nowMs: args.nowMs },
+    );
+
+    let stop =
+      result.status === "published" && result.poolStatus === "completed";
+    if (!stop && result.status === "noop") {
+      const currentPool = await ctx.db.get(pool._id);
+      stop =
+        currentPool?.status === "completed" &&
+        currentPool.completedWeek !== undefined &&
+        currentPool.completedWeek <= week;
+    }
+
+    const remainingWeeks = args.weeks.slice(1);
+    if (!stop && remainingWeeks.length > 0) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.scoreSurvivorPoolWeekContinuation,
+        args.nowMs === undefined
+          ? {
+              gameId: game._id,
+              poolId: pool._id,
+              weeks: remainingWeeks,
+            }
+          : {
+              gameId: game._id,
+              poolId: pool._id,
+              weeks: remainingWeeks,
+              nowMs: args.nowMs,
+            },
+      );
+      return {
+        scored: true,
+        week,
+        resultStatus: result.status,
+        continuationScheduled: true,
+      };
+    }
+
+    return {
+      scored: true,
+      week,
+      resultStatus: result.status,
+      continuationScheduled: false,
+    };
   },
 });
 

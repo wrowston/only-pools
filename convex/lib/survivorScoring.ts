@@ -18,6 +18,10 @@ export type EliminationReason = "loss" | "tie" | "missing_pick";
 
 export type SurvivorEligibility = "alive" | "eliminated" | "winner";
 
+export type SurvivorPickInvalidationReason =
+  | "earlier_elimination"
+  | "pre_lock_cancellation";
+
 export type VerifiedGameInput = {
   gameId: string;
   homeTeamId: string;
@@ -37,6 +41,7 @@ export type SurvivorPickInput = {
   provenance: "authored" | "omission";
   provisional: boolean;
   invalidated?: boolean;
+  invalidationReason?: SurvivorPickInvalidationReason;
   /** True when Pick Lock has been reached for this pick. */
   locked?: boolean;
 };
@@ -53,6 +58,13 @@ export function resolveSurvivorPickOutcome(args: {
   weekFullyLocked: boolean;
 }): SurvivorPickOutcomeKind {
   const { pick, game, weekFullyLocked } = args;
+
+  if (
+    pick?.invalidated &&
+    pick.invalidationReason === "pre_lock_cancellation"
+  ) {
+    return weekFullyLocked ? "missing_pick" : "pending";
+  }
 
   if (pick?.invalidated) {
     return "invalidated";
@@ -175,6 +187,7 @@ export function buildSurvivorWeekFingerprint(args: {
     gameId?: string;
     provenance: string;
     invalidated?: boolean;
+    invalidationReason?: SurvivorPickInvalidationReason;
   }>;
   verifiedGames: Array<{
     gameId: string;
@@ -192,7 +205,7 @@ export function buildSurvivorWeekFingerprint(args: {
     .sort((a, b) => a.participantId.localeCompare(b.participantId))
     .map(
       (p) =>
-        `${p.participantId}:${p.provenance}:${p.nflTeamId ?? ""}:${p.gameId ?? ""}:${p.invalidated === true ? "1" : "0"}`,
+        `${p.participantId}:${p.provenance}:${p.nflTeamId ?? ""}:${p.gameId ?? ""}:${p.invalidated === true ? "1" : "0"}:${p.invalidationReason ?? ""}`,
     )
     .join(",");
   const games = [...args.verifiedGames]

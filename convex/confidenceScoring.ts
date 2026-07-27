@@ -360,7 +360,7 @@ export const applyConfidenceScoringRevision = internalMutation({
       })),
     });
 
-    let poolWeek = await ctx.db
+    const poolWeek = await ctx.db
       .query("poolWeeks")
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", args.week),
@@ -708,6 +708,7 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
   args: {
     gameId: v.id("nflGames"),
     nowMs: v.optional(v.number()),
+    replayLaterWeeks: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
@@ -725,14 +726,33 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
       if (game.week < pool.startWeek || game.week > CONFIDENCE_FINAL_WEEK) {
         continue;
       }
-      await ctx.runMutation(
-        internal.confidenceScoring.applyConfidenceScoringRevision,
-        {
-          poolId: pool._id,
-          week: game.week,
-          nowMs: args.nowMs,
-        },
-      );
+      // Corrections replay only Pool Weeks that already exist as scoring
+      // dependencies. A future scheduled NFL slate alone must not create an
+      // official revision (or make the next correction unsafe).
+      const replayWeeks = new Set([game.week]);
+      if (args.replayLaterWeeks) {
+        const existingLaterWeeks = await ctx.db
+          .query("poolWeeks")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", pool._id).gt("week", game.week),
+          )
+          .take(CONFIDENCE_FINAL_WEEK);
+        for (const poolWeek of existingLaterWeeks) {
+          if (poolWeek.week <= CONFIDENCE_FINAL_WEEK) {
+            replayWeeks.add(poolWeek.week);
+          }
+        }
+      }
+      for (const week of [...replayWeeks].sort((a, b) => a - b)) {
+        await ctx.runMutation(
+          internal.confidenceScoring.applyConfidenceScoringRevision,
+          {
+            poolId: pool._id,
+            week,
+            nowMs: args.nowMs,
+          },
+        );
+      }
       scoredPools += 1;
     }
     return { scoredPools };

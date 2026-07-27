@@ -63,6 +63,7 @@ import type * as providers_apiSports_testing_fixtures from "../providers/apiSpor
 import type * as providers_sportsData_aliases from "../providers/sportsData/aliases.js";
 import type * as providers_sportsData_catalog from "../providers/sportsData/catalog.js";
 import type * as providers_sportsData_config from "../providers/sportsData/config.js";
+import type * as providers_sportsData_correctionReconciliation from "../providers/sportsData/correctionReconciliation.js";
 import type * as providers_sportsData_identity from "../providers/sportsData/identity.js";
 import type * as providers_sportsData_identityStore from "../providers/sportsData/identityStore.js";
 import type * as providers_sportsData_inMemory from "../providers/sportsData/inMemory.js";
@@ -149,6 +150,7 @@ declare const fullApi: ApiFromModules<{
   "providers/sportsData/aliases": typeof providers_sportsData_aliases;
   "providers/sportsData/catalog": typeof providers_sportsData_catalog;
   "providers/sportsData/config": typeof providers_sportsData_config;
+  "providers/sportsData/correctionReconciliation": typeof providers_sportsData_correctionReconciliation;
   "providers/sportsData/identity": typeof providers_sportsData_identity;
   "providers/sportsData/identityStore": typeof providers_sportsData_identityStore;
   "providers/sportsData/inMemory": typeof providers_sportsData_inMemory;

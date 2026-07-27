@@ -18,10 +18,18 @@ import {
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { runEffect } from "./effect/run";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
+import {
+  computeWeeklyCutoffMs,
+  isGameKickoffLocked,
+} from "./lib/pickLock";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
 import { selectSportsDataProvider } from "./providers/sportsData/config";
+import {
+  correctionReconciliationSchedule,
+  terminalEvidenceMatches,
+} from "./providers/sportsData/correctionReconciliation";
 import { resolveNflGameAlias } from "./providers/sportsData/identityStore";
 import {
   LIVE_REFRESH_CADENCE_MS,
@@ -130,6 +138,122 @@ async function ingestionState(
     .unique();
 }
 
+async function enqueueCorrectionReconciliation(
+  ctx: MutationCtx,
+  input: {
+    gameId: Id<"nflGames">;
+    seasonId: Id<"poolSeasons">;
+    verifiedAtMs: number;
+  },
+): Promise<void> {
+  for (const item of correctionReconciliationSchedule(input.verifiedAtMs)) {
+    const scopeKey = `result-reconciliation:${input.gameId}:${item.purpose}`;
+    const existing = await ctx.db
+      .query("syncWorkItems")
+      .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
+      .unique();
+    if (existing) continue;
+    await ctx.db.insert("syncWorkItems", {
+      surface: "correction",
+      scopeKey,
+      priority: "confirmation",
+      status: "due",
+      dueAtMs: item.dueAtMs,
+      attemptCount: 0,
+      gameId: input.gameId,
+      seasonId: input.seasonId,
+      purpose: item.purpose,
+    });
+  }
+}
+
+async function hasLaterPoolWeekDependency(
+  ctx: MutationCtx,
+  game: Doc<"nflGames">,
+  observedAtMs: number,
+): Promise<boolean> {
+  const pools = await ctx.db
+    .query("pools")
+    .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
+    .take(201);
+  if (pools.length > 200) return true;
+  const seasonGames = await ctx.db
+    .query("nflGames")
+    .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
+    .take(401);
+  if (seasonGames.length > 400) return true;
+  const laterGames = seasonGames.filter(
+    (candidate) => candidate.week > game.week,
+  );
+  const laterGameLockReached = laterGames.some((candidate) =>
+    isGameKickoffLocked(candidate, observedAtMs),
+  );
+  const laterWeeklyCutoffs = new Map<number, number>();
+  for (const candidate of laterGames) {
+    const current = laterWeeklyCutoffs.get(candidate.week);
+    if (current === undefined || candidate.scheduledKickoffMs < current) {
+      laterWeeklyCutoffs.set(candidate.week, candidate.scheduledKickoffMs);
+    }
+  }
+  const laterWeeklyCutoffReached = [...laterWeeklyCutoffs.values()].some(
+    (anchorMs) => observedAtMs >= computeWeeklyCutoffMs(anchorMs),
+  );
+  for (const pool of pools) {
+    if (pool.startWeek > game.week) continue;
+    if (laterGameLockReached) return true;
+    if (
+      pool.pickLockMode === "weeklyCutoff" &&
+      laterWeeklyCutoffReached
+    ) {
+      return true;
+    }
+    const laterSettledPoolWeek = await ctx.db
+      .query("poolWeeks")
+      .withIndex("by_poolId_and_settled_and_week", (q) =>
+        q
+          .eq("poolId", pool._id)
+          .eq("settled", true)
+          .gt("week", game.week),
+      )
+      .first();
+    if (laterSettledPoolWeek) return true;
+
+    const laterSurvivorLock = await ctx.db
+      .query("survivorPicks")
+      .withIndex("by_poolId_and_locked_and_week", (q) =>
+        q
+          .eq("poolId", pool._id)
+          .eq("locked", true)
+          .gt("week", game.week),
+      )
+      .first();
+    if (laterSurvivorLock) return true;
+
+    const laterNonProvisionalSurvivorPick = await ctx.db
+      .query("survivorPicks")
+      .withIndex("by_poolId_and_provisional_and_week", (q) =>
+        q
+          .eq("poolId", pool._id)
+          .eq("provisional", false)
+          .gt("week", game.week),
+      )
+      .first();
+    if (laterNonProvisionalSurvivorPick) return true;
+
+    const laterConfidenceLock = await ctx.db
+      .query("confidencePicks")
+      .withIndex("by_poolId_and_locked_and_week", (q) =>
+        q
+          .eq("poolId", pool._id)
+          .eq("locked", true)
+          .gt("week", game.week),
+      )
+      .first();
+    if (laterConfidenceLock) return true;
+  }
+  return false;
+}
+
 export const hasActiveWindow = internalQuery({
   args: { nowMs: v.number() },
   handler: async (ctx, args) => {
@@ -177,6 +301,21 @@ export const recordUnresolvedRecovery = internalMutation({
     return await openLiveIncident(ctx, {
       scopeKey: `recovery:${args.gameId}`,
       summary: `Targeted live-score recovery did not resolve (${args.reason}); the last trusted state was preserved.`,
+      nowMs: args.nowMs,
+    });
+  },
+});
+
+export const recordCorrectionFailure = internalMutation({
+  args: {
+    gameId: v.id("nflGames"),
+    nowMs: v.number(),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await openLiveIncident(ctx, {
+      scopeKey: `correction:${args.gameId}`,
+      summary: `API-Sports result reconciliation failed (${args.reason}); the current Verified Result was preserved.`,
       nowMs: args.nowMs,
     });
   },
@@ -350,6 +489,11 @@ export const applyObservation = internalMutation({
           game.kickoffLockReachedAtMs ?? observation.observedAtMs,
         revision: (game.revision ?? 0) + 1,
       });
+      await enqueueCorrectionReconciliation(ctx, {
+        gameId,
+        seasonId: game.seasonId,
+        verifiedAtMs: terminal.result.verifiedAtMs,
+      });
       if (terminal.result.status === "CANC") {
         await ctx.scheduler.runAfter(
           0,
@@ -398,6 +542,147 @@ export const applyObservation = internalMutation({
       revision: (game.revision ?? 0) + 1,
     });
     return { status: "applied" as const, gameId, incidentId: null };
+  },
+});
+
+export const applyReconciliationObservation = internalMutation({
+  args: {
+    gameId: v.id("nflGames"),
+    observation: liveObservationValidator,
+  },
+  handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    if (
+      !game ||
+      game.resultAuthority !== "verified" ||
+      !game.verifiedResult
+    ) {
+      return { result: "not_verified" as const };
+    }
+    const terminal = immediateVerifiedResult(args.observation);
+    if (!terminal.accepted) {
+      return { result: "rejected" as const };
+    }
+    const evidence = {
+      observedAtMs: args.observation.observedAtMs,
+      homeScore: terminal.result.homeScore,
+      awayScore: terminal.result.awayScore,
+      status: terminal.result.status,
+      matchesVerified: terminalEvidenceMatches(
+        game.verifiedResult,
+        terminal.result,
+      ),
+    };
+    if (
+      game.lastObservedAtMs !== undefined &&
+      args.observation.observedAtMs < game.lastObservedAtMs
+    ) {
+      await ctx.db.insert("nflGameResultReconciliationObservations", {
+        nflGameId: game._id,
+        ...evidence,
+        disposition: "stale",
+      });
+      return { result: "stale" as const };
+    }
+
+    if (evidence.matchesVerified) {
+      await ctx.db.insert("nflGameResultReconciliationObservations", {
+        nflGameId: game._id,
+        ...evidence,
+        disposition: "unchanged",
+      });
+      await ctx.db.patch(game._id, {
+        correctionCandidate: undefined,
+        lastObservedAtMs: args.observation.observedAtMs,
+        revision: (game.revision ?? 0) + 1,
+      });
+      return { result: "unchanged" as const };
+    }
+
+    const candidate = {
+      homeScore: terminal.result.homeScore,
+      awayScore: terminal.result.awayScore,
+      observedAtMs: args.observation.observedAtMs,
+      status: terminal.result.status,
+    };
+    if (
+      await hasLaterPoolWeekDependency(
+        ctx,
+        game,
+        args.observation.observedAtMs,
+      )
+    ) {
+      await ctx.db.insert("nflGameResultReconciliationObservations", {
+        nflGameId: game._id,
+        ...evidence,
+        disposition: "candidate",
+      });
+      await ctx.db.patch(game._id, {
+        correctionCandidate: candidate,
+        lastObservedAtMs: args.observation.observedAtMs,
+        revision: (game.revision ?? 0) + 1,
+      });
+      return { result: "candidate" as const };
+    }
+
+    await ctx.db.insert("nflGameResultHistory", {
+      nflGameId: game._id,
+      homeScore: game.verifiedResult.homeScore,
+      awayScore: game.verifiedResult.awayScore,
+      status: game.verifiedResult.status,
+      verifiedAtMs: game.verifiedResult.verifiedAtMs,
+      supersededAtMs: args.observation.observedAtMs,
+    });
+    await ctx.db.insert("nflGameResultReconciliationObservations", {
+      nflGameId: game._id,
+      ...evidence,
+      disposition: "corrected",
+    });
+    await ctx.db.patch(game._id, {
+      lifecycle:
+        terminal.result.status === "CANC" ? "canceled" : "terminal",
+      homeScore: terminal.result.homeScore,
+      awayScore: terminal.result.awayScore,
+      verifiedResult: terminal.result,
+      priorVerifiedResult: {
+        ...game.verifiedResult,
+        supersededAtMs: args.observation.observedAtMs,
+      },
+      correctionCandidate: undefined,
+      lastObservedAtMs: args.observation.observedAtMs,
+      revision: (game.revision ?? 0) + 1,
+    });
+    if (terminal.result.status === "CANC") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.handleVerifiedCancellation,
+        { gameId: game._id, nowMs: args.observation.observedAtMs },
+      );
+    } else {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId: game._id, nowMs: args.observation.observedAtMs },
+      );
+    }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+      {
+        gameId: game._id,
+        nowMs: args.observation.observedAtMs,
+        replayLaterWeeks: true,
+      },
+    );
+    await ctx.scheduler.runAfter(
+      SCORING_DELAY_THRESHOLD_MS + 1_000,
+      internal.incidents.checkScoringDelayForGame,
+      {
+        gameId: game._id,
+        verifiedAtMs: terminal.result.verifiedAtMs,
+      },
+    );
+    return { result: "corrected" as const };
   },
 });
 
@@ -698,6 +983,92 @@ export const applyTargetedLookupResult = internalAction({
   handler: (ctx, args) => applyTargetedLookupForCtx(ctx, args),
 });
 
+async function failReconciliationForCtx(
+  ctx: ActionCtx,
+  input: {
+    workItemId: Id<"syncWorkItems">;
+    gameId: Id<"nflGames">;
+    nowMs: number;
+    reason: string;
+  },
+): Promise<{ ok: false; reason: string }> {
+  await ctx.runMutation(
+    internal.syncApiSportsLive.recordCorrectionFailure,
+    {
+      gameId: input.gameId,
+      nowMs: input.nowMs,
+      reason: input.reason,
+    },
+  );
+  await ctx.runMutation(internal.syncLive.requeueFailedWork, {
+    workItemId: input.workItemId,
+    dueAtMs: input.nowMs + LIVE_REFRESH_CADENCE_MS,
+  });
+  return { ok: false, reason: input.reason };
+}
+
+async function applyReconciliationLookupForCtx(
+  ctx: ActionCtx,
+  input: {
+    workItemId: Id<"syncWorkItems">;
+    gameId: Id<"nflGames">;
+    requestedExternalId: string;
+    observation: LiveObservation | null;
+    nowMs: number;
+  },
+): Promise<{
+  ok: boolean;
+  result?:
+    | "unchanged"
+    | "candidate"
+    | "corrected"
+    | "not_verified"
+    | "stale";
+  reason?: string;
+}> {
+  if (input.observation === null) {
+    return await failReconciliationForCtx(ctx, {
+      ...input,
+      reason: "empty_lookup",
+    });
+  }
+  if (input.observation.externalId !== input.requestedExternalId) {
+    return await failReconciliationForCtx(ctx, {
+      ...input,
+      reason: "wrong_game_response",
+    });
+  }
+  const applied = await ctx.runMutation(
+    internal.syncApiSportsLive.applyReconciliationObservation,
+    {
+      gameId: input.gameId,
+      observation: input.observation,
+    },
+  );
+  if (applied.result === "rejected") {
+    return await failReconciliationForCtx(ctx, {
+      ...input,
+      reason: "incoherent_terminal",
+    });
+  }
+  await ctx.runMutation(internal.syncLive.completeSyncWork, {
+    workItemId: input.workItemId,
+  });
+  return { ok: true, result: applied.result };
+}
+
+/** Test boundary for one scheduled post-verification targeted lookup. */
+export const applyReconciliationLookupResult = internalAction({
+  args: {
+    workItemId: v.id("syncWorkItems"),
+    gameId: v.id("nflGames"),
+    requestedExternalId: v.string(),
+    observation: v.union(liveObservationValidator, v.null()),
+    nowMs: v.number(),
+  },
+  handler: (ctx, args) => applyReconciliationLookupForCtx(ctx, args),
+});
+
 /** Per-game recovery request; an empty/unusable response opens one incident. */
 export const runClaimedTargetedRecovery = internalAction({
   args: {
@@ -740,6 +1111,60 @@ export const runClaimedTargetedRecovery = internalAction({
       return await failTargetedLookupForCtx(ctx, {
         workItemId: args.workItemId,
         gameId: args.gameId,
+        nowMs,
+        reason: "lookup_failed",
+      });
+    }
+  },
+});
+
+/** Claimed correction work always performs one provider-targeted game lookup. */
+export const runClaimedResultReconciliation = internalAction({
+  args: {
+    workItemId: v.id("syncWorkItems"),
+    gameId: v.id("nflGames"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    ok: boolean;
+    result?:
+      | "unchanged"
+      | "candidate"
+      | "corrected"
+      | "not_verified"
+      | "stale";
+    reason?: string;
+  }> => {
+    const nowMs = Date.now();
+    const externalId: string | null = await ctx.runQuery(
+      internal.syncApiSportsLive.getApiSportsAlias,
+      { gameId: args.gameId },
+    );
+    if (!externalId) {
+      return await failReconciliationForCtx(ctx, {
+        ...args,
+        nowMs,
+        reason: "alias_missing",
+      });
+    }
+    try {
+      const game = (await runEffect(
+        configuredProvider().getGame({
+          provider: "api-sports",
+          id: externalId,
+        }),
+      )) as ApiSportsGame | null;
+      return await applyReconciliationLookupForCtx(ctx, {
+        ...args,
+        requestedExternalId: externalId,
+        observation: game ? liveInput(game) : null,
+        nowMs,
+      });
+    } catch {
+      return await failReconciliationForCtx(ctx, {
+        ...args,
         nowMs,
         reason: "lookup_failed",
       });
