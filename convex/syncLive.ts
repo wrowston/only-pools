@@ -37,6 +37,7 @@ import {
   type BudgetPriority,
   type BudgetUsage,
 } from "./lib/providerBudget";
+import { API_SPORTS_RECOVERY_SCOPE_KEY } from "./lib/providerReliabilityPolicy";
 import { createLogger, errorMessage } from "./lib/log";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
@@ -783,8 +784,10 @@ async function budgetUsageInWindow(
   const since = nowMs - BUDGET_WINDOW_MS;
   const claims = await ctx.db
     .query("providerFetchClaims")
-    .withIndex("by_claimedAtMs", (q) => q.gte("claimedAtMs", since))
-    .collect();
+    .withIndex("by_status_and_claimedAtMs", (q) =>
+      q.eq("status", "claimed").gte("claimedAtMs", since),
+    )
+    .take(61);
 
   let usage = emptyBudgetUsage();
   for (const claim of claims) {
@@ -877,6 +880,11 @@ async function enqueuePhaseAwareWork(
     return;
   }
   if (existing) {
+    if (existing.priority !== "confirmation") {
+      await ctx.db.patch(existing._id, {
+        priority: "confirmation",
+      });
+    }
     if (existing.status === "due" || existing.status === "claimed") return;
     await ctx.db.patch(existing._id, {
       status: "due",
@@ -888,7 +896,7 @@ async function enqueuePhaseAwareWork(
     await ctx.db.insert("syncWorkItems", {
       surface: "live",
       scopeKey,
-      priority: "routine",
+      priority: "confirmation",
       status: "due",
       dueAtMs: nowMs,
       attemptCount: 0,
@@ -933,8 +941,13 @@ export const dispatchSyncWork = internalMutation({
     // Return expired leases to due.
     const claimedItems = await ctx.db
       .query("syncWorkItems")
-      .withIndex("by_status_and_dueAtMs", (q) => q.eq("status", "claimed"))
-      .collect();
+      .withIndex("by_status_and_leaseExpiresAtMs", (q) =>
+        q
+          .eq("status", "claimed")
+          .gt("leaseExpiresAtMs", 0)
+          .lte("leaseExpiresAtMs", nowMs),
+      )
+      .take(200);
     for (const item of claimedItems) {
       if (
         item.leaseExpiresAtMs !== undefined &&
@@ -948,16 +961,83 @@ export const dispatchSyncWork = internalMutation({
       }
     }
 
-    const dueItems = await ctx.db
-      .query("syncWorkItems")
-      .withIndex("by_status_and_dueAtMs", (q) => q.eq("status", "due"))
-      .collect();
+    const [confirmationDue, operatorDue, routineDue, recoveryWork] =
+      await Promise.all([
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex(
+            "by_status_and_priority_and_dueAtMs",
+            (q) =>
+              q
+                .eq("status", "due")
+                .eq("priority", "confirmation"),
+          )
+          .take(200),
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex(
+            "by_status_and_priority_and_dueAtMs",
+            (q) =>
+              q
+                .eq("status", "due")
+                .eq("priority", "operator"),
+          )
+          .take(200),
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex(
+            "by_status_and_priority_and_dueAtMs",
+            (q) =>
+              q.eq("status", "due").eq("priority", "routine"),
+          )
+          .take(200),
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex("by_scopeKey", (q) =>
+            q.eq("scopeKey", API_SPORTS_RECOVERY_SCOPE_KEY),
+          )
+          .unique(),
+      ]);
+    const dueById = new Map(
+      [...confirmationDue, ...operatorDue, ...routineDue].map((item) => [
+        item._id,
+        item,
+      ]),
+    );
+    let recoveryForDispatch = recoveryWork;
+    if (
+      recoveryWork?.status === "claimed" &&
+      recoveryWork.leaseExpiresAtMs !== undefined &&
+      recoveryWork.leaseExpiresAtMs <= nowMs
+    ) {
+      await ctx.db.patch(recoveryWork._id, {
+        status: "due",
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      });
+      recoveryForDispatch = {
+        ...recoveryWork,
+        status: "due",
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      };
+    }
+    if (recoveryForDispatch?.status === "due") {
+      dueById.set(recoveryForDispatch._id, recoveryForDispatch);
+    }
+    const dueItems = [...dueById.values()];
 
     // Priority order: confirmation → operator → routine (by due time within).
-    const priorityRank = (p: BudgetPriority) =>
-      p === "confirmation" ? 0 : p === "operator" ? 1 : 2;
+    const priorityRank = (item: (typeof dueItems)[number]) =>
+      item.purpose === "provider_recovery_probe"
+        ? -1
+        : item.priority === "confirmation"
+          ? 0
+          : item.priority === "operator"
+            ? 1
+            : 2;
     dueItems.sort((a, b) => {
-      const pr = priorityRank(a.priority) - priorityRank(b.priority);
+      const pr = priorityRank(a) - priorityRank(b);
       if (pr !== 0) return pr;
       return a.dueAtMs - b.dueAtMs;
     });
@@ -991,7 +1071,18 @@ export const dispatchSyncWork = internalMutation({
       );
       if (!gateDecision.ok) continue;
 
-      const budgetDecision = admitProviderFetch(usage, item.priority);
+      const protectedLivePriority: BudgetPriority =
+        item.surface === "live" ||
+        item.surface === "correction" ||
+        item.purpose === "provider_recovery_probe"
+          ? item.purpose === "provider_recovery_probe"
+            ? "operator"
+            : "confirmation"
+          : item.priority;
+      const budgetDecision = admitProviderFetch(
+        usage,
+        protectedLivePriority,
+      );
       if (!budgetDecision.ok) {
         // Try next item — confirmation/operator may still fit when routine can't.
         continue;
@@ -1002,29 +1093,44 @@ export const dispatchSyncWork = internalMutation({
         claimedAtMs: nowMs,
         leaseExpiresAtMs: nowMs + LEASE_MS,
         attemptCount: item.attemptCount + 1,
+        deferredReason: undefined,
+        deferredAtMs: undefined,
+        isProviderDeferred: undefined,
       });
 
       const claimId = await ctx.db.insert("providerFetchClaims", {
         surface: item.surface,
         status: "claimed",
         claimedAtMs: nowMs,
-        priority: item.priority,
+        priority: protectedLivePriority,
         workItemId: item._id,
       });
       void claimId;
 
-      usage = recordAdmission(usage, item.priority);
+      usage = recordAdmission(usage, protectedLivePriority);
       claimed.push({
         workItemId: item._id,
         surface: item.surface,
-        priority: item.priority,
+        priority: protectedLivePriority,
         scopeKey: item.scopeKey,
         gameId: item.gameId,
         purpose: item.purpose,
       });
 
       // Schedule fetch action — no provider I/O inside this mutation.
-      if (item.surface === "schedule" && item.seasonId !== undefined) {
+      if (
+        item.surface === "operator" &&
+        item.purpose === "provider_recovery_probe"
+      ) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.providerReliability.runApiSportsRecoveryProbe,
+          { workItemId: item._id },
+        );
+      } else if (
+        item.surface === "schedule" &&
+        item.seasonId !== undefined
+      ) {
         await ctx.scheduler.runAfter(
           0,
           internal.syncSchedule.runClaimedScheduleFetch,
@@ -1542,6 +1648,7 @@ export const requeueFailedWork = internalMutation({
     expectedPinnedOverrideId: v.optional(
       v.id("nflGameResultOverrides"),
     ),
+    deferredReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (
@@ -1566,6 +1673,11 @@ export const requeueFailedWork = internalMutation({
       dueAtMs: args.dueAtMs,
       claimedAtMs: undefined,
       leaseExpiresAtMs: undefined,
+      deferredReason: args.deferredReason,
+      deferredAtMs:
+        args.deferredReason === undefined ? undefined : Date.now(),
+      isProviderDeferred:
+        args.deferredReason === undefined ? undefined : true,
     });
     return { requeued: true as const };
   },
@@ -1610,6 +1722,9 @@ export const completeSyncWork = internalMutation({
     await ctx.db.patch(args.workItemId, {
       status: "done",
       leaseExpiresAtMs: undefined,
+      deferredReason: undefined,
+      deferredAtMs: undefined,
+      isProviderDeferred: undefined,
     });
   },
 });

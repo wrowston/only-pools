@@ -24,6 +24,7 @@ export const CLEAN_ACTIVATION_PRESERVED_CATEGORIES = [
   "authentication_and_operator_environment_configuration",
   "checked_in_nfl_team_catalog",
   "season_bootstrap_staging_history",
+  "provider_reliability_state",
 ] as const;
 
 /**
@@ -192,6 +193,10 @@ export const CLEAN_ACTIVATION_POLICY = {
   providerFetchClaims: {
     disposition: "delete",
     reason: "Provider claim diagnostics are reset with the active sports dataset.",
+  },
+  providerReliabilityState: {
+    disposition: "preserve",
+    reason: "Quota and circuit state must survive clean activation so activation cannot reset provider safety fences.",
   },
   syncWorkItems: {
     disposition: "delete",
@@ -419,8 +424,9 @@ export function buildActivationPlan(input: {
     },
     0,
   );
-  // Final writes: Pool Season Available patch, request status patch, audit row.
-  const totalTransactionWrites = totalDeleted + totalRebuilt + 3;
+  // Final writes: Pool Season Available patch, request status patch, audit
+  // row, and worst-case provider recovery-work reseed.
+  const totalTransactionWrites = totalDeleted + totalRebuilt + 4;
   if (
     totalTransactionWrites >
     CLEAN_ACTIVATION_LIMITS.maxTransactionWrites

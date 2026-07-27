@@ -30,6 +30,7 @@ import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
+import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
 import {
   CANONICAL_NFL_TEAM_ABBREVIATIONS,
   CANONICAL_NFL_TEAMS,
@@ -483,7 +484,7 @@ export const rescheduleScheduleWork = internalMutation({
   args: {
     workItemId: v.id("syncWorkItems"),
     dueAtMs: v.number(),
-    failed: v.boolean(),
+    deferredReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.workItemId);
@@ -493,9 +494,14 @@ export const rescheduleScheduleWork = internalMutation({
       dueAtMs: args.dueAtMs,
       claimedAtMs: undefined,
       leaseExpiresAtMs: undefined,
-      attemptCount: args.failed
-        ? item.attemptCount + 1
-        : item.attemptCount,
+      // The dispatcher increments once when it claims the attempt.
+      attemptCount: item.attemptCount,
+      deferredReason: undefined,
+      deferredAtMs: args.deferredReason ? Date.now() : undefined,
+      isProviderDeferred: args.deferredReason ? true : undefined,
+      ...(args.deferredReason
+        ? { deferredReason: args.deferredReason }
+        : {}),
     });
     return true;
   },
@@ -511,6 +517,17 @@ export const runClaimedScheduleFetch = internalAction({
     seasonId: v.id("poolSeasons"),
   },
   handler: async (ctx, args) => {
+    const attempt = await ctx.runQuery(
+      internal.providerReliability.getWorkAttemptCount,
+      { workItemId: args.workItemId },
+    );
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "schedule",
+      traffic: "routine",
+      jitterKey: String(args.workItemId),
+    });
+    let providerSucceeded = false;
     const season = await ctx.runQuery(
       internal.syncSchedule.getScheduleSeason,
       { seasonId: args.seasonId },
@@ -521,7 +538,6 @@ export const runClaimedScheduleFetch = internalAction({
         {
           workItemId: args.workItemId,
           dueAtMs: Date.now() + 24 * 60 * 60 * 1000,
-          failed: true,
         },
       );
       return { ok: false as const, reason: "season_missing" };
@@ -535,10 +551,19 @@ export const runClaimedScheduleFetch = internalAction({
         },
         providers: {
           "api-sports": ({ apiKey }) =>
-            new ApiSportsProvider({ apiKey }),
+            new ApiSportsProvider({
+              apiKey,
+              requestFence: reliable.fence,
+            }),
         },
       });
       const games = await runEffect(provider.listSeasonGames(season.year));
+      providerSucceeded = true;
+      await reliable.recordOutcome({
+        success: true,
+        attempt,
+        nowMs: Date.now(),
+      });
       const observations = games
         .map((game) =>
           apiSportsScheduleInput(args.seasonId, game as ApiSportsGame),
@@ -569,7 +594,6 @@ export const runClaimedScheduleFetch = internalAction({
         {
           workItemId: args.workItemId,
           dueAtMs: nowMs + cadence.cadenceMs,
-          failed: false,
         },
       );
       return {
@@ -577,8 +601,20 @@ export const runClaimedScheduleFetch = internalAction({
         ...summary,
         cadenceReason: cadence.reason,
       };
-    } catch {
+    } catch (error) {
       const nowMs = Date.now();
+      const outcome = providerSucceeded
+        ? {
+            retryAtMs: nowMs + 5 * 60_000,
+            deferredReason: undefined,
+          }
+        : await reliable.recordOutcome({
+            success: false,
+            attempt,
+            nowMs,
+            error,
+            failureReason: "schedule_fetch_failed",
+          });
       await ctx.runMutation(
         internal.syncLive.recordSyncSurfaceHealth,
         {
@@ -594,8 +630,8 @@ export const runClaimedScheduleFetch = internalAction({
         internal.syncSchedule.rescheduleScheduleWork,
         {
           workItemId: args.workItemId,
-          dueAtMs: nowMs + 5 * 60 * 1000,
-          failed: true,
+          dueAtMs: outcome.retryAtMs,
+          deferredReason: outcome.deferredReason,
         },
       );
       return { ok: false as const, reason: "schedule_fetch_failed" };

@@ -79,6 +79,7 @@ describe("clean Season Bootstrap activation policy", () => {
         "nflGameResultOverrides",
         "nflGameResultOverrideEvidence",
         "operatorAuditEvents",
+        "providerReliabilityState",
         "seasonBootstrapActivationRequests",
         "seasonBootstrapStages",
         "seasonBootstrapStagedAliases",
@@ -108,6 +109,9 @@ describe("clean Season Bootstrap activation policy", () => {
     expect(CLEAN_ACTIVATION_POLICY.operatorAuditEvents.disposition).toBe(
       "preserve",
     );
+    expect(
+      CLEAN_ACTIVATION_POLICY.providerReliabilityState.disposition,
+    ).toBe("preserve");
     expect(
       CLEAN_ACTIVATION_POLICY.seasonBootstrapStages.disposition,
     ).toBe("preserve");
@@ -141,6 +145,7 @@ describe("clean Season Bootstrap activation policy", () => {
       "authentication_and_operator_environment_configuration",
       "checked_in_nfl_team_catalog",
       "season_bootstrap_staging_history",
+      "provider_reliability_state",
     ]);
   });
 

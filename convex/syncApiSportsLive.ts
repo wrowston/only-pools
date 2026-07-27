@@ -17,6 +17,7 @@ import {
 } from "./_generated/server";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { runEffect } from "./effect/run";
+import type { ApiSportsRequestFence } from "./effect/apiSports/client";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
 import {
   computeWeeklyCutoffMs,
@@ -39,6 +40,7 @@ import {
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
+import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
 import { selectSportsDataProvider } from "./providers/sportsData/config";
 import {
   correctionReconciliationSchedule,
@@ -1879,14 +1881,17 @@ function liveInput(game: ApiSportsGame): LiveObservation | null {
   };
 }
 
-function configuredProvider(): ApiSportsProvider {
+function configuredProvider(
+  requestFence?: ApiSportsRequestFence,
+): ApiSportsProvider {
   return selectSportsDataProvider({
     config: {
       provider: env.SPORTS_DATA_PROVIDER,
       apiSportsKey: env.API_SPORTS_KEY,
     },
     providers: {
-      "api-sports": ({ apiKey }) => new ApiSportsProvider({ apiKey }),
+      "api-sports": ({ apiKey }) =>
+        new ApiSportsProvider({ apiKey, requestFence }),
     },
   }) as ApiSportsProvider;
 }
@@ -1899,6 +1904,17 @@ export const runClaimedLiveFetch = internalAction({
     args,
   ): Promise<{ ok: boolean; applied?: number; reason?: string }> => {
     const nowMs = Date.now();
+    const attempt = await ctx.runQuery(
+      internal.providerReliability.getWorkAttemptCount,
+      { workItemId: args.workItemId },
+    );
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "live",
+      traffic: "protected",
+      jitterKey: String(args.workItemId),
+    });
+    let providerSucceeded = false;
     const active: boolean = await ctx.runQuery(
       internal.syncApiSportsLive.hasActiveWindow,
       { nowMs },
@@ -1912,8 +1928,14 @@ export const runClaimedLiveFetch = internalAction({
 
     try {
       const result = await runEffect(
-        configuredProvider().listLiveGamesWithFailures(),
+        configuredProvider(reliable.fence).listLiveGamesWithFailures(),
       );
+      providerSucceeded = true;
+      await reliable.recordOutcome({
+        success: true,
+        attempt,
+        nowMs: Date.now(),
+      });
       const observations = result.games
         .map(liveInput)
         .filter((item): item is LiveObservation => item !== null);
@@ -1945,7 +1967,19 @@ export const runClaimedLiveFetch = internalAction({
         applied: batch.results.filter((item) => item.status === "applied")
           .length,
       };
-    } catch {
+    } catch (error) {
+      const outcome = providerSucceeded
+        ? {
+            retryAtMs: nowMs + 60_000,
+            deferredReason: undefined,
+          }
+        : await reliable.recordOutcome({
+            success: false,
+            attempt,
+            nowMs,
+            error,
+            failureReason: "live_fetch_failed",
+          });
       await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
         surface: "league_live",
         scopeKey: "live:nfl",
@@ -1956,7 +1990,8 @@ export const runClaimedLiveFetch = internalAction({
       });
       await ctx.runMutation(internal.syncLive.requeueFailedWork, {
         workItemId: args.workItemId,
-        dueAtMs: nowMs + 60_000,
+        dueAtMs: outcome.retryAtMs,
+        deferredReason: outcome.deferredReason,
       });
       return { ok: false, reason: "live_fetch_failed" };
     }
@@ -1970,6 +2005,8 @@ async function failTargetedLookupForCtx(
     gameId: Id<"nflGames">;
     nowMs: number;
     reason: string;
+    retryAtMs?: number;
+    deferredReason?: string;
   },
 ): Promise<{ ok: false; reason: string }> {
   await ctx.runMutation(
@@ -1982,7 +2019,10 @@ async function failTargetedLookupForCtx(
   );
   await ctx.runMutation(internal.syncLive.requeueFailedWork, {
     workItemId: input.workItemId,
-    dueAtMs: input.nowMs + LIVE_REFRESH_CADENCE_MS,
+    dueAtMs:
+      input.retryAtMs ??
+      input.nowMs + LIVE_REFRESH_CADENCE_MS,
+    deferredReason: input.deferredReason,
   });
   return { ok: false, reason: input.reason };
 }
@@ -2053,6 +2093,8 @@ async function failReconciliationForCtx(
     expectedPinnedOverrideId?: Id<"nflGameResultOverrides">;
     nowMs: number;
     reason: string;
+    retryAtMs?: number;
+    deferredReason?: string;
   },
 ): Promise<{ ok: false; reason: string }> {
   await ctx.runMutation(
@@ -2065,9 +2107,12 @@ async function failReconciliationForCtx(
   );
   await ctx.runMutation(internal.syncLive.requeueFailedWork, {
     workItemId: input.workItemId,
-    dueAtMs: input.nowMs + LIVE_REFRESH_CADENCE_MS,
+    dueAtMs:
+      input.retryAtMs ??
+      input.nowMs + LIVE_REFRESH_CADENCE_MS,
     gameId: input.gameId,
     expectedPinnedOverrideId: input.expectedPinnedOverrideId,
+    deferredReason: input.deferredReason,
   });
   return { ok: false, reason: input.reason };
 }
@@ -2166,6 +2211,17 @@ export const runClaimedTargetedRecovery = internalAction({
     args,
   ): Promise<{ ok: boolean; reason?: string }> => {
     const nowMs = Date.now();
+    const attempt = await ctx.runQuery(
+      internal.providerReliability.getWorkAttemptCount,
+      { workItemId: args.workItemId },
+    );
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "live",
+      traffic: "protected",
+      jitterKey: String(args.workItemId),
+    });
+    let providerSucceeded = false;
     const externalId: string | null = await ctx.runQuery(
       internal.syncApiSportsLive.getApiSportsAlias,
       { gameId: args.gameId },
@@ -2180,11 +2236,17 @@ export const runClaimedTargetedRecovery = internalAction({
     }
     try {
       const game = (await runEffect(
-        configuredProvider().getGame({
+        configuredProvider(reliable.fence).getGame({
           provider: "api-sports",
           id: externalId,
         }),
       )) as ApiSportsGame | null;
+      providerSucceeded = true;
+      await reliable.recordOutcome({
+        success: true,
+        attempt,
+        nowMs: Date.now(),
+      });
       const observation = game ? liveInput(game) : null;
       return await applyTargetedLookupForCtx(ctx, {
         workItemId: args.workItemId,
@@ -2193,12 +2255,26 @@ export const runClaimedTargetedRecovery = internalAction({
         observation,
         nowMs,
       });
-    } catch {
+    } catch (error) {
+      const outcome = providerSucceeded
+        ? {
+            retryAtMs: nowMs + LIVE_REFRESH_CADENCE_MS,
+            deferredReason: undefined,
+          }
+        : await reliable.recordOutcome({
+            success: false,
+            attempt,
+            nowMs,
+            error,
+            failureReason: "targeted_lookup_failed",
+          });
       return await failTargetedLookupForCtx(ctx, {
         workItemId: args.workItemId,
         gameId: args.gameId,
         nowMs,
         reason: "lookup_failed",
+        retryAtMs: outcome.retryAtMs,
+        deferredReason: outcome.deferredReason,
       });
     }
   },
@@ -2230,6 +2306,17 @@ export const runClaimedResultReconciliation = internalAction({
     reason?: string;
   }> => {
     const nowMs = Date.now();
+    const attempt = await ctx.runQuery(
+      internal.providerReliability.getWorkAttemptCount,
+      { workItemId: args.workItemId },
+    );
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "correction",
+      traffic: "protected",
+      jitterKey: String(args.workItemId),
+    });
+    let providerSucceeded = false;
     if (args.expectedPinnedOverrideId !== undefined) {
       const current = await ctx.runQuery(
         internal.syncApiSportsLive.isPinnedResultOverrideCurrent,
@@ -2261,22 +2348,42 @@ export const runClaimedResultReconciliation = internalAction({
     }
     try {
       const game = (await runEffect(
-        configuredProvider().getGame({
+        configuredProvider(reliable.fence).getGame({
           provider: "api-sports",
           id: externalId,
         }),
       )) as ApiSportsGame | null;
+      providerSucceeded = true;
+      await reliable.recordOutcome({
+        success: true,
+        attempt,
+        nowMs: Date.now(),
+      });
       return await applyReconciliationLookupForCtx(ctx, {
         ...args,
         requestedExternalId: externalId,
         observation: game ? liveInput(game) : null,
         nowMs,
       });
-    } catch {
+    } catch (error) {
+      const outcome = providerSucceeded
+        ? {
+            retryAtMs: nowMs + LIVE_REFRESH_CADENCE_MS,
+            deferredReason: undefined,
+          }
+        : await reliable.recordOutcome({
+            success: false,
+            attempt,
+            nowMs,
+            error,
+            failureReason: "reconciliation_lookup_failed",
+          });
       return await failReconciliationForCtx(ctx, {
         ...args,
         nowMs,
         reason: "lookup_failed",
+        retryAtMs: outcome.retryAtMs,
+        deferredReason: outcome.deferredReason,
       });
     }
   },

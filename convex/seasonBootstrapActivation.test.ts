@@ -10,6 +10,10 @@ import {
   SEASON_BOOTSTRAP_FIXTURE_YEAR,
 } from "./providers/sportsData/testing/seasonBootstrapFixture";
 import { CANONICAL_NFL_TEAMS } from "./providers/sportsData/catalog";
+import {
+  API_SPORTS_RECOVERY_SCOPE_KEY,
+  emptyProviderReliabilityState,
+} from "./lib/providerReliabilityPolicy";
 
 const modules = import.meta.glob("./**/*.ts");
 const seasonYear = SEASON_BOOTSTRAP_FIXTURE_YEAR;
@@ -398,6 +402,100 @@ describe("audited clean Season Bootstrap activation", () => {
         }),
       }),
     );
+  });
+
+  it("reseeds provider recovery work when clean activation preserves an open circuit", async () => {
+    const t = convexTest(schema, modules);
+    const stage = await persistValidStage(t);
+    const asOperator = await establishSteppedUpOperator(t);
+    const nowMs = Date.now();
+    const policy = emptyProviderReliabilityState(nowMs, 0);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("providerReliabilityState", {
+        key: "api-sports",
+        ...policy,
+        minuteAdmissionTimestampsMs: [
+          ...policy.minuteAdmissionTimestampsMs,
+        ],
+        providerDailyLimit: undefined,
+        providerDailyRemaining: undefined,
+        providerMinuteLimit: undefined,
+        providerMinuteRemaining: undefined,
+        circuitStatus: "open",
+        circuitGeneration: 1,
+        consecutiveFailures: 5,
+        circuitOpenedAtMs: nowMs,
+        circuitOpenUntilMs: nowMs + 5 * 60_000,
+        probeToken: undefined,
+        probeExpiresAtMs: undefined,
+        lastAttemptAtMs: undefined,
+        lastSuccessAtMs: undefined,
+        lastFailureAtMs: nowMs,
+        recoveredAtMs: undefined,
+        deferredRoutineCount: 0,
+        rejectedRequestCount: 0,
+        circuitBlockedCount: 0,
+        updatedAtMs: nowMs,
+      });
+      await ctx.db.insert("syncWorkItems", {
+        surface: "operator",
+        scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
+        priority: "operator",
+        status: "due",
+        dueAtMs: nowMs + 5 * 60_000,
+        attemptCount: 7,
+        purpose: "provider_recovery_probe",
+      });
+      await ctx.db.insert("syncWorkItems", {
+        surface: "schedule",
+        scopeKey: "schedule:stale-dataset-work",
+        priority: "routine",
+        status: "due",
+        dueAtMs: nowMs,
+        attemptCount: 1,
+        purpose: "season_schedule",
+      });
+    });
+    const request = await asOperator.mutation(
+      api.bootstrap.requestCleanSeasonActivation,
+      { stageId: stage.stageId, seasonYear },
+    );
+    await asOperator.mutation(
+      api.bootstrap.activateCleanSeasonBootstrap,
+      {
+        requestId: request.requestId,
+        confirmationText: request.confirmationText,
+      },
+    );
+    const state = await t.run(async (ctx) => ({
+      reliability: await ctx.db
+        .query("providerReliabilityState")
+        .withIndex("by_key", (q) => q.eq("key", "api-sports"))
+        .unique(),
+      recovery: await ctx.db
+        .query("syncWorkItems")
+        .withIndex("by_scopeKey", (q) =>
+          q.eq("scopeKey", API_SPORTS_RECOVERY_SCOPE_KEY),
+        )
+        .unique(),
+      stale: await ctx.db
+        .query("syncWorkItems")
+        .withIndex("by_scopeKey", (q) =>
+          q.eq("scopeKey", "schedule:stale-dataset-work"),
+        )
+        .unique(),
+    }));
+    expect(state.reliability).toMatchObject({
+      circuitStatus: "open",
+      circuitGeneration: 1,
+    });
+    expect(state.recovery).toMatchObject({
+      status: "due",
+      priority: "operator",
+      attemptCount: 7,
+      purpose: "provider_recovery_probe",
+    });
+    expect(state.stale).toBeNull();
   });
 
   it("retains every meaningful episode observation beyond 64 rows while deleting the bounded transient scope", async () => {

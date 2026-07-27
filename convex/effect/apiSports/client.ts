@@ -35,6 +35,14 @@ export type ApiSportsFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type ApiSportsRequestFence = Readonly<{
+  beforeRequest: () => Effect.Effect<unknown, unknown>;
+  afterResponse: (
+    admission: unknown,
+    response: Response,
+  ) => Effect.Effect<void, unknown>;
+}>;
+
 export type ApiSportsClientError =
   | ApiSportsTransportError
   | ApiSportsHttpError
@@ -48,7 +56,7 @@ function headerInteger(headers: Headers, name: string): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function quotaFromHeaders(headers: Headers): ApiSportsQuotaMetadata {
+export function quotaFromHeaders(headers: Headers): ApiSportsQuotaMetadata {
   return {
     dailyLimit: headerInteger(headers, "x-ratelimit-requests-limit"),
     dailyRemaining: headerInteger(
@@ -101,10 +109,21 @@ function requestEffect<A, I>(input: {
   parameters: Readonly<Record<string, string | number>>;
   apiKey: string;
   fetch: ApiSportsFetch;
+  requestFence?: ApiSportsRequestFence;
   nowMs: () => number;
   schema: Schema.Schema<A, I>;
 }): Effect.Effect<ApiSportsResponse<A>, ApiSportsClientError> {
   return Effect.gen(function* () {
+    const admission = input.requestFence
+      ? yield* input.requestFence.beforeRequest().pipe(
+          Effect.mapError(
+            () =>
+              new ApiSportsTransportError({
+                endpoint: input.endpoint,
+              }),
+          ),
+        )
+      : null;
     const response = yield* Effect.tryPromise({
       try: () =>
         input.fetch(endpointUrl(input.endpoint, input.parameters), {
@@ -114,6 +133,18 @@ function requestEffect<A, I>(input: {
       catch: () =>
         new ApiSportsTransportError({ endpoint: input.endpoint }),
     });
+    if (input.requestFence) {
+      yield* input.requestFence
+        .afterResponse(admission, response)
+        .pipe(
+          Effect.mapError(
+            () =>
+              new ApiSportsTransportError({
+                endpoint: input.endpoint,
+              }),
+          ),
+        );
+    }
     const quota = quotaFromHeaders(response.headers);
 
     if (response.status === 429) {
@@ -190,6 +221,7 @@ function pagedGamesRequestEffect(input: {
   parameters: Readonly<Record<string, string | number>>;
   apiKey: string;
   fetch: ApiSportsFetch;
+  requestFence?: ApiSportsRequestFence;
   nowMs: () => number;
 }): Effect.Effect<
   ApiSportsResponse<readonly ApiSportsGameWire[]>,
@@ -201,6 +233,7 @@ function pagedGamesRequestEffect(input: {
       parameters: input.parameters,
       apiKey: input.apiKey,
       fetch: input.fetch,
+      requestFence: input.requestFence,
       nowMs: input.nowMs,
       schema: apiSportsEnvelopeSchema(ApiSportsGameSchema),
     });
@@ -215,6 +248,7 @@ function pagedGamesRequestEffect(input: {
         parameters: { ...input.parameters, page: requestedPage },
         apiKey: input.apiKey,
         fetch: input.fetch,
+        requestFence: input.requestFence,
         nowMs: input.nowMs,
         schema: apiSportsEnvelopeSchema(ApiSportsGameSchema),
       });
@@ -239,6 +273,7 @@ export function createApiSportsClient(input: {
   fetch?: ApiSportsFetch;
   nowMs?: () => number;
   teamSeasonYear?: number;
+  requestFence?: ApiSportsRequestFence;
 }) {
   const fetch = input.fetch ?? globalThis.fetch.bind(globalThis);
   const nowMs = input.nowMs ?? Date.now;
@@ -258,6 +293,7 @@ export function createApiSportsClient(input: {
         },
         apiKey: input.apiKey,
         fetch,
+        requestFence: input.requestFence,
         nowMs,
         schema: apiSportsEnvelopeSchema(ApiSportsTeamSchema),
       }).pipe(Effect.map((result) => ({ ...result, data: result.data.response }))),
@@ -274,6 +310,7 @@ export function createApiSportsClient(input: {
         },
         apiKey: input.apiKey,
         fetch,
+        requestFence: input.requestFence,
         nowMs,
       }),
     fetchLiveGames: (): Effect.Effect<
@@ -298,6 +335,7 @@ export function createApiSportsClient(input: {
               },
               apiKey: input.apiKey,
               fetch,
+              requestFence: input.requestFence,
               nowMs,
             }),
           ),
@@ -333,6 +371,7 @@ export function createApiSportsClient(input: {
         },
         apiKey: input.apiKey,
         fetch,
+        requestFence: input.requestFence,
         nowMs,
         schema: apiSportsEnvelopeSchema(Schema.Unknown),
       }).pipe(
@@ -352,6 +391,7 @@ export function createApiSportsClient(input: {
         parameters: { id: gameId },
         apiKey: input.apiKey,
         fetch,
+        requestFence: input.requestFence,
         nowMs,
         schema: apiSportsEnvelopeSchema(ApiSportsGameSchema),
       }).pipe(Effect.map((result) => ({ ...result, data: result.data.response }))),
@@ -364,6 +404,7 @@ export function createApiSportsClient(input: {
         parameters: {},
         apiKey: input.apiKey,
         fetch,
+        requestFence: input.requestFence,
         nowMs,
         schema: ApiSportsStatusEnvelopeSchema,
       }).pipe(Effect.map((result) => ({ ...result, data: result.data.response }))),

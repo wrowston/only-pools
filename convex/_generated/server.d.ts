@@ -25,6 +25,7 @@ import type { DataModel } from "./dataModel.js";
  * Typesafe environment variables declared in `convex.config.ts`.
  */
 type Env = {
+  readonly API_SPORTS_DAILY_RESET_UTC_HOUR: string | undefined;
   readonly API_SPORTS_KEY: string | undefined;
   readonly CLEAN_ACTIVATION_DEPLOYMENT_ID: string | undefined;
   readonly CLERK_SECRET_KEY: string | undefined;

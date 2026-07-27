@@ -5,6 +5,7 @@ import {
   createApiSportsClient,
   type ApiSportsClientError,
   type ApiSportsFetch,
+  type ApiSportsRequestFence,
   type ApiSportsQuotaMetadata,
 } from "../../effect/apiSports/client";
 import { ApiSportsGameSchema } from "../../effect/apiSports/schemas";
@@ -84,6 +85,7 @@ export class ApiSportsProvider
   constructor(input: {
     apiKey: string;
     fetch?: ApiSportsFetch;
+    requestFence?: ApiSportsRequestFence;
     nowMs?: () => number;
     teamSeasonYear?: number;
     bootstrapTeamCandidates?: boolean;

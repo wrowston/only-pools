@@ -975,6 +975,50 @@ export default defineSchema({
     .index("by_atMs", ["atMs"]),
 
   /**
+   * Authoritative API-Sports quota and circuit state. This singleton is
+   * intentionally aggregate-only; per-request diagnostics are a later concern.
+   */
+  providerReliabilityState: defineTable({
+    key: v.literal("api-sports"),
+    dailyWindowStartedAtMs: v.number(),
+    dailyResetAtMs: v.number(),
+    dailyUsed: v.number(),
+    routineDailyUsed: v.number(),
+    protectedDailyUsed: v.number(),
+    providerDailyLimit: v.optional(v.number()),
+    providerDailyRemaining: v.optional(v.number()),
+    minuteAdmissionTimestampsMs: v.array(v.number()),
+    providerMinuteWindowStartedAtMs: v.number(),
+    providerMinuteResetAtMs: v.number(),
+    providerMinuteUsed: v.number(),
+    providerMinuteLimit: v.optional(v.number()),
+    providerMinuteRemaining: v.optional(v.number()),
+    headerInconsistencyCount: v.number(),
+    staleHeaderCount: v.number(),
+    circuitStatus: v.union(
+      v.literal("closed"),
+      v.literal("open"),
+      v.literal("half_open"),
+    ),
+    circuitGeneration: v.number(),
+    consecutiveFailures: v.number(),
+    circuitOpenedAtMs: v.optional(v.number()),
+    circuitOpenUntilMs: v.optional(v.number()),
+    probeToken: v.optional(v.string()),
+    probeExpiresAtMs: v.optional(v.number()),
+    lastAttemptAtMs: v.optional(v.number()),
+    lastSuccessAtMs: v.optional(v.number()),
+    lastFailureAtMs: v.optional(v.number()),
+    recoveredAtMs: v.optional(v.number()),
+    deferredRoutineCount: v.number(),
+    rejectedRequestCount: v.number(),
+    circuitBlockedCount: v.number(),
+    lastDeferredAtMs: v.optional(v.number()),
+    lastFailureReason: v.optional(v.string()),
+    updatedAtMs: v.number(),
+  }).index("by_key", ["key"]),
+
+  /**
    * Provider fetch claim attempts — Sync Gate deny/allow + budget admission.
    * Used by the dispatcher and tests; clients never call the provider.
    */
@@ -991,7 +1035,9 @@ export default defineSchema({
       ),
     ),
     workItemId: v.optional(v.id("syncWorkItems")),
-  }).index("by_claimedAtMs", ["claimedAtMs"]),
+  })
+    .index("by_claimedAtMs", ["claimedAtMs"])
+    .index("by_status_and_claimedAtMs", ["status", "claimedAtMs"]),
 
   /**
    * Durable sync work queue — schedule, live, confirmation, correction, operator.
@@ -1026,8 +1072,25 @@ export default defineSchema({
     pinnedResultOverrideId: v.optional(v.id("nflGameResultOverrides")),
     seasonId: v.optional(v.id("poolSeasons")),
     purpose: v.optional(v.string()),
+    deferredReason: v.optional(v.string()),
+    deferredAtMs: v.optional(v.number()),
+    isProviderDeferred: v.optional(v.boolean()),
   })
     .index("by_status_and_dueAtMs", ["status", "dueAtMs"])
+    .index("by_status_and_leaseExpiresAtMs", [
+      "status",
+      "leaseExpiresAtMs",
+    ])
+    .index("by_status_and_priority_and_dueAtMs", [
+      "status",
+      "priority",
+      "dueAtMs",
+    ])
+    .index("by_status_and_isProviderDeferred_and_dueAtMs", [
+      "status",
+      "isProviderDeferred",
+      "dueAtMs",
+    ])
     .index("by_scopeKey", ["scopeKey"])
     .index("by_gameId", ["gameId"]),
 

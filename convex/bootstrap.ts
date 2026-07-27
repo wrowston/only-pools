@@ -34,6 +34,9 @@ import {
   type CleanActivationRebuiltCounts,
 } from "./lib/cleanActivationPolicy";
 import {
+  API_SPORTS_RECOVERY_SCOPE_KEY,
+} from "./lib/providerReliabilityPolicy";
+import {
   defaultSyncGateEnabled,
   resolveDeploymentKind,
 } from "./lib/syncGate";
@@ -65,6 +68,7 @@ import {
   SportsIdentityConflict,
 } from "./providers/sportsData/identityStore";
 import { ApiSportsProvider } from "./providers/apiSports";
+import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
 import { selectSportsDataProvider } from "./providers/sportsData/config";
 import {
   exceedsSeasonBootstrapStageLimits,
@@ -544,6 +548,12 @@ export const stageSeasonBootstrap = action({
       return await persistSnapshot([], []);
     }
 
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "bootstrap",
+      traffic: "protected",
+      jitterKey: `bootstrap:${args.seasonYear}`,
+    });
     let provider;
     try {
       provider = selectSportsDataProvider({
@@ -555,6 +565,7 @@ export const stageSeasonBootstrap = action({
           "api-sports": ({ apiKey }) =>
             new ApiSportsProvider({
               apiKey,
+              requestFence: reliable.fence,
               teamSeasonYear: args.seasonYear,
               bootstrapTeamCandidates: true,
             }),
@@ -574,7 +585,19 @@ export const stageSeasonBootstrap = action({
       snapshot = await runEffect(
         fetchSeasonBootstrapSnapshot(provider, args.seasonYear),
       );
+      await reliable.recordOutcome({
+        success: true,
+        attempt: 1,
+        nowMs: Date.now(),
+      });
     } catch (error) {
+      await reliable.recordOutcome({
+        success: false,
+        attempt: 1,
+        nowMs: Date.now(),
+        error,
+        failureReason: "bootstrap_fetch_failed",
+      });
       return await persistSnapshot([], [], {
         code: "provider_fetch_failure",
         message: errorMessage(error),
@@ -1156,6 +1179,16 @@ export const activateCleanSeasonBootstrap = mutation({
       ctx,
       rebuiltCountsForSnapshot(snapshot),
     );
+    const providerReliability = await ctx.db
+      .query("providerReliabilityState")
+      .withIndex("by_key", (q) => q.eq("key", "api-sports"))
+      .unique();
+    const priorRecoveryWork = await ctx.db
+      .query("syncWorkItems")
+      .withIndex("by_scopeKey", (q) =>
+        q.eq("scopeKey", API_SPORTS_RECOVERY_SCOPE_KEY),
+      )
+      .unique();
     if (
       request.deletedCountsJson !== JSON.stringify(plan.deletedCounts) ||
       request.rebuiltCountsJson !== JSON.stringify(plan.rebuiltCounts)
@@ -1169,6 +1202,23 @@ export const activateCleanSeasonBootstrap = mutation({
       for (const id of idsByTable[tableName] ?? []) {
         await ctx.db.delete(id);
       }
+    }
+    if (
+      providerReliability?.circuitStatus === "open" ||
+      providerReliability?.circuitStatus === "half_open"
+    ) {
+      await ctx.db.insert("syncWorkItems", {
+        surface: "operator",
+        scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
+        priority: "operator",
+        status: "due",
+        dueAtMs:
+          providerReliability.circuitStatus === "open"
+            ? providerReliability.circuitOpenUntilMs ?? nowMs
+            : providerReliability.probeExpiresAtMs ?? nowMs,
+        attemptCount: priorRecoveryWork?.attemptCount ?? 0,
+        purpose: "provider_recovery_probe",
+      });
     }
 
     const seasonId = await ctx.db.insert("poolSeasons", {

@@ -10,6 +10,7 @@ import schema from "./schema";
 import { CONFIRMATION_MIN_ELAPSED_MS } from "./lib/confirmationPolicy";
 import { deriveFreshness, LEAGUE_LIVE_LATE_MS } from "./lib/freshness";
 import { PROVIDER_BUDGET } from "./lib/providerBudget";
+import { API_SPORTS_RECOVERY_SCOPE_KEY } from "./lib/providerReliabilityPolicy";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -356,15 +357,16 @@ describe("sync live → Verified Results (scenarios 24, 28–31)", () => {
     const { seasonId, gameId } = await seedGame(t);
     const nowMs = Date.now();
 
-    // Saturate routine budget with live claims via dispatcher.
+    // Saturate routine budget with schedule claims. League-live is now
+    // protected traffic and must not consume routine capacity.
     for (let i = 0; i < PROVIDER_BUDGET.routineMax; i++) {
       await t.mutation(internal.syncLive.enqueueSyncWork, {
-        surface: "live",
-        scopeKey: `live:${seasonId}:batch:${i}`,
+        surface: "schedule",
+        scopeKey: `schedule:${seasonId}:batch:${i}`,
         priority: "routine",
         dueAtMs: nowMs - 1_000,
         seasonId,
-        purpose: "league_live",
+        purpose: "season_schedule",
       });
     }
     await t.mutation(internal.syncLive.enqueueSyncWork, {
@@ -375,6 +377,14 @@ describe("sync live → Verified Results (scenarios 24, 28–31)", () => {
       gameId,
       seasonId,
       purpose: "confirmation_60",
+    });
+    await t.mutation(internal.syncLive.enqueueSyncWork, {
+      surface: "live",
+      scopeKey: `live:${seasonId}:protected`,
+      priority: "routine",
+      dueAtMs: nowMs - 1_000,
+      seasonId,
+      purpose: "league_live",
     });
     await t.mutation(internal.syncLive.enqueueSyncWork, {
       surface: "operator",
@@ -402,8 +412,85 @@ describe("sync live → Verified Results (scenarios 24, 28–31)", () => {
     );
 
     expect(routineClaims.length).toBe(PROVIDER_BUDGET.routineMax);
-    expect(confirmationClaims.length).toBeGreaterThanOrEqual(1);
+    expect(confirmationClaims.length).toBeGreaterThanOrEqual(2);
     expect(operatorClaims.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("dispatches the recovery probe ahead of more than 200 older routine rows", async () => {
+    const t = convexTest(schema, modules);
+    await seedGame(t);
+    const nowMs = Date.now();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 250; index += 1) {
+        await ctx.db.insert("syncWorkItems", {
+          surface: "schedule",
+          scopeKey: `schedule:backlog:${index}`,
+          priority: "routine",
+          status: "due",
+          dueAtMs: nowMs - 10_000,
+          attemptCount: 0,
+          purpose: "season_schedule",
+        });
+      }
+      await ctx.db.insert("syncWorkItems", {
+        surface: "operator",
+        scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
+        priority: "operator",
+        status: "due",
+        dueAtMs: nowMs,
+        attemptCount: 0,
+        purpose: "provider_recovery_probe",
+      });
+    });
+
+    const result = await t.mutation(
+      internal.syncLive.dispatchSyncWork,
+      { nowMs, maxClaims: 1 },
+    );
+    expect(result.claimed).toHaveLength(1);
+    expect(result.claimed[0]).toMatchObject({
+      scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
+      purpose: "provider_recovery_probe",
+      priority: "operator",
+    });
+  });
+
+  it("recovers an expired lease beyond 200 earlier non-expired claims", async () => {
+    const t = convexTest(schema, modules);
+    await seedGame(t);
+    const nowMs = Date.now();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 201; index += 1) {
+        await ctx.db.insert("syncWorkItems", {
+          surface: "schedule",
+          scopeKey: `schedule:leased:${index}`,
+          priority: "routine",
+          status: "claimed",
+          dueAtMs: nowMs - 20_000,
+          claimedAtMs: nowMs - 10_000,
+          leaseExpiresAtMs: nowMs + 60_000,
+          attemptCount: 1,
+          purpose: "season_schedule",
+        });
+      }
+      await ctx.db.insert("syncWorkItems", {
+        surface: "schedule",
+        scopeKey: "schedule:expired",
+        priority: "routine",
+        status: "claimed",
+        dueAtMs: nowMs - 10_000,
+        claimedAtMs: nowMs - 20_000,
+        leaseExpiresAtMs: nowMs - 1,
+        attemptCount: 1,
+        purpose: "season_schedule",
+      });
+    });
+
+    const result = await t.mutation(
+      internal.syncLive.dispatchSyncWork,
+      { nowMs, maxClaims: 1 },
+    );
+    expect(result.claimed[0]?.scopeKey).toBe("schedule:expired");
   });
 
   it("Week Board exposes projected results labeled non-official until verified", async () => {
