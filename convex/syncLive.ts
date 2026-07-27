@@ -28,6 +28,7 @@ import {
 import { applyKickoffScheduleChange } from "./lib/pickLock";
 import { deriveFreshness } from "./lib/freshness";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   admitProviderFetch,
   emptyBudgetUsage,
@@ -130,6 +131,20 @@ export const applyLiveObservation = internalMutation({
       lastObservedAtMs: observation.observedAtMs,
       revision,
     };
+    const lockLifecycleReached =
+      !["in_progress", "interrupted", "terminal"].includes(
+        game.lifecycle,
+      ) &&
+      ["in_progress", "interrupted", "terminal"].includes(
+        observation.lifecycle,
+      );
+    if (lockLifecycleReached) {
+      await recordScoringDependencyEvent(
+        ctx,
+        game.seasonId,
+        game.week,
+      );
+    }
 
     const isTerminalLifecycle =
       observation.lifecycle === "terminal" ||
@@ -324,6 +339,19 @@ export const applyConfirmationObservationMutation = internalMutation({
             ? "canceled"
             : "terminal",
     };
+    if (
+      !observation.lookupFailed &&
+      !["in_progress", "interrupted", "terminal"].includes(
+        game.lifecycle,
+      ) &&
+      observation.status !== "CANC"
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        game.seasonId,
+        game.week,
+      );
+    }
     if (outcome.verifiedResult) {
       patch.verifiedResult = outcome.verifiedResult;
     }
@@ -493,6 +521,18 @@ export const applyScheduleObservation = internalMutation({
       lastObservedAtMs: observation.observedAtMs,
       revision,
     });
+    if (
+      schedule.scheduledKickoffMs !== game.scheduledKickoffMs ||
+      observation.lifecycle !== game.lifecycle ||
+      schedule.kickoffLockReachedAtMs !==
+        (game.kickoffLockReachedAtMs ?? null)
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        game.seasonId,
+        game.week,
+      );
+    }
     await recordNflGameSchedule(ctx, {
       nflGameId: game._id,
       seasonId: game.seasonId,

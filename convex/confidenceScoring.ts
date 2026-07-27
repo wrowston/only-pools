@@ -26,6 +26,14 @@ import {
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
 import {
+  recordScoringDependencyEvent,
+  getScoringGate,
+  markBlockedScoringWorkReplayed,
+  pendingBlockedScoringWeeks,
+  recordBlockedScoringWork,
+  scoringGateGameId,
+} from "./lib/scoringHolds";
+import {
   CONFIDENCE_FINAL_WEEK,
   buildConfidenceWeekFingerprint,
   computePossibleRemainingPoints,
@@ -239,6 +247,13 @@ async function upsertWeeklyStanding(
 }
 
 type PublishResult =
+  | {
+      status: "held";
+      holdId?: Id<"scoringHolds">;
+      evaluationId?: Id<"scoringHoldEvaluations">;
+      cleanupId?: Id<"scoringHoldCleanups">;
+      acceptanceId?: Id<"scoringHoldAcceptances">;
+    }
   | { status: "noop"; reason: "identical_fingerprint"; revisionNumber: number }
   | { status: "stale"; reason: "newer_revision_exists"; revisionNumber: number }
   | {
@@ -271,6 +286,32 @@ export const applyConfidenceScoringRevision = internalMutation({
     }
 
     const nowMs = args.nowMs ?? Date.now();
+    const scoringGate = await getScoringGate(ctx, pool);
+    if (scoringGate) {
+      await recordBlockedScoringWork(ctx, {
+        poolId: pool._id,
+        kind: "confidence",
+        week: args.week,
+        gate: scoringGate,
+        nowMs,
+      });
+      switch (scoringGate.kind) {
+        case "hold":
+          return { status: "held", holdId: scoringGate.hold._id };
+        case "evaluation":
+          return {
+            status: "held",
+            evaluationId: scoringGate.evaluation._id,
+          };
+        case "cleanup":
+          return { status: "held", cleanupId: scoringGate.cleanup._id };
+        case "acceptance":
+          return {
+            status: "held",
+            acceptanceId: scoringGate.acceptance._id,
+          };
+      }
+    }
     const memberships = (
       await ctx.db
         .query("poolMemberships")
@@ -383,6 +424,12 @@ export const applyConfidenceScoringRevision = internalMutation({
     if (poolWeek?.currentScoringRevisionId) {
       const currentRev = await ctx.db.get(poolWeek.currentScoringRevisionId);
       if (currentRev && currentRev.fingerprint === fingerprint) {
+        await markBlockedScoringWorkReplayed(ctx, {
+          poolId: pool._id,
+          kind: "confidence",
+          week: args.week,
+          nowMs,
+        });
         return {
           status: "noop",
           reason: "identical_fingerprint",
@@ -437,6 +484,13 @@ export const applyConfidenceScoringRevision = internalMutation({
         currentRevisionNumber: nextRevisionNumber,
         updatedAtMs: nowMs,
       });
+    }
+    if (weekSettled && poolWeek?.settled !== true) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     const tbGame = sheet
@@ -691,6 +745,12 @@ export const applyConfidenceScoringRevision = internalMutation({
       poolStatus = "completed";
     }
 
+    await markBlockedScoringWorkReplayed(ctx, {
+      poolId: pool._id,
+      kind: "confidence",
+      week: args.week,
+      nowMs,
+    });
     return {
       status: "published",
       revisionId,
@@ -709,19 +769,20 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
     gameId: v.id("nflGames"),
     nowMs: v.optional(v.number()),
     replayLaterWeeks: v.optional(v.boolean()),
+    cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
     if (!game) return { scoredPools: 0 };
     if (game.resultAuthority !== "verified") return { scoredPools: 0 };
 
-    const pools = await ctx.db
+    const page = await ctx.db
       .query("pools")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
-      .take(200);
+      .paginate({ numItems: 200, cursor: args.cursor ?? null });
 
     let scoredPools = 0;
-    for (const pool of pools) {
+    for (const pool of page.page) {
       if (pool.type !== "confidence") continue;
       if (game.week < pool.startWeek || game.week > CONFIDENCE_FINAL_WEEK) {
         continue;
@@ -742,6 +803,18 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
             replayWeeks.add(poolWeek.week);
           }
         }
+        const blockedWeeks = await pendingBlockedScoringWeeks(ctx, {
+          poolId: pool._id,
+          kind: "confidence",
+        });
+        for (const blockedWeek of blockedWeeks) {
+          if (
+            blockedWeek >= game.week &&
+            blockedWeek <= CONFIDENCE_FINAL_WEEK
+          ) {
+            replayWeeks.add(blockedWeek);
+          }
+        }
       }
       for (const week of [...replayWeeks].sort((a, b) => a - b)) {
         await ctx.runMutation(
@@ -755,7 +828,23 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
       }
       scoredPools += 1;
     }
-    return { scoredPools };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+        {
+          gameId: game._id,
+          cursor: page.continueCursor,
+          ...(args.nowMs === undefined ? {} : { nowMs: args.nowMs }),
+          ...(args.replayLaterWeeks === undefined
+            ? {}
+            : { replayLaterWeeks: args.replayLaterWeeks }),
+        },
+      );
+    }
+    return page.isDone
+      ? { scoredPools }
+      : { scoredPools, continuationScheduled: true };
   },
 });
 
@@ -912,6 +1001,7 @@ export const getConfidenceStandings = query({
         g.resultAuthority === "projected" ||
         g.resultAuthority === "confirmation_pending",
     );
+    const scoringGate = await getScoringGate(ctx, pool);
 
     return {
       poolId: pool._id,
@@ -920,6 +1010,14 @@ export const getConfidenceStandings = query({
       startWeek: pool.startWeek,
       week,
       weekSettled: poolWeek?.settled ?? false,
+      scoringHold: scoringGate
+        ? {
+            gameId: scoringGateGameId(scoringGate),
+            gameWeek: scoringGate.gameWeek,
+            label: "Official result under review",
+            note: "The last official standings remain in place while a corrected result is reviewed.",
+          }
+        : null,
       weekly: {
         official: true as const,
         rows: weekly,

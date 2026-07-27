@@ -25,6 +25,14 @@ import {
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
 import {
+  recordScoringDependencyEvent,
+  getScoringGate,
+  markBlockedScoringWorkReplayed,
+  pendingBlockedScoringWeeks,
+  recordBlockedScoringWork,
+  scoringGateGameId,
+} from "./lib/scoringHolds";
+import {
   SURVIVOR_FINAL_WEEK,
   buildSurvivorWeekFingerprint,
   decideSurvivorTerminalOutcome,
@@ -263,6 +271,13 @@ async function reinstateProvisionalIfNeeded(
 }
 
 type PublishResult =
+  | {
+      status: "held";
+      holdId?: Id<"scoringHolds">;
+      evaluationId?: Id<"scoringHoldEvaluations">;
+      cleanupId?: Id<"scoringHoldCleanups">;
+      acceptanceId?: Id<"scoringHoldAcceptances">;
+    }
   | { status: "noop"; reason: "identical_fingerprint"; revisionNumber: number }
   | { status: "stale"; reason: "newer_revision_exists"; revisionNumber: number }
   | {
@@ -307,6 +322,32 @@ export const applySurvivorScoringRevision = internalMutation({
     }
 
     const nowMs = args.nowMs ?? Date.now();
+    const scoringGate = await getScoringGate(ctx, pool);
+    if (scoringGate) {
+      await recordBlockedScoringWork(ctx, {
+        poolId: pool._id,
+        kind: "survivor",
+        week: args.week,
+        gate: scoringGate,
+        nowMs,
+      });
+      switch (scoringGate.kind) {
+        case "hold":
+          return { status: "held", holdId: scoringGate.hold._id };
+        case "evaluation":
+          return {
+            status: "held",
+            evaluationId: scoringGate.evaluation._id,
+          };
+        case "cleanup":
+          return { status: "held", cleanupId: scoringGate.cleanup._id };
+        case "acceptance":
+          return {
+            status: "held",
+            acceptanceId: scoringGate.acceptance._id,
+          };
+      }
+    }
     const memberships = (
       await ctx.db
         .query("poolMemberships")
@@ -556,6 +597,12 @@ export const applySurvivorScoringRevision = internalMutation({
     if (poolWeek?.currentScoringRevisionId) {
       const currentRev = await ctx.db.get(poolWeek.currentScoringRevisionId);
       if (currentRev && currentRev.fingerprint === targetFingerprint) {
+        await markBlockedScoringWorkReplayed(ctx, {
+          poolId: pool._id,
+          kind: "survivor",
+          week: args.week,
+          nowMs,
+        });
         return {
           status: "noop",
           reason: "identical_fingerprint",
@@ -607,6 +654,13 @@ export const applySurvivorScoringRevision = internalMutation({
         currentRevisionNumber: nextRevisionNumber,
         updatedAtMs: nowMs,
       });
+    }
+    if (targetWeekSettled && poolWeek?.settled !== true) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     // Publish pick outcomes for the target week.
@@ -728,6 +782,12 @@ export const applySurvivorScoringRevision = internalMutation({
       poolStatus = "active";
     }
 
+    await markBlockedScoringWorkReplayed(ctx, {
+      poolId: pool._id,
+      kind: "survivor",
+      week: args.week,
+      nowMs,
+    });
     return {
       status: "published",
       revisionId,
@@ -747,6 +807,7 @@ export const handleVerifiedCancellation = internalMutation({
   args: {
     gameId: v.id("nflGames"),
     nowMs: v.optional(v.number()),
+    cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
@@ -757,13 +818,13 @@ export const handleVerifiedCancellation = internalMutation({
     }
 
     const nowMs = args.nowMs ?? Date.now();
-    const pools = await ctx.db
+    const page = await ctx.db
       .query("pools")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
-      .take(200);
+      .paginate({ numItems: 200, cursor: args.cursor ?? null });
 
     let scheduledPools = 0;
-    for (const pool of pools) {
+    for (const pool of page.page) {
       if (pool.type !== "survivor") continue;
       if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
         continue;
@@ -779,7 +840,20 @@ export const handleVerifiedCancellation = internalMutation({
       );
       scheduledPools += 1;
     }
-    return { scheduledPools };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.handleVerifiedCancellation,
+        {
+          gameId: game._id,
+          nowMs,
+          cursor: page.continueCursor,
+        },
+      );
+    }
+    return page.isDone
+      ? { scheduledPools }
+      : { scheduledPools, continuationScheduled: true };
   },
 });
 
@@ -879,19 +953,20 @@ export const scoreSurvivorPoolsForVerifiedGame = internalMutation({
   args: {
     gameId: v.id("nflGames"),
     nowMs: v.optional(v.number()),
+    cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
     if (!game) return { scheduledPools: 0 };
     if (game.resultAuthority !== "verified") return { scheduledPools: 0 };
 
-    const pools = await ctx.db
+    const page = await ctx.db
       .query("pools")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
-      .take(200);
+      .paginate({ numItems: 200, cursor: args.cursor ?? null });
 
     let scheduledPools = 0;
-    for (const pool of pools) {
+    for (const pool of page.page) {
       if (pool.type !== "survivor") continue;
       if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
         continue;
@@ -905,7 +980,20 @@ export const scoreSurvivorPoolsForVerifiedGame = internalMutation({
       );
       scheduledPools += 1;
     }
-    return { scheduledPools };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        {
+          gameId: game._id,
+          cursor: page.continueCursor,
+          ...(args.nowMs === undefined ? {} : { nowMs: args.nowMs }),
+        },
+      );
+    }
+    return page.isDone
+      ? { scheduledPools }
+      : { scheduledPools, continuationScheduled: true };
   },
 });
 
@@ -951,6 +1039,18 @@ export const scoreSurvivorPoolForVerifiedGame = internalMutation({
     for (const poolWeek of laterPoolWeeks) {
       if (poolWeek.week <= SURVIVOR_FINAL_WEEK) {
         replayWeeks.add(poolWeek.week);
+      }
+    }
+    const blockedWeeks = await pendingBlockedScoringWeeks(ctx, {
+      poolId: pool._id,
+      kind: "survivor",
+    });
+    for (const blockedWeek of blockedWeeks) {
+      if (
+        blockedWeek >= game.week &&
+        blockedWeek <= SURVIVOR_FINAL_WEEK
+      ) {
+        replayWeeks.add(blockedWeek);
       }
     }
     for (let week = game.week + 1; week <= SURVIVOR_FINAL_WEEK; week++) {
@@ -1022,6 +1122,7 @@ export const scoreSurvivorPoolWeekContinuation = internalMutation({
     );
 
     let stop =
+      result.status === "held" ||
       result.status === "published" && result.poolStatus === "completed";
     if (!stop && result.status === "noop") {
       const currentPool = await ctx.db.get(pool._id);
@@ -1339,6 +1440,7 @@ export const getSurvivorStandingsGrid = query({
     const aliveCount = rows.filter(
       (r) => r.eligibility === "alive" || r.eligibility === "winner",
     ).length;
+    const scoringGate = await getScoringGate(ctx, pool);
 
     return {
       poolId: pool._id,
@@ -1348,6 +1450,14 @@ export const getSurvivorStandingsGrid = query({
       startWeek: pool.startWeek,
       weeks,
       aliveCount,
+      scoringHold: scoringGate
+        ? {
+            gameId: scoringGateGameId(scoringGate),
+            gameWeek: scoringGate.gameWeek,
+            label: "Official result under review",
+            note: "The last official standings remain in place while a corrected result is reviewed.",
+          }
+        : null,
       rows,
     };
   },

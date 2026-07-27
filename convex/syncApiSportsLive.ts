@@ -22,6 +22,15 @@ import {
   computeWeeklyCutoffMs,
   isGameKickoffLocked,
 } from "./lib/pickLock";
+import {
+  latestScoringDependencyEventId,
+  recordScoringDependencyEvent,
+  type ScoringHoldDependency,
+  recordBlockedScoringWork,
+  scoringHoldCandidateKey,
+  scoringHoldDedupeKey,
+  selectScoringHoldDependency,
+} from "./lib/scoringHolds";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
@@ -167,21 +176,21 @@ async function enqueueCorrectionReconciliation(
   }
 }
 
-async function hasLaterPoolWeekDependency(
+type PoolDependencyContext = Readonly<{
+  scopeComplete: boolean;
+  laterGameLockReached: boolean;
+  laterWeeklyCutoffReached: boolean;
+}>;
+
+async function loadPoolDependencyContext(
   ctx: MutationCtx,
   game: Doc<"nflGames">,
   observedAtMs: number,
-): Promise<boolean> {
-  const pools = await ctx.db
-    .query("pools")
-    .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
-    .take(201);
-  if (pools.length > 200) return true;
+): Promise<PoolDependencyContext> {
   const seasonGames = await ctx.db
     .query("nflGames")
     .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
     .take(401);
-  if (seasonGames.length > 400) return true;
   const laterGames = seasonGames.filter(
     (candidate) => candidate.week > game.week,
   );
@@ -198,14 +207,35 @@ async function hasLaterPoolWeekDependency(
   const laterWeeklyCutoffReached = [...laterWeeklyCutoffs.values()].some(
     (anchorMs) => observedAtMs >= computeWeeklyCutoffMs(anchorMs),
   );
-  for (const pool of pools) {
-    if (pool.startWeek > game.week) continue;
-    if (laterGameLockReached) return true;
-    if (
-      pool.pickLockMode === "weeklyCutoff" &&
-      laterWeeklyCutoffReached
-    ) {
-      return true;
+  return {
+    scopeComplete: seasonGames.length <= 400,
+    laterGameLockReached,
+    laterWeeklyCutoffReached,
+  };
+}
+
+async function findPagePoolDependencies(
+  ctx: MutationCtx,
+  input: {
+    pools: Doc<"pools">[];
+    game: Doc<"nflGames">;
+    context: PoolDependencyContext;
+  },
+): Promise<
+  Array<{ pool: Doc<"pools">; dependency: ScoringHoldDependency }>
+> {
+  const dependencies: Array<{
+    pool: Doc<"pools">;
+    dependency: ScoringHoldDependency;
+  }> = [];
+  for (const pool of input.pools) {
+    if (pool.startWeek > input.game.week) continue;
+    if (!input.context.scopeComplete) {
+      dependencies.push({
+        pool,
+        dependency: "bounded_scope_exceeded",
+      });
+      continue;
     }
     const laterSettledPoolWeek = await ctx.db
       .query("poolWeeks")
@@ -213,46 +243,768 @@ async function hasLaterPoolWeekDependency(
         q
           .eq("poolId", pool._id)
           .eq("settled", true)
-          .gt("week", game.week),
+          .gt("week", input.game.week),
       )
       .first();
-    if (laterSettledPoolWeek) return true;
-
-    const laterSurvivorLock = await ctx.db
-      .query("survivorPicks")
-      .withIndex("by_poolId_and_locked_and_week", (q) =>
-        q
-          .eq("poolId", pool._id)
-          .eq("locked", true)
-          .gt("week", game.week),
-      )
-      .first();
-    if (laterSurvivorLock) return true;
-
-    const laterNonProvisionalSurvivorPick = await ctx.db
-      .query("survivorPicks")
-      .withIndex("by_poolId_and_provisional_and_week", (q) =>
-        q
-          .eq("poolId", pool._id)
-          .eq("provisional", false)
-          .gt("week", game.week),
-      )
-      .first();
-    if (laterNonProvisionalSurvivorPick) return true;
-
-    const laterConfidenceLock = await ctx.db
-      .query("confidencePicks")
-      .withIndex("by_poolId_and_locked_and_week", (q) =>
-        q
-          .eq("poolId", pool._id)
-          .eq("locked", true)
-          .gt("week", game.week),
-      )
-      .first();
-    if (laterConfidenceLock) return true;
+    const laterSurvivorLock =
+      pool.type === "survivor"
+        ? await ctx.db
+            .query("survivorPicks")
+            .withIndex("by_poolId_and_locked_and_week", (q) =>
+              q
+                .eq("poolId", pool._id)
+                .eq("locked", true)
+                .gt("week", input.game.week),
+            )
+            .first()
+        : null;
+    const laterNonProvisionalSurvivorPick =
+      pool.type === "survivor"
+        ? await ctx.db
+            .query("survivorPicks")
+            .withIndex("by_poolId_and_provisional_and_week", (q) =>
+              q
+                .eq("poolId", pool._id)
+                .eq("provisional", false)
+                .gt("week", input.game.week),
+            )
+            .first()
+        : null;
+    const laterConfidenceLock =
+      pool.type === "confidence"
+        ? await ctx.db
+            .query("confidencePicks")
+            .withIndex("by_poolId_and_locked_and_week", (q) =>
+              q
+                .eq("poolId", pool._id)
+                .eq("locked", true)
+                .gt("week", input.game.week),
+            )
+            .first()
+        : null;
+    const dependency = selectScoringHoldDependency({
+      laterGameLockReached: input.context.laterGameLockReached,
+      laterWeeklyCutoffReached:
+        pool.pickLockMode === "weeklyCutoff" &&
+        input.context.laterWeeklyCutoffReached,
+      laterSettledPoolWeek: laterSettledPoolWeek !== null,
+      laterSurvivorLock: laterSurvivorLock !== null,
+      laterNonProvisionalSurvivorPick:
+        laterNonProvisionalSurvivorPick !== null,
+      laterConfidenceLock: laterConfidenceLock !== null,
+    });
+    if (dependency) dependencies.push({ pool, dependency });
   }
-  return false;
+  return dependencies;
 }
+
+async function createScoringHolds(
+  ctx: MutationCtx,
+  input: {
+    game: Doc<"nflGames">;
+    candidate: NonNullable<Doc<"nflGames">["correctionCandidate"]>;
+    evaluationId?: Id<"scoringHoldEvaluations">;
+    dependencies: Array<{
+      pool: Doc<"pools">;
+      dependency: ScoringHoldDependency;
+    }>;
+  },
+): Promise<number> {
+  const verified = input.game.verifiedResult!;
+  const candidateKey = scoringHoldCandidateKey({
+    gameId: input.game._id,
+    ...input.candidate,
+  });
+  let created = 0;
+  for (const { pool, dependency } of input.dependencies) {
+    const dedupeKey = scoringHoldDedupeKey({
+      poolId: pool._id,
+      candidateKey,
+    });
+    const currentForGame = await ctx.db
+      .query("scoringHolds")
+      .withIndex("by_poolId_and_gameId_and_status", (q) =>
+        q
+          .eq("poolId", pool._id)
+          .eq("gameId", input.game._id)
+          .eq("status", "open"),
+      )
+      .unique();
+    if (currentForGame?.candidateKey === candidateKey) {
+      const updates: {
+        candidateObservedAtMs?: number;
+        evaluationId?: Id<"scoringHoldEvaluations">;
+      } = {};
+      if (
+        input.candidate.observedAtMs >
+        currentForGame.candidateObservedAtMs
+      ) {
+        updates.candidateObservedAtMs = input.candidate.observedAtMs;
+      }
+      if (
+        input.evaluationId &&
+        currentForGame.evaluationId !== input.evaluationId
+      ) {
+        updates.evaluationId = input.evaluationId;
+        created += 1;
+      }
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(currentForGame._id, updates);
+      }
+      continue;
+    }
+    if (currentForGame) {
+      await ctx.db.patch(currentForGame._id, {
+        status: "resolved",
+        resolvedAtMs: input.candidate.observedAtMs,
+        resolution: "superseded_candidate",
+        resolvedByTokenIdentifier: "system:result-reconciliation",
+        resolvedByClerkUserId: "system",
+      });
+      await ctx.db.insert("operatorAuditEvents", {
+        action: "scoring_hold_superseded",
+        actorTokenIdentifier: "system:result-reconciliation",
+        actorClerkUserId: "system",
+        atMs: input.candidate.observedAtMs,
+        detailsJson: JSON.stringify({
+          holdId: currentForGame._id,
+          poolId: pool._id,
+          gameId: input.game._id,
+          priorCandidateKey: currentForGame.candidateKey,
+          candidateKey,
+        }),
+      });
+    }
+    const holdFields = {
+      evaluationId: input.evaluationId,
+      poolId: pool._id,
+      gameId: input.game._id,
+      poolType: pool.type,
+      gameWeek: input.game.week,
+      dependency,
+      candidateKey,
+      dedupeKey,
+      candidateHomeScore: input.candidate.homeScore,
+      candidateAwayScore: input.candidate.awayScore,
+      candidateObservedAtMs: input.candidate.observedAtMs,
+      candidateStatus: input.candidate.status,
+      officialHomeScore: verified.homeScore,
+      officialAwayScore: verified.awayScore,
+      officialVerifiedAtMs: verified.verifiedAtMs,
+      officialStatus: verified.status,
+      status: "open" as const,
+      createdAtMs: input.candidate.observedAtMs,
+      resolvedAtMs: undefined,
+      resolution: undefined,
+      resolvedByTokenIdentifier: undefined,
+      resolvedByClerkUserId: undefined,
+    };
+    const holdId = await ctx.db.insert("scoringHolds", holdFields);
+    await ctx.db.insert("operatorAuditEvents", {
+      action: "scoring_hold_created",
+      actorTokenIdentifier: "system:result-reconciliation",
+      actorClerkUserId: "system",
+      atMs: input.candidate.observedAtMs,
+      detailsJson: JSON.stringify({
+        holdId,
+        poolId: pool._id,
+        gameId: input.game._id,
+        candidateKey,
+        dependency,
+      }),
+    });
+    created += 1;
+  }
+  return created;
+}
+
+async function scheduleVerifiedScoringReplay(
+  ctx: MutationCtx,
+  input: {
+    gameId: Id<"nflGames">;
+    nowMs: number;
+  },
+): Promise<void> {
+  const game = await ctx.db.get(input.gameId);
+  if (!game || game.resultAuthority !== "verified") return;
+  if (game.verifiedResult?.status === "CANC") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.survivorScoring.handleVerifiedCancellation,
+      { gameId: game._id, nowMs: input.nowMs },
+    );
+  } else {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+      { gameId: game._id, nowMs: input.nowMs },
+    );
+  }
+  await ctx.scheduler.runAfter(
+    0,
+    internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+    {
+      gameId: game._id,
+      nowMs: input.nowMs,
+      replayLaterWeeks: true,
+    },
+  );
+}
+
+async function processScoringHoldCleanup(
+  ctx: MutationCtx,
+  cleanupId: Id<"scoringHoldCleanups">,
+): Promise<{ status: "pending" | "complete"; resolvedHolds: number }> {
+  const cleanup = await ctx.db.get(cleanupId);
+  if (!cleanup || cleanup.status !== "pending") {
+    return {
+      status: cleanup?.status ?? "complete",
+      resolvedHolds: cleanup?.resolvedHolds ?? 0,
+    };
+  }
+
+  if (cleanup.phase === "evaluations") {
+    const page = await ctx.db
+      .query("scoringHoldEvaluations")
+      .withIndex("by_gameId_and_candidateKey", (q) =>
+        q
+          .eq("gameId", cleanup.gameId)
+          .eq("candidateKey", cleanup.candidateKey),
+      )
+      .paginate({
+        numItems: 200,
+        cursor: cleanup.evaluationCursor ?? null,
+      });
+    let abandoned = 0;
+    for (const evaluation of page.page) {
+      if (
+        !["building", "complete", "incomplete"].includes(
+          evaluation.status,
+        )
+      ) {
+        continue;
+      }
+      await ctx.db.patch(evaluation._id, {
+        status: "abandoned",
+        abandonedAtMs: cleanup.startedAtMs,
+      });
+      abandoned += 1;
+    }
+    const abandonedEvaluations =
+      cleanup.abandonedEvaluations + abandoned;
+    if (!page.isDone) {
+      await ctx.db.patch(cleanup._id, {
+        evaluationCursor: page.continueCursor,
+        abandonedEvaluations,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.syncApiSportsLive.continueScoringHoldCleanup,
+        { cleanupId: cleanup._id },
+      );
+      return { status: "pending", resolvedHolds: cleanup.resolvedHolds };
+    }
+    await ctx.db.patch(cleanup._id, {
+      phase: "holds",
+      evaluationCursor: undefined,
+      abandonedEvaluations,
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.syncApiSportsLive.continueScoringHoldCleanup,
+      { cleanupId: cleanup._id },
+    );
+    return { status: "pending", resolvedHolds: cleanup.resolvedHolds };
+  }
+
+  const refreshed = cleanup;
+  const page = await ctx.db
+    .query("scoringHolds")
+    .withIndex("by_gameId_and_candidateKey", (q) =>
+      q
+        .eq("gameId", refreshed.gameId)
+        .eq("candidateKey", refreshed.candidateKey),
+    )
+    .paginate({
+      numItems: 200,
+      cursor: refreshed.holdCursor ?? null,
+    });
+  let resolved = 0;
+  if (refreshed.reason === "withdrawn_candidate") {
+    const blockedPoolWeeks = new Map<
+      string,
+      (typeof page.page)[number]
+    >();
+    for (const hold of page.page) {
+      if (hold.status === "open") {
+        blockedPoolWeeks.set(`${hold.poolId}:${hold.gameWeek}`, hold);
+      }
+    }
+    for (const hold of blockedPoolWeeks.values()) {
+      await recordBlockedScoringWork(ctx, {
+        poolId: hold.poolId,
+        kind: hold.poolType,
+        week: hold.gameWeek,
+        gate: {
+          kind: "cleanup",
+          cleanup: refreshed,
+          candidateKey: refreshed.candidateKey,
+          gameWeek: refreshed.gameWeek,
+        },
+        nowMs: refreshed.startedAtMs,
+      });
+    }
+  }
+  for (const hold of page.page) {
+    if (hold.status !== "open") continue;
+    await ctx.db.patch(hold._id, {
+      status: "resolved",
+      resolvedAtMs: refreshed.startedAtMs,
+      resolution: refreshed.reason,
+      resolvedByTokenIdentifier: "system:result-reconciliation",
+      resolvedByClerkUserId: "system",
+    });
+    await ctx.db.insert("operatorAuditEvents", {
+      action:
+        refreshed.reason === "withdrawn_candidate"
+          ? "scoring_hold_withdrawn"
+          : "scoring_hold_superseded",
+      actorTokenIdentifier: "system:result-reconciliation",
+      actorClerkUserId: "system",
+      atMs: refreshed.startedAtMs,
+      detailsJson: JSON.stringify({
+        holdId: hold._id,
+        poolId: hold.poolId,
+        gameId: refreshed.gameId,
+        candidateKey: hold.candidateKey,
+      }),
+    });
+    resolved += 1;
+  }
+  const resolvedHolds = refreshed.resolvedHolds + resolved;
+  if (!page.isDone) {
+    await ctx.db.patch(refreshed._id, {
+      holdCursor: page.continueCursor,
+      resolvedHolds,
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.syncApiSportsLive.continueScoringHoldCleanup,
+      { cleanupId: refreshed._id },
+    );
+    return { status: "pending", resolvedHolds };
+  }
+  await ctx.db.patch(refreshed._id, {
+    status: "complete",
+    holdCursor: undefined,
+    resolvedHolds,
+    completedAtMs: refreshed.startedAtMs,
+  });
+  await scheduleVerifiedScoringReplay(ctx, {
+    gameId: refreshed.gameId,
+    nowMs: refreshed.startedAtMs,
+  });
+  return { status: "complete", resolvedHolds };
+}
+
+async function startScoringHoldCleanup(
+  ctx: MutationCtx,
+  input: {
+    game: Doc<"nflGames">;
+    candidateKey: string;
+    reason: "superseded_candidate" | "withdrawn_candidate";
+    startedAtMs: number;
+  },
+): Promise<{
+  cleanupId: Id<"scoringHoldCleanups">;
+  status: "pending" | "complete";
+  resolvedHolds: number;
+}> {
+  const existing = await ctx.db
+    .query("scoringHoldCleanups")
+    .withIndex("by_gameId_and_candidateKey_and_status", (q) =>
+      q
+        .eq("gameId", input.game._id)
+        .eq("candidateKey", input.candidateKey)
+        .eq("status", "pending"),
+    )
+    .unique();
+  if (existing) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.syncApiSportsLive.continueScoringHoldCleanup,
+      { cleanupId: existing._id },
+    );
+    return {
+      cleanupId: existing._id,
+      status: "pending",
+      resolvedHolds: existing.resolvedHolds,
+    };
+  }
+  const [evaluationRows, holds] = await Promise.all([
+    Promise.all(
+      (["building", "complete", "incomplete"] as const).map((status) =>
+        ctx.db
+          .query("scoringHoldEvaluations")
+          .withIndex(
+            "by_gameId_and_candidateKey_and_status",
+            (q) =>
+              q
+                .eq("gameId", input.game._id)
+                .eq("candidateKey", input.candidateKey)
+                .eq("status", status),
+          )
+          .unique(),
+      ),
+    ),
+    ctx.db
+      .query("scoringHolds")
+      .withIndex("by_gameId_and_candidateKey_and_status", (q) =>
+        q
+          .eq("gameId", input.game._id)
+          .eq("candidateKey", input.candidateKey)
+          .eq("status", "open"),
+      )
+      .take(201),
+  ]);
+  const evaluations = evaluationRows.filter(
+    (row): row is Doc<"scoringHoldEvaluations"> => row !== null,
+  );
+  if (evaluations.length > 1) {
+    throw new Error(
+      "Scoring Hold evaluation invariant violated during cleanup",
+    );
+  }
+  if (
+    evaluations.length <= 200 &&
+    holds.length <= 200 &&
+    evaluations.length + holds.length <= 200
+  ) {
+    let abandonedEvaluations = 0;
+    for (const evaluation of evaluations) {
+      if (
+        !["building", "complete", "incomplete"].includes(
+          evaluation.status,
+        )
+      ) {
+        continue;
+      }
+      await ctx.db.patch(evaluation._id, {
+        status: "abandoned",
+        abandonedAtMs: input.startedAtMs,
+      });
+      abandonedEvaluations += 1;
+    }
+    let resolvedHolds = 0;
+    for (const hold of holds) {
+      if (hold.status !== "open") continue;
+      await ctx.db.patch(hold._id, {
+        status: "resolved",
+        resolvedAtMs: input.startedAtMs,
+        resolution: input.reason,
+        resolvedByTokenIdentifier: "system:result-reconciliation",
+        resolvedByClerkUserId: "system",
+      });
+      await ctx.db.insert("operatorAuditEvents", {
+        action:
+          input.reason === "withdrawn_candidate"
+            ? "scoring_hold_withdrawn"
+            : "scoring_hold_superseded",
+        actorTokenIdentifier: "system:result-reconciliation",
+        actorClerkUserId: "system",
+        atMs: input.startedAtMs,
+        detailsJson: JSON.stringify({
+          holdId: hold._id,
+          poolId: hold.poolId,
+          gameId: input.game._id,
+          candidateKey: hold.candidateKey,
+        }),
+      });
+      resolvedHolds += 1;
+    }
+    const cleanupId = await ctx.db.insert("scoringHoldCleanups", {
+      seasonId: input.game.seasonId,
+      gameId: input.game._id,
+      gameWeek: input.game.week,
+      candidateKey: input.candidateKey,
+      reason: input.reason,
+      status: "complete",
+      phase: "holds",
+      abandonedEvaluations,
+      resolvedHolds,
+      startedAtMs: input.startedAtMs,
+      completedAtMs: input.startedAtMs,
+    });
+    if (input.reason === "withdrawn_candidate") {
+      await scheduleVerifiedScoringReplay(ctx, {
+        gameId: input.game._id,
+        nowMs: input.startedAtMs,
+      });
+    }
+    return { cleanupId, status: "complete", resolvedHolds };
+  }
+  let abandonedEvaluations = 0;
+  for (const evaluation of evaluations) {
+    await ctx.db.patch(evaluation._id, {
+      status: "abandoned",
+      abandonedAtMs: input.startedAtMs,
+    });
+    abandonedEvaluations += 1;
+  }
+  const cleanupId = await ctx.db.insert("scoringHoldCleanups", {
+    seasonId: input.game.seasonId,
+    gameId: input.game._id,
+    gameWeek: input.game.week,
+    candidateKey: input.candidateKey,
+    reason: input.reason,
+    status: "pending",
+    phase: "holds",
+    abandonedEvaluations,
+    resolvedHolds: 0,
+    startedAtMs: input.startedAtMs,
+  });
+  await ctx.scheduler.runAfter(
+    0,
+    internal.syncApiSportsLive.continueScoringHoldCleanup,
+    { cleanupId },
+  );
+  return { cleanupId, status: "pending", resolvedHolds: 0 };
+}
+
+async function activeEvaluationForGame(
+  ctx: MutationCtx,
+  gameId: Id<"nflGames">,
+): Promise<Doc<"scoringHoldEvaluations"> | null> {
+  const rows = (
+    await Promise.all(
+      (["building", "complete", "incomplete"] as const).map((status) =>
+        ctx.db
+          .query("scoringHoldEvaluations")
+          .withIndex("by_gameId_and_status", (q) =>
+            q.eq("gameId", gameId).eq("status", status),
+          )
+          .unique(),
+      ),
+    )
+  ).filter(
+    (row): row is Doc<"scoringHoldEvaluations"> => row !== null,
+  );
+  if (rows.length > 1) {
+    throw new Error(
+      "Scoring Hold evaluation invariant violated: multiple active evaluations for one NFL Game",
+    );
+  }
+  return rows[0] ?? null;
+}
+
+async function applyCorrectionCandidate(
+  ctx: MutationCtx,
+  input: {
+    game: Doc<"nflGames">;
+    candidate: NonNullable<Doc<"nflGames">["correctionCandidate"]>;
+    appliedAtMs: number;
+  },
+): Promise<void> {
+  const verified = input.game.verifiedResult!;
+  await ctx.db.insert("nflGameResultHistory", {
+    nflGameId: input.game._id,
+    homeScore: verified.homeScore,
+    awayScore: verified.awayScore,
+    status: verified.status,
+    verifiedAtMs: verified.verifiedAtMs,
+    supersededAtMs: input.appliedAtMs,
+  });
+  await ctx.db.insert("nflGameResultReconciliationObservations", {
+    nflGameId: input.game._id,
+    observedAtMs: input.candidate.observedAtMs,
+    homeScore: input.candidate.homeScore,
+    awayScore: input.candidate.awayScore,
+    status: input.candidate.status,
+    matchesVerified: false,
+    disposition: "corrected",
+  });
+  await ctx.db.patch(input.game._id, {
+    lifecycle:
+      input.candidate.status === "CANC" ? "canceled" : "terminal",
+    homeScore: input.candidate.homeScore,
+    awayScore: input.candidate.awayScore,
+    verifiedResult: {
+      homeScore: input.candidate.homeScore,
+      awayScore: input.candidate.awayScore,
+      status: input.candidate.status,
+      verifiedAtMs: input.candidate.observedAtMs,
+    },
+    priorVerifiedResult: {
+      ...verified,
+      supersededAtMs: input.appliedAtMs,
+    },
+    correctionCandidate: undefined,
+    lastObservedAtMs: input.candidate.observedAtMs,
+    revision: (input.game.revision ?? 0) + 1,
+  });
+  if (input.candidate.status === "CANC") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.survivorScoring.handleVerifiedCancellation,
+      { gameId: input.game._id, nowMs: input.appliedAtMs },
+    );
+  } else {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+      { gameId: input.game._id, nowMs: input.appliedAtMs },
+    );
+  }
+  await ctx.scheduler.runAfter(
+    0,
+    internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+    {
+      gameId: input.game._id,
+      nowMs: input.appliedAtMs,
+      replayLaterWeeks: true,
+    },
+  );
+  await ctx.scheduler.runAfter(
+    SCORING_DELAY_THRESHOLD_MS + 1_000,
+    internal.incidents.checkScoringDelayForGame,
+    {
+      gameId: input.game._id,
+      verifiedAtMs: input.candidate.observedAtMs,
+    },
+  );
+}
+
+export const continueScoringHoldEvaluation = internalMutation({
+  args: {
+    evaluationId: v.id("scoringHoldEvaluations"),
+    candidateKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const evaluation = await ctx.db.get(args.evaluationId);
+    if (
+      !evaluation ||
+      evaluation.status !== "building" ||
+      evaluation.candidateKey !== args.candidateKey
+    ) {
+      return { status: "abandoned" as const };
+    }
+    const game = await ctx.db.get(evaluation.gameId);
+    const candidate = game?.correctionCandidate;
+    if (
+      !game ||
+      !candidate ||
+      scoringHoldCandidateKey({ gameId: game._id, ...candidate }) !==
+        args.candidateKey
+    ) {
+      await ctx.db.patch(evaluation._id, {
+        status: "abandoned",
+        abandonedAtMs: Date.now(),
+      });
+      return { status: "abandoned" as const };
+    }
+    const page = await ctx.db
+      .query("pools")
+      .withIndex("by_seasonId", (q) =>
+        q.eq("seasonId", evaluation.seasonId),
+      )
+      .paginate({
+        numItems: 200,
+        cursor: evaluation.cursor ?? null,
+      });
+    const context = await loadPoolDependencyContext(
+      ctx,
+      game,
+      candidate.observedAtMs,
+    );
+    const dependencies = await findPagePoolDependencies(ctx, {
+      pools: page.page,
+      game,
+      context,
+    });
+    const created = await createScoringHolds(ctx, {
+      game,
+      candidate,
+      evaluationId: evaluation._id,
+      dependencies,
+    });
+    const processedPools = evaluation.processedPools + page.page.length;
+    const holdCount = evaluation.holdCount + created;
+    if (!page.isDone) {
+      await ctx.db.patch(evaluation._id, {
+        cursor: page.continueCursor,
+        processedPools,
+        holdCount,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.syncApiSportsLive.continueScoringHoldEvaluation,
+        {
+          evaluationId: evaluation._id,
+          candidateKey: evaluation.candidateKey,
+        },
+      );
+      return { status: "building" as const, processedPools, holdCount };
+    }
+    const dependencyEventId = await latestScoringDependencyEventId(
+      ctx,
+      evaluation.seasonId,
+    );
+    if (dependencyEventId !== evaluation.dependencyEventId) {
+      await ctx.db.patch(evaluation._id, {
+        cursor: undefined,
+        processedPools: 0,
+        holdCount,
+        dependencyEventId,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.syncApiSportsLive.continueScoringHoldEvaluation,
+        {
+          evaluationId: evaluation._id,
+          candidateKey: evaluation.candidateKey,
+        },
+      );
+      return {
+        status: "building" as const,
+        processedPools: 0,
+        holdCount,
+      };
+    }
+    if (!context.scopeComplete) {
+      await ctx.db.patch(evaluation._id, {
+        status: "incomplete",
+        cursor: undefined,
+        processedPools,
+        holdCount,
+        completedAtMs: candidate.observedAtMs,
+      });
+      return { status: "incomplete" as const, processedPools, holdCount };
+    }
+    if (holdCount > 0) {
+      await ctx.db.patch(evaluation._id, {
+        status: "complete",
+        cursor: undefined,
+        processedPools,
+        holdCount,
+        completedAtMs: candidate.observedAtMs,
+      });
+      return { status: "complete" as const, processedPools, holdCount };
+    }
+    await ctx.db.patch(evaluation._id, {
+      status: "applied",
+      cursor: undefined,
+      processedPools,
+      holdCount,
+      completedAtMs: candidate.observedAtMs,
+    });
+    await applyCorrectionCandidate(ctx, {
+      game,
+      candidate,
+      appliedAtMs: candidate.observedAtMs,
+    });
+    return { status: "applied" as const, processedPools, holdCount };
+  },
+});
 
 export const hasActiveWindow = internalQuery({
   args: { nowMs: v.number() },
@@ -289,6 +1041,14 @@ export const getApiSportsAlias = internalQuery({
       .take(2);
     return aliases.length === 1 ? aliases[0]!.externalId : null;
   },
+});
+
+export const continueScoringHoldCleanup = internalMutation({
+  args: {
+    cleanupId: v.id("scoringHoldCleanups"),
+  },
+  handler: async (ctx, args) =>
+    await processScoringHoldCleanup(ctx, args.cleanupId),
 });
 
 export const recordUnresolvedRecovery = internalMutation({
@@ -489,6 +1249,13 @@ export const applyObservation = internalMutation({
           game.kickoffLockReachedAtMs ?? observation.observedAtMs,
         revision: (game.revision ?? 0) + 1,
       });
+      if (game.kickoffLockReachedAtMs == null) {
+        await recordScoringDependencyEvent(
+          ctx,
+          game.seasonId,
+          game.week,
+        );
+      }
       await enqueueCorrectionReconciliation(ctx, {
         gameId,
         seasonId: game.seasonId,
@@ -541,6 +1308,17 @@ export const applyObservation = internalMutation({
           : undefined),
       revision: (game.revision ?? 0) + 1,
     });
+    if (
+      game.kickoffLockReachedAtMs == null &&
+      (observation.lifecycle === "in_progress" ||
+        observation.lifecycle === "interrupted")
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        game.seasonId,
+        game.week,
+      );
+    }
     return { status: "applied" as const, gameId, incidentId: null };
   },
 });
@@ -586,6 +1364,17 @@ export const applyReconciliationObservation = internalMutation({
     }
 
     if (evidence.matchesVerified) {
+      if (game.correctionCandidate) {
+        await startScoringHoldCleanup(ctx, {
+          game,
+          candidateKey: scoringHoldCandidateKey({
+            gameId: game._id,
+            ...game.correctionCandidate,
+          }),
+          reason: "withdrawn_candidate",
+          startedAtMs: args.observation.observedAtMs,
+        });
+      }
       await ctx.db.insert("nflGameResultReconciliationObservations", {
         nflGameId: game._id,
         ...evidence,
@@ -605,13 +1394,148 @@ export const applyReconciliationObservation = internalMutation({
       observedAtMs: args.observation.observedAtMs,
       status: terminal.result.status,
     };
-    if (
-      await hasLaterPoolWeekDependency(
+    const candidateKey = scoringHoldCandidateKey({
+      gameId: game._id,
+      ...candidate,
+    });
+    const sameCurrentCandidate =
+      game.correctionCandidate !== undefined &&
+      scoringHoldCandidateKey({
+        gameId: game._id,
+        ...game.correctionCandidate,
+      }) === candidateKey;
+    if (sameCurrentCandidate) {
+      const activeEvaluation = await activeEvaluationForGame(
         ctx,
-        game,
-        args.observation.observedAtMs,
-      )
+        game._id,
+      );
+      if (activeEvaluation) {
+        if (activeEvaluation.candidateKey !== candidateKey) {
+          throw new Error(
+            "Scoring Hold evaluation invariant violated: active evaluation does not match the current candidate",
+          );
+        }
+        if (
+          candidate.observedAtMs >
+          activeEvaluation.candidateObservedAtMs
+        ) {
+          const dependencyEventId =
+            await latestScoringDependencyEventId(ctx, game.seasonId);
+          await ctx.db.patch(activeEvaluation._id, {
+            candidateObservedAtMs: candidate.observedAtMs,
+            status: "building",
+            cursor: undefined,
+            processedPools: 0,
+            dependencyEventId,
+            completedAtMs: undefined,
+          });
+          await ctx.scheduler.runAfter(
+            0,
+            internal.syncApiSportsLive.continueScoringHoldEvaluation,
+            {
+              evaluationId: activeEvaluation._id,
+              candidateKey,
+            },
+          );
+        }
+        await ctx.db.insert("nflGameResultReconciliationObservations", {
+          nflGameId: game._id,
+          ...evidence,
+          disposition: "candidate",
+        });
+        await ctx.db.patch(game._id, {
+          correctionCandidate: candidate,
+          lastObservedAtMs: candidate.observedAtMs,
+          revision: (game.revision ?? 0) + 1,
+        });
+        return { result: "candidate" as const };
+      }
+    }
+    if (
+      game.correctionCandidate &&
+      scoringHoldCandidateKey({
+        gameId: game._id,
+        ...game.correctionCandidate,
+      }) !== candidateKey
     ) {
+      await startScoringHoldCleanup(ctx, {
+        game,
+        candidateKey: scoringHoldCandidateKey({
+          gameId: game._id,
+          ...game.correctionCandidate,
+        }),
+        reason: "superseded_candidate",
+        startedAtMs: candidate.observedAtMs,
+      });
+    }
+    const firstPage = await ctx.db
+      .query("pools")
+      .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
+      .paginate({ numItems: 200, cursor: null });
+    const dependencyEventId = await latestScoringDependencyEventId(
+      ctx,
+      game.seasonId,
+    );
+    const dependencyContext = await loadPoolDependencyContext(
+      ctx,
+      game,
+      args.observation.observedAtMs,
+    );
+    const dependencies = await findPagePoolDependencies(ctx, {
+      pools: firstPage.page,
+      game,
+      context: dependencyContext,
+    });
+    if (
+      !firstPage.isDone ||
+      !dependencyContext.scopeComplete ||
+      dependencies.length > 0
+    ) {
+      const conflictingEvaluation = await activeEvaluationForGame(
+        ctx,
+        game._id,
+      );
+      if (conflictingEvaluation) {
+        throw new Error(
+          "Scoring Hold evaluation invariant violated: cannot start a second active evaluation for one NFL Game",
+        );
+      }
+      const evaluationStatus = !firstPage.isDone
+        ? ("building" as const)
+        : !dependencyContext.scopeComplete
+          ? ("incomplete" as const)
+          : ("complete" as const);
+      const evaluationId = await ctx.db.insert(
+        "scoringHoldEvaluations",
+        {
+          seasonId: game.seasonId,
+          gameId: game._id,
+          gameWeek: game.week,
+          candidateKey,
+          candidateHomeScore: candidate.homeScore,
+          candidateAwayScore: candidate.awayScore,
+          candidateObservedAtMs: candidate.observedAtMs,
+          candidateStatus: candidate.status,
+          status: evaluationStatus,
+          cursor: firstPage.isDone
+            ? undefined
+            : firstPage.continueCursor,
+          processedPools: firstPage.page.length,
+          holdCount: 0,
+          dependencyEventId,
+          startedAtMs: candidate.observedAtMs,
+          completedAtMs: evaluationStatus !== "building"
+            ? candidate.observedAtMs
+            : undefined,
+        },
+      );
+      const created = await createScoringHolds(ctx, {
+        game,
+        candidate,
+        evaluationId,
+        dependencies,
+      });
+      await ctx.db.patch(evaluationId, { holdCount: created });
       await ctx.db.insert("nflGameResultReconciliationObservations", {
         nflGameId: game._id,
         ...evidence,
@@ -622,66 +1546,20 @@ export const applyReconciliationObservation = internalMutation({
         lastObservedAtMs: args.observation.observedAtMs,
         revision: (game.revision ?? 0) + 1,
       });
+      if (evaluationStatus === "building") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.syncApiSportsLive.continueScoringHoldEvaluation,
+          { evaluationId, candidateKey },
+        );
+      }
       return { result: "candidate" as const };
     }
-
-    await ctx.db.insert("nflGameResultHistory", {
-      nflGameId: game._id,
-      homeScore: game.verifiedResult.homeScore,
-      awayScore: game.verifiedResult.awayScore,
-      status: game.verifiedResult.status,
-      verifiedAtMs: game.verifiedResult.verifiedAtMs,
-      supersededAtMs: args.observation.observedAtMs,
+    await applyCorrectionCandidate(ctx, {
+      game,
+      candidate,
+      appliedAtMs: args.observation.observedAtMs,
     });
-    await ctx.db.insert("nflGameResultReconciliationObservations", {
-      nflGameId: game._id,
-      ...evidence,
-      disposition: "corrected",
-    });
-    await ctx.db.patch(game._id, {
-      lifecycle:
-        terminal.result.status === "CANC" ? "canceled" : "terminal",
-      homeScore: terminal.result.homeScore,
-      awayScore: terminal.result.awayScore,
-      verifiedResult: terminal.result,
-      priorVerifiedResult: {
-        ...game.verifiedResult,
-        supersededAtMs: args.observation.observedAtMs,
-      },
-      correctionCandidate: undefined,
-      lastObservedAtMs: args.observation.observedAtMs,
-      revision: (game.revision ?? 0) + 1,
-    });
-    if (terminal.result.status === "CANC") {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.survivorScoring.handleVerifiedCancellation,
-        { gameId: game._id, nowMs: args.observation.observedAtMs },
-      );
-    } else {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
-        { gameId: game._id, nowMs: args.observation.observedAtMs },
-      );
-    }
-    await ctx.scheduler.runAfter(
-      0,
-      internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
-      {
-        gameId: game._id,
-        nowMs: args.observation.observedAtMs,
-        replayLaterWeeks: true,
-      },
-    );
-    await ctx.scheduler.runAfter(
-      SCORING_DELAY_THRESHOLD_MS + 1_000,
-      internal.incidents.checkScoringDelayForGame,
-      {
-        gameId: game._id,
-        verifiedAtMs: terminal.result.verifiedAtMs,
-      },
-    );
     return { result: "corrected" as const };
   },
 });

@@ -46,6 +46,7 @@ import type * as lib_poolEntries from "../lib/poolEntries.js";
 import type * as lib_poolRules from "../lib/poolRules.js";
 import type * as lib_providerBudget from "../lib/providerBudget.js";
 import type * as lib_quotas from "../lib/quotas.js";
+import type * as lib_scoringHolds from "../lib/scoringHolds.js";
 import type * as lib_sentry from "../lib/sentry.js";
 import type * as lib_survivorMessages from "../lib/survivorMessages.js";
 import type * as lib_survivorScoring from "../lib/survivorScoring.js";
@@ -79,6 +80,7 @@ import type * as providers_sportsData_testing_seasonBootstrapFixture from "../pr
 import type * as providers_sportsData_types from "../providers/sportsData/types.js";
 import type * as providers_thesportsdb_adapter from "../providers/thesportsdb/adapter.js";
 import type * as providers_thesportsdb_client from "../providers/thesportsdb/client.js";
+import type * as scoringHolds from "../scoringHolds.js";
 import type * as seedDemo from "../seedDemo.js";
 import type * as sentry from "../sentry.js";
 import type * as survivorPicks from "../survivorPicks.js";
@@ -133,6 +135,7 @@ declare const fullApi: ApiFromModules<{
   "lib/poolRules": typeof lib_poolRules;
   "lib/providerBudget": typeof lib_providerBudget;
   "lib/quotas": typeof lib_quotas;
+  "lib/scoringHolds": typeof lib_scoringHolds;
   "lib/sentry": typeof lib_sentry;
   "lib/survivorMessages": typeof lib_survivorMessages;
   "lib/survivorScoring": typeof lib_survivorScoring;
@@ -166,6 +169,7 @@ declare const fullApi: ApiFromModules<{
   "providers/sportsData/types": typeof providers_sportsData_types;
   "providers/thesportsdb/adapter": typeof providers_thesportsdb_adapter;
   "providers/thesportsdb/client": typeof providers_thesportsdb_client;
+  scoringHolds: typeof scoringHolds;
   seedDemo: typeof seedDemo;
   sentry: typeof sentry;
   survivorPicks: typeof survivorPicks;

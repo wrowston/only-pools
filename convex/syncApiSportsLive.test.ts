@@ -1064,7 +1064,66 @@ describe("API-Sports live slate ingestion", () => {
         seasonId,
         homeTeamId,
         awayTeamId,
+        asOwner,
       } = await seed(t);
+      const confidencePool = await asOwner.mutation(api.pools.createPool, {
+        name: "Confidence correction review",
+        type: "confidence",
+        startWeek: 1,
+        pickLockMode: lockMode,
+      });
+      await t.run(async (ctx) => {
+        const survivorPool = (await ctx.db.get(poolId))!;
+        const ownerEntry = await ctx.db
+          .query("poolEntries")
+          .withIndex("by_poolId_and_participantId", (q) =>
+            q
+              .eq("poolId", poolId)
+              .eq("participantId", survivorPool.ownerParticipantId),
+          )
+          .unique();
+        const secondParticipantId = await ctx.db.insert("participants", {
+          tokenIdentifier: "test|second-survivor",
+          clerkUserId: "second-survivor",
+          displayName: "Second Survivor",
+          emailVerified: true,
+          phoneVerified: true,
+          ageConfirmed: true,
+          suspended: false,
+        });
+        const secondMembershipId = await ctx.db.insert("poolMemberships", {
+          poolId,
+          participantId: secondParticipantId,
+          role: "member",
+          status: "active",
+        });
+        const secondEntryId = await ctx.db.insert("poolEntries", {
+          poolId,
+          participantId: secondParticipantId,
+          membershipId: secondMembershipId,
+          entryNumber: 1,
+          status: "active",
+          createdAtMs: NOW_MS,
+        });
+        for (const [participantId, entryId] of [
+          [survivorPool.ownerParticipantId, ownerEntry!._id],
+          [secondParticipantId, secondEntryId],
+        ] as const) {
+          await ctx.db.insert("survivorPicks", {
+            poolId,
+            participantId,
+            entryId,
+            week: 1,
+            nflTeamId: homeTeamId,
+            gameId,
+            locked: true,
+            lockedAtMs: NOW_MS,
+            provenance: "authored",
+            provisional: false,
+            updatedAtMs: NOW_MS,
+          });
+        }
+      });
       const laterKickoffMs = NOW_MS + 7 * 24 * 60 * 60_000 + 3 * 60 * 60_000;
       const observedAtMs =
         lockMode === "weeklyCutoff"
@@ -1126,20 +1185,239 @@ describe("API-Sports live slate ingestion", () => {
         awayScore: 28,
         observedAtMs,
       });
+      const firstHolds = await t.run(async (ctx) =>
+        ctx.db.query("scoringHolds").collect(),
+      );
+      expect(firstHolds).toHaveLength(2);
+      expect(firstHolds.map((hold) => hold.poolId)).toEqual(
+        expect.arrayContaining([poolId, confidencePool.poolId]),
+      );
+      expect(firstHolds.every((hold) => hold.status === "open")).toBe(true);
+      expect(firstHolds.map((hold) => hold.dependency)).toEqual(
+        lockMode === "weeklyCutoff"
+          ? ["later_weekly_cutoff", "later_weekly_cutoff"]
+          : ["later_game_lock", "later_game_lock"],
+      );
+
+      await t.mutation(
+        internal.syncApiSportsLive.applyReconciliationObservation,
+        {
+          gameId,
+          observation: terminalObservation({
+            observedAtMs: observedAtMs + 15 * 60_000,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+        },
+      );
+      const deduped = await t.run(async (ctx) => ({
+        holds: await ctx.db.query("scoringHolds").collect(),
+        audits: (
+          await ctx.db.query("operatorAuditEvents").collect()
+        ).filter((event) => event.action === "scoring_hold_created"),
+      }));
+      expect(deduped.holds).toHaveLength(2);
+      expect(deduped.audits).toHaveLength(2);
+      const blockedSurvivor = await t.mutation(
+        internal.survivorScoring.applySurvivorScoringRevision,
+        { poolId, week: 2, nowMs: observedAtMs + 16 * 60_000 },
+      );
+      const blockedConfidence = await t.mutation(
+        internal.confidenceScoring.applyConfidenceScoringRevision,
+        {
+          poolId: confidencePool.poolId,
+          week: 2,
+          nowMs: observedAtMs + 16 * 60_000,
+        },
+      );
+      expect(blockedSurvivor.status).toBe("held");
+      expect(blockedConfidence.status).toBe("held");
+      const blockedWork = await t.run(async (ctx) =>
+        ctx.db.query("scoringBlockedWork").collect(),
+      );
+      expect(blockedWork).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            poolId,
+            kind: "survivor",
+            week: 2,
+            status: "pending",
+          }),
+          expect.objectContaining({
+            poolId: confidencePool.poolId,
+            kind: "confidence",
+            week: 2,
+            status: "pending",
+          }),
+        ]),
+      );
+
+      await t.mutation(
+        internal.syncApiSportsLive.applyReconciliationObservation,
+        {
+          gameId,
+          observation: terminalObservation({
+            observedAtMs: observedAtMs + 30 * 60_000,
+            homeScore: 21,
+            awayScore: 28,
+          }),
+        },
+      );
+      const changedCandidate = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        holds: await ctx.db.query("scoringHolds").collect(),
+        supersedeAudits: (
+          await ctx.db.query("operatorAuditEvents").collect()
+        ).filter((event) => event.action === "scoring_hold_superseded"),
+      }));
+      expect(changedCandidate.game?.correctionCandidate).toMatchObject({
+        homeScore: 21,
+        awayScore: 28,
+      });
+      expect(
+        changedCandidate.holds.filter((hold) => hold.status === "open"),
+      ).toHaveLength(2);
+      expect(
+        changedCandidate.holds.filter(
+          (hold) => hold.resolution === "superseded_candidate",
+        ),
+      ).toHaveLength(2);
+      expect(changedCandidate.supersedeAudits).toHaveLength(2);
+
+      await t.mutation(
+        internal.syncApiSportsLive.applyReconciliationObservation,
+        {
+          gameId,
+          observation: terminalObservation({
+            observedAtMs: observedAtMs + 40 * 60_000,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+        },
+      );
+      const recurringCandidate = await t.run(async (ctx) => ({
+        holds: await ctx.db.query("scoringHolds").collect(),
+        open: await ctx.db
+          .query("scoringHolds")
+          .withIndex("by_gameId_and_status", (q) =>
+            q.eq("gameId", gameId).eq("status", "open"),
+          )
+          .collect(),
+      }));
+      expect(recurringCandidate.holds).toHaveLength(6);
+      expect(recurringCandidate.open).toHaveLength(2);
+      expect(
+        recurringCandidate.open.every(
+          (hold) =>
+            hold.candidateHomeScore === 20 &&
+            hold.candidateAwayScore === 28,
+        ),
+      ).toBe(true);
+
+      vi.useFakeTimers();
+      vi.setSystemTime(observedAtMs + 45 * 60_000);
+      const { withdrawn, released } = await (async () => {
+        try {
+          const withdrawnResult = await t.mutation(
+            internal.syncApiSportsLive.applyReconciliationObservation,
+            {
+              gameId,
+              observation: terminalObservation({
+                observedAtMs: observedAtMs + 45 * 60_000,
+                homeScore: 27,
+                awayScore: 24,
+              }),
+            },
+          );
+          const releasedState = await t.run(async (ctx) => ({
+            game: await ctx.db.get(gameId),
+            holds: await ctx.db.query("scoringHolds").collect(),
+            withdrawalAudits: (
+              await ctx.db.query("operatorAuditEvents").collect()
+            ).filter(
+              (event) => event.action === "scoring_hold_withdrawn",
+            ),
+          }));
+          await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+          return {
+            withdrawn: withdrawnResult,
+            released: releasedState,
+          };
+        } finally {
+          vi.useRealTimers();
+        }
+      })();
+      expect(withdrawn.result).toBe("unchanged");
+      expect(released.game?.correctionCandidate).toBeUndefined();
+      expect(
+        released.holds.filter((hold) => hold.status === "open"),
+      ).toHaveLength(0);
+      expect(
+        released.holds.filter(
+          (hold) => hold.resolution === "withdrawn_candidate",
+        ),
+      ).toHaveLength(2);
+      expect(released.withdrawalAudits).toHaveLength(2);
+      const replayed = await t.run(async (ctx) =>
+        ctx.db.query("scoringRevisions").collect(),
+      );
+      expect(
+        replayed.map((revision) => ({
+          poolId: revision.poolId,
+          kind: revision.kind,
+        })),
+      ).toEqual(
+        expect.arrayContaining([
+          { poolId, kind: "survivor" },
+          { poolId: confidencePool.poolId, kind: "confidence" },
+        ]),
+      );
+      expect(
+        replayed.filter(
+          (revision) => revision.week === 2,
+        ).map((revision) => ({
+          poolId: revision.poolId,
+          kind: revision.kind,
+          revisionNumber: revision.revisionNumber,
+        })),
+      ).toEqual(
+        expect.arrayContaining([
+          { poolId, kind: "survivor", revisionNumber: 1 },
+          {
+            poolId: confidencePool.poolId,
+            kind: "confidence",
+            revisionNumber: 1,
+          },
+        ]),
+      );
+      const replayedWork = await t.run(async (ctx) =>
+        ctx.db.query("scoringBlockedWork").collect(),
+      );
+      expect(
+        replayedWork.every((work) => work.status === "replayed"),
+      ).toBe(true);
     },
   );
 
-  it("fails closed when correction dependency scope exceeds its bounded Pool read", async () => {
+  it("gates and replays affected Pools beyond page 200 without gating unrelated Pools", async () => {
     const t = convexTest(schema, modules);
-    const { gameId, poolId, seasonId } = await seed(t);
-    await t.run(async (ctx) => {
+    const {
+      gameId,
+      poolId,
+      seasonId,
+      homeTeamId,
+      awayTeamId,
+      asOwner,
+    } = await seed(t);
+    const { finalPoolId, finalConfidencePoolId } = await t.run(async (ctx) => {
       const ownerParticipantId = (await ctx.db.get(poolId))!.ownerParticipantId;
-      for (let index = 0; index < 200; index++) {
+      await ctx.db.patch(poolId, { startWeek: 2 });
+      for (let index = 0; index < 199; index++) {
         await ctx.db.insert("pools", {
-          name: `Bounded Pool ${index}`,
+          name: `Later-start Pool ${index}`,
           type: "survivor",
           seasonId,
-          startWeek: 1,
+          startWeek: 2,
           pickLockMode: "gameKickoff",
           status: "active",
           rulesFrozen: false,
@@ -1147,6 +1425,77 @@ describe("API-Sports live slate ingestion", () => {
           createdAtMs: NOW_MS,
         });
       }
+      const includedPoolId = await ctx.db.insert("pools", {
+        name: "Pool 201 includes corrected week",
+        type: "survivor",
+        seasonId,
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+        status: "active",
+        rulesFrozen: false,
+        ownerParticipantId,
+        createdAtMs: NOW_MS,
+      });
+      const membershipId = await ctx.db.insert("poolMemberships", {
+        poolId: includedPoolId,
+        participantId: ownerParticipantId,
+        role: "owner",
+        status: "active",
+      });
+      await ctx.db.insert("poolEntries", {
+        poolId: includedPoolId,
+        participantId: ownerParticipantId,
+        membershipId,
+        entryNumber: 1,
+        status: "active",
+        createdAtMs: NOW_MS,
+      });
+      const confidencePoolId = await ctx.db.insert("pools", {
+        name: "Confidence Pool after page 200",
+        type: "confidence",
+        seasonId,
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+        status: "active",
+        rulesFrozen: false,
+        ownerParticipantId,
+        createdAtMs: NOW_MS + 1,
+      });
+      const confidenceMembershipId = await ctx.db.insert(
+        "poolMemberships",
+        {
+          poolId: confidencePoolId,
+          participantId: ownerParticipantId,
+          role: "owner",
+          status: "active",
+        },
+      );
+      await ctx.db.insert("poolEntries", {
+        poolId: confidencePoolId,
+        participantId: ownerParticipantId,
+        membershipId: confidenceMembershipId,
+        entryNumber: 1,
+        status: "active",
+        createdAtMs: NOW_MS + 1,
+      });
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2026:w2:locked-for-pool-201",
+        seasonId,
+        seasonLabel: "2026",
+        week: 2,
+        homeTeamId,
+        awayTeamId,
+        scheduledKickoffMs: NOW_MS + 7 * 24 * 60 * 60_000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "legacy-pool-201-lock",
+        resultAuthority: "none",
+      });
+      return {
+        finalPoolId: includedPoolId,
+        finalConfidencePoolId: confidencePoolId,
+      };
     });
     const terminal = terminalObservation();
     await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
@@ -1154,24 +1503,602 @@ describe("API-Sports live slate ingestion", () => {
       nowMs: terminal.observedAtMs,
     });
 
+    const observedAtMs = NOW_MS + 8 * 24 * 60 * 60_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(observedAtMs);
     const result = await t.mutation(
       internal.syncApiSportsLive.applyReconciliationObservation,
       {
         gameId,
         observation: terminalObservation({
-          observedAtMs: terminal.observedAtMs + 15 * 60_000,
+          observedAtMs,
           homeScore: 20,
           awayScore: 28,
         }),
       },
     );
-
     expect(result.result).toBe("candidate");
-    const game = await t.run(async (ctx) => ctx.db.get(gameId));
-    expect(game?.verifiedResult).toMatchObject({
+    const building = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      evaluations: await ctx.db.query("scoringHoldEvaluations").collect(),
+      holds: await ctx.db.query("scoringHolds").collect(),
+    }));
+    expect(building.game?.verifiedResult).toMatchObject({
       homeScore: 27,
       awayScore: 24,
     });
+    expect(building.evaluations).toHaveLength(1);
+    expect(building.evaluations[0]?.status).toBe("building");
+    expect(building.holds).toHaveLength(0);
+    await t.run(async (ctx) => {
+      const game = (await ctx.db.get(gameId))!;
+      const candidate = game.correctionCandidate!;
+      const candidateKey = `${gameId}:20:28:FT`;
+      await ctx.db.insert("scoringHolds", {
+        poolId: finalPoolId,
+        gameId,
+        poolType: "survivor",
+        gameWeek: 1,
+        dependency: "later_game_lock",
+        candidateKey,
+        dedupeKey: `${finalPoolId}:${candidateKey}`,
+        candidateHomeScore: candidate.homeScore,
+        candidateAwayScore: candidate.awayScore,
+        candidateObservedAtMs: candidate.observedAtMs - 1,
+        candidateStatus: candidate.status,
+        officialHomeScore: game.verifiedResult!.homeScore,
+        officialAwayScore: game.verifiedResult!.awayScore,
+        officialVerifiedAtMs: game.verifiedResult!.verifiedAtMs,
+        officialStatus: game.verifiedResult!.status,
+        status: "resolved",
+        createdAtMs: candidate.observedAtMs - 1,
+        resolvedAtMs: candidate.observedAtMs - 1,
+        resolution: "superseded_candidate",
+        resolvedByTokenIdentifier: "system:test",
+        resolvedByClerkUserId: "system",
+      });
+    });
+
+    const blocked = await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId: finalPoolId, week: 1, nowMs: observedAtMs },
+    );
+    expect(blocked.status).toBe("held");
+    const blockedConfidence = await t.mutation(
+      internal.confidenceScoring.applyConfidenceScoringRevision,
+      {
+        poolId: finalConfidencePoolId,
+        week: 1,
+        nowMs: observedAtMs,
+      },
+    );
+    expect(blockedConfidence.status).toBe("held");
+    const onDemandLatch = await t.run(async (ctx) => ({
+      holds: await ctx.db
+        .query("scoringHolds")
+        .withIndex("by_gameId_and_status", (q) =>
+          q.eq("gameId", gameId).eq("status", "open"),
+        )
+        .collect(),
+      evaluation: (
+        await ctx.db.query("scoringHoldEvaluations").collect()
+      )[0],
+    }));
+    expect(onDemandLatch.holds.map((hold) => hold.poolId)).toEqual(
+      expect.arrayContaining([finalPoolId, finalConfidencePoolId]),
+    );
+    expect(onDemandLatch.evaluation?.holdCount).toBe(2);
+    const unrelated = await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId, week: 2, nowMs: observedAtMs },
+    );
+    expect(unrelated.status).toBe("published");
+    const unrelatedView = await asOwner.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId },
+    );
+    expect(unrelatedView?.scoringHold).toBeNull();
+    const whileBuilding = await asOwner.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId: finalPoolId },
+    );
+    expect(whileBuilding?.scoringHold?.label).toBe(
+      "Official result under review",
+    );
+
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+    const complete = await t.run(async (ctx) => ({
+      evaluation: (
+        await ctx.db.query("scoringHoldEvaluations").collect()
+      )[0],
+      holds: await ctx.db
+        .query("scoringHolds")
+        .withIndex("by_gameId_and_status", (q) =>
+          q.eq("gameId", gameId).eq("status", "open"),
+        )
+        .collect(),
+    }));
+    expect(complete.evaluation?.status).toBe("complete");
+    expect(complete.holds).toHaveLength(2);
+    expect(complete.holds.map((hold) => hold.poolId)).toEqual(
+      expect.arrayContaining([finalPoolId, finalConfidencePoolId]),
+    );
+
+    vi.useFakeTimers();
+    vi.setSystemTime(observedAtMs + 1);
+    const previousOperator =
+      process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
+    process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = "live_owner";
+    try {
+      await asOwner.mutation(api.scoringHolds.resolveScoringHold, {
+        holdId: complete.holds[0]!._id,
+      });
+    } finally {
+      if (previousOperator === undefined) {
+        delete process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
+      } else {
+        process.env.PRODUCTION_OPERATOR_CLERK_USER_ID =
+          previousOperator;
+      }
+    }
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+    const accepted = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      history: await ctx.db.query("nflGameResultHistory").collect(),
+      revisions: await ctx.db
+        .query("scoringRevisions")
+        .filter((q) =>
+          q.or(
+            q.eq(q.field("poolId"), finalPoolId),
+            q.eq(q.field("poolId"), finalConfidencePoolId),
+          ),
+        )
+        .collect(),
+      replayedWork: (
+        await ctx.db.query("scoringBlockedWork").collect()
+      ).filter(
+        (work) =>
+          work.status === "replayed" &&
+          [finalPoolId, finalConfidencePoolId].includes(work.poolId),
+      ),
+    }));
+    expect(accepted.game?.verifiedResult).toMatchObject({
+      homeScore: 20,
+      awayScore: 28,
+    });
+    expect(accepted.history).toHaveLength(1);
+    expect(
+      accepted.revisions.map((revision) => ({
+        poolId: revision.poolId,
+        kind: revision.kind,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        { poolId: finalPoolId, kind: "survivor" },
+        { poolId: finalConfidencePoolId, kind: "confidence" },
+      ]),
+    );
+    expect(accepted.replayedWork).toHaveLength(2);
+  });
+
+  it("restarts a paginated evaluation when a previously scanned Pool gains a lock dependency", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(NOW_MS - 1);
+      const t = convexTest(schema, modules);
+      const {
+        gameId,
+        poolId,
+        seasonId,
+        homeTeamId,
+        awayTeamId,
+        asOwner,
+      } = await seed(t);
+      const week2KickoffMs = NOW_MS + 2 * 24 * 60 * 60_000;
+      await t.run(async (ctx) => {
+        const ownerParticipantId = (await ctx.db.get(poolId))!
+          .ownerParticipantId;
+        for (let index = 0; index < 200; index++) {
+          await ctx.db.insert("pools", {
+            name: `Epoch tail Pool ${index}`,
+            type: "survivor",
+            seasonId,
+            startWeek: 2,
+            pickLockMode: "gameKickoff",
+            status: "active",
+            rulesFrozen: false,
+            ownerParticipantId,
+            createdAtMs: NOW_MS + index,
+          });
+        }
+        await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2026:w2:evaluation-race",
+          seasonId,
+          seasonLabel: "2026",
+          week: 2,
+          homeTeamId,
+          awayTeamId,
+          scheduledKickoffMs: week2KickoffMs,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          sportsDbEventId: "evaluation-race-week-2",
+          resultAuthority: "none",
+        });
+      });
+      await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId,
+        week: 2,
+        nflTeamId: homeTeamId,
+      });
+      const terminal = terminalObservation();
+      await t.action(
+        internal.syncApiSportsLive.applySuccessfulSlateBatch,
+        {
+          observations: [terminal],
+          nowMs: terminal.observedAtMs,
+        },
+      );
+      const candidateObservedAtMs = NOW_MS + 60_000;
+      await t.mutation(
+        internal.syncApiSportsLive.applyReconciliationObservation,
+        {
+          gameId,
+          observation: terminalObservation({
+            observedAtMs: candidateObservedAtMs,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+        },
+      );
+      const evaluationId = await t.run(async (ctx) => {
+        const [evaluation] = await ctx.db
+          .query("scoringHoldEvaluations")
+          .collect();
+        expect(evaluation?.status).toBe("building");
+        expect(evaluation?.processedPools).toBe(200);
+        expect(
+          await ctx.db.query("scoringHolds").collect(),
+        ).toHaveLength(0);
+        return evaluation!._id;
+      });
+
+      vi.setSystemTime(week2KickoffMs + 1);
+      const materialized = await asOwner.mutation(
+        api.survivorPicks.materializeSurvivorLocks,
+        { poolId, week: 2 },
+      );
+      expect(materialized.lockedCount).toBe(1);
+
+      await t.mutation(
+        internal.syncApiSportsLive.continueScoringHoldEvaluation,
+        {
+          evaluationId,
+          candidateKey: `${gameId}:20:28:FT`,
+        },
+      );
+      await t.mutation(
+        internal.syncApiSportsLive.continueScoringHoldEvaluation,
+        {
+          evaluationId,
+          candidateKey: `${gameId}:20:28:FT`,
+        },
+      );
+      await t.mutation(
+        internal.syncApiSportsLive.continueScoringHoldEvaluation,
+        {
+          evaluationId,
+          candidateKey: `${gameId}:20:28:FT`,
+        },
+      );
+
+      const state = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        evaluation: await ctx.db.get(evaluationId),
+        holds: await ctx.db
+          .query("scoringHolds")
+          .withIndex("by_gameId_and_status", (q) =>
+            q.eq("gameId", gameId).eq("status", "open"),
+          )
+          .collect(),
+      }));
+      expect(state.game?.verifiedResult).toMatchObject({
+        homeScore: 27,
+        awayScore: 24,
+      });
+      expect(state.game?.correctionCandidate).toMatchObject({
+        homeScore: 20,
+        awayScore: 28,
+      });
+      expect(state.evaluation).toMatchObject({
+        status: "complete",
+        holdCount: 1,
+      });
+      expect(state.holds).toHaveLength(1);
+      expect(state.holds[0]).toMatchObject({
+        poolId,
+        dependency: "later_game_lock",
+        status: "open",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rescans prior Pool pages when the same candidate is observed after a weekly cutoff", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      gameId,
+      poolId,
+      seasonId,
+      homeTeamId,
+      awayTeamId,
+    } = await seed(t);
+    const week2KickoffMs =
+      NOW_MS + 7 * 24 * 60 * 60_000 + 7 * 60 * 60_000;
+    const cutoffMs = computeWeeklyCutoffMs(week2KickoffMs);
+    await t.run(async (ctx) => {
+      const ownerParticipantId = (await ctx.db.get(poolId))!
+        .ownerParticipantId;
+      await ctx.db.patch(poolId, { pickLockMode: "weeklyCutoff" });
+      for (let index = 0; index < 200; index++) {
+        await ctx.db.insert("pools", {
+          name: `Cutoff tail Pool ${index}`,
+          type: "survivor",
+          seasonId,
+          startWeek: 2,
+          pickLockMode: "gameKickoff",
+          status: "active",
+          rulesFrozen: false,
+          ownerParticipantId,
+          createdAtMs: NOW_MS + index,
+        });
+      }
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2026:w2:same-candidate-cutoff",
+        seasonId,
+        seasonLabel: "2026",
+        week: 2,
+        homeTeamId,
+        awayTeamId,
+        scheduledKickoffMs: week2KickoffMs,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        sportsDbEventId: "same-candidate-cutoff-week-2",
+        resultAuthority: "none",
+      });
+    });
+    const terminal = terminalObservation();
+    await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+      observations: [terminal],
+      nowMs: terminal.observedAtMs,
+    });
+    const candidateKey = `${gameId}:20:28:FT`;
+    await t.mutation(
+      internal.syncApiSportsLive.applyReconciliationObservation,
+      {
+        gameId,
+        observation: terminalObservation({
+          observedAtMs: cutoffMs - 1,
+          homeScore: 20,
+          awayScore: 28,
+        }),
+      },
+    );
+    const evaluationId = await t.run(async (ctx) => {
+      const [evaluation] = await ctx.db
+        .query("scoringHoldEvaluations")
+        .collect();
+      expect(evaluation).toMatchObject({
+        status: "building",
+        processedPools: 200,
+        holdCount: 0,
+      });
+      return evaluation!._id;
+    });
+
+    const reobserved = await t.mutation(
+      internal.syncApiSportsLive.applyReconciliationObservation,
+      {
+        gameId,
+        observation: terminalObservation({
+          observedAtMs: cutoffMs + 1,
+          homeScore: 20,
+          awayScore: 28,
+        }),
+      },
+    );
+    expect(reobserved.result).toBe("candidate");
+    await t.mutation(
+      internal.syncApiSportsLive.continueScoringHoldEvaluation,
+      { evaluationId, candidateKey },
+    );
+    await t.mutation(
+      internal.syncApiSportsLive.continueScoringHoldEvaluation,
+      { evaluationId, candidateKey },
+    );
+
+    const state = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      evaluation: await ctx.db.get(evaluationId),
+      holds: await ctx.db
+        .query("scoringHolds")
+        .withIndex("by_gameId_and_status", (q) =>
+          q.eq("gameId", gameId).eq("status", "open"),
+        )
+        .collect(),
+    }));
+    expect(state.game?.verifiedResult).toMatchObject({
+      homeScore: 27,
+      awayScore: 24,
+    });
+    expect(state.evaluation).toMatchObject({
+      status: "complete",
+      processedPools: 201,
+      holdCount: 1,
+      candidateObservedAtMs: cutoffMs + 1,
+    });
+    expect(state.holds).toHaveLength(1);
+    expect(state.holds[0]).toMatchObject({
+      poolId,
+      dependency: "later_weekly_cutoff",
+      status: "open",
+    });
+  });
+
+  it("restarts a small-season held correction before acceptance when another Pool later becomes dependent", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(NOW_MS - 1);
+      const t = convexTest(schema, modules);
+      const {
+        gameId,
+        poolId: initialPoolId,
+        seasonId,
+        homeTeamId,
+        awayTeamId,
+        asOwner,
+      } = await seed(t);
+      const week2KickoffMs = NOW_MS + 2 * 24 * 60 * 60_000;
+      const laterPool = await asOwner.mutation(api.pools.createPool, {
+        name: "Later dependency Pool",
+        type: "survivor",
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2026:w2:small-season-later-dependency",
+          seasonId,
+          seasonLabel: "2026",
+          week: 2,
+          homeTeamId,
+          awayTeamId,
+          scheduledKickoffMs: week2KickoffMs,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          sportsDbEventId: "small-season-later-dependency",
+          resultAuthority: "none",
+        });
+        await ctx.db.insert("poolWeeks", {
+          poolId: initialPoolId,
+          week: 2,
+          settled: true,
+          updatedAtMs: NOW_MS,
+        });
+      });
+      await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: laterPool.poolId,
+        week: 2,
+        nflTeamId: homeTeamId,
+      });
+      const terminal = terminalObservation();
+      await t.action(
+        internal.syncApiSportsLive.applySuccessfulSlateBatch,
+        {
+          observations: [terminal],
+          nowMs: terminal.observedAtMs,
+        },
+      );
+      await t.mutation(
+        internal.syncApiSportsLive.applyReconciliationObservation,
+        {
+          gameId,
+          observation: terminalObservation({
+            observedAtMs: NOW_MS + 60_000,
+            homeScore: 20,
+            awayScore: 28,
+          }),
+        },
+      );
+      const initial = await t.run(async (ctx) => ({
+        evaluation: (
+          await ctx.db.query("scoringHoldEvaluations").collect()
+        )[0],
+        holds: await ctx.db
+          .query("scoringHolds")
+          .withIndex("by_gameId_and_status", (q) =>
+            q.eq("gameId", gameId).eq("status", "open"),
+          )
+          .collect(),
+      }));
+      expect(initial.evaluation).toMatchObject({
+        status: "complete",
+        processedPools: 2,
+        holdCount: 1,
+      });
+      expect(initial.holds).toHaveLength(1);
+      expect(initial.holds[0]).toMatchObject({
+        poolId: initialPoolId,
+        evaluationId: initial.evaluation!._id,
+      });
+
+      vi.setSystemTime(week2KickoffMs + 1);
+      const locked = await asOwner.mutation(
+        api.survivorPicks.materializeSurvivorLocks,
+        { poolId: laterPool.poolId, week: 2 },
+      );
+      expect(locked.lockedCount).toBe(1);
+      const previousOperator =
+        process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
+      process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = "live_owner";
+      let refused;
+      try {
+        refused = await asOwner.mutation(
+          api.scoringHolds.resolveScoringHold,
+          { holdId: initial.holds[0]!._id },
+        );
+      } finally {
+        if (previousOperator === undefined) {
+          delete process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
+        } else {
+          process.env.PRODUCTION_OPERATOR_CLERK_USER_ID =
+            previousOperator;
+        }
+      }
+      expect(refused).toEqual({
+        resolution: "evaluation_restarted",
+        resolvedHoldCount: 0,
+        scoringScheduled: false,
+      });
+      await t.mutation(
+        internal.syncApiSportsLive.continueScoringHoldEvaluation,
+        {
+          evaluationId: initial.evaluation!._id,
+          candidateKey: `${gameId}:20:28:FT`,
+        },
+      );
+      const rescanned = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        evaluation: await ctx.db.get(initial.evaluation!._id),
+        holds: await ctx.db
+          .query("scoringHolds")
+          .withIndex("by_gameId_and_status", (q) =>
+            q.eq("gameId", gameId).eq("status", "open"),
+          )
+          .collect(),
+        history: await ctx.db.query("nflGameResultHistory").collect(),
+      }));
+      expect(rescanned.game?.verifiedResult).toMatchObject({
+        homeScore: 27,
+        awayScore: 24,
+      });
+      expect(rescanned.history).toHaveLength(0);
+      expect(rescanned.evaluation).toMatchObject({
+        status: "complete",
+        processedPools: 2,
+        holdCount: 2,
+      });
+      expect(rescanned.holds.map((hold) => hold.poolId)).toEqual(
+        expect.arrayContaining([initialPoolId, laterPool.poolId]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves the Verified Result and upserts one incident when reconciliation fails", async () => {

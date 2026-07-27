@@ -21,6 +21,7 @@ import {
   MAX_OWNED_POOLS,
   MAX_POOL_ENTRIES,
 } from "./lib/quotas";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   assertValidMaxEntriesPerUser,
   countActivePoolEntries,
@@ -239,6 +240,7 @@ export const createPool = mutation({
       createdAtMs: nowMs,
       maxEntriesPerUser,
     });
+    await recordScoringDependencyEvent(ctx, season._id);
 
     const membershipId = await ctx.db.insert("poolMemberships", {
       poolId,
@@ -605,6 +607,9 @@ export const updatePoolRules = mutation({
     }
 
     await ctx.db.patch(pool._id, patch);
+    if (outcomeAffecting) {
+      await recordScoringDependencyEvent(ctx, pool.seasonId);
+    }
     return { poolId: pool._id };
   },
 });

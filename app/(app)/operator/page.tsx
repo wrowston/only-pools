@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
 import { OperatorIncidentsPanel } from "@/components/OperatorIncidentsPanel";
+import { OperatorScoringHoldsPanel } from "@/components/OperatorScoringHoldsPanel";
 import { OperatorPageSkeleton } from "@/components/OperatorSkeleton";
 import { api } from "@/convex/_generated/api";
 
@@ -53,5 +54,10 @@ export default function OperatorPage() {
     );
   }
 
-  return <OperatorIncidentsPanel />;
+  return (
+    <div>
+      <OperatorScoringHoldsPanel />
+      <OperatorIncidentsPanel />
+    </div>
+  );
 }

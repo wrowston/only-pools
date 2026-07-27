@@ -585,6 +585,219 @@ export default defineSchema({
   }).index("by_atMs", ["atMs"]),
 
   /**
+   * Pool-specific gate created when corrected terminal evidence would rewrite
+   * scoring after a later competitive dependency has become official.
+   */
+  scoringHolds: defineTable({
+    evaluationId: v.optional(v.id("scoringHoldEvaluations")),
+    poolId: v.id("pools"),
+    gameId: v.id("nflGames"),
+    poolType: v.union(v.literal("survivor"), v.literal("confidence")),
+    gameWeek: v.number(),
+    dependency: v.union(
+      v.literal("later_game_lock"),
+      v.literal("later_weekly_cutoff"),
+      v.literal("settled_pool_week"),
+      v.literal("locked_survivor_pick"),
+      v.literal("non_provisional_survivor_pick"),
+      v.literal("locked_confidence_pick"),
+      v.literal("bounded_scope_exceeded"),
+    ),
+    candidateKey: v.string(),
+    dedupeKey: v.string(),
+    candidateHomeScore: v.number(),
+    candidateAwayScore: v.number(),
+    candidateObservedAtMs: v.number(),
+    candidateStatus: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    officialHomeScore: v.number(),
+    officialAwayScore: v.number(),
+    officialVerifiedAtMs: v.number(),
+    officialStatus: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAtMs: v.number(),
+    resolvedAtMs: v.optional(v.number()),
+    resolution: v.optional(
+      v.union(
+        v.literal("accepted_correction"),
+        v.literal("superseded_candidate"),
+        v.literal("withdrawn_candidate"),
+      ),
+    ),
+    resolvedByTokenIdentifier: v.optional(v.string()),
+    resolvedByClerkUserId: v.optional(v.string()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_poolId_and_status", ["poolId", "status"])
+    .index("by_poolId_and_status_and_gameWeek", [
+      "poolId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_poolId_and_gameId_and_status", [
+      "poolId",
+      "gameId",
+      "status",
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"])
+    .index("by_gameId_and_candidateKey", ["gameId", "candidateKey"])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ])
+    .index("by_status_and_createdAtMs", ["status", "createdAtMs"]),
+
+  /** Append-only watermark for writes that can create correction dependencies. */
+  scoringDependencyEvents: defineTable({
+    seasonId: v.id("poolSeasons"),
+    dependencyWeek: v.optional(v.number()),
+    recordedAtMs: v.number(),
+  }).index("by_seasonId", ["seasonId"]),
+
+  /** Cursor-batched, fail-closed evaluation of one semantic correction. */
+  scoringHoldEvaluations: defineTable({
+    seasonId: v.id("poolSeasons"),
+    gameId: v.id("nflGames"),
+    gameWeek: v.number(),
+    candidateKey: v.string(),
+    candidateHomeScore: v.number(),
+    candidateAwayScore: v.number(),
+    candidateObservedAtMs: v.number(),
+    candidateStatus: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    status: v.union(
+      v.literal("building"),
+      v.literal("complete"),
+      v.literal("incomplete"),
+      v.literal("abandoned"),
+      v.literal("applied"),
+    ),
+    cursor: v.optional(v.string()),
+    processedPools: v.number(),
+    holdCount: v.number(),
+    /** Latest append-only dependency event captured for the current full scan. */
+    dependencyEventId: v.optional(v.id("scoringDependencyEvents")),
+    startedAtMs: v.number(),
+    completedAtMs: v.optional(v.number()),
+    abandonedAtMs: v.optional(v.number()),
+  })
+    .index("by_seasonId_and_status", ["seasonId", "status"])
+    .index("by_seasonId_and_status_and_gameWeek", [
+      "seasonId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_gameId_and_candidateKey", ["gameId", "candidateKey"])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"]),
+
+  /** Durable retirement of superseded or withdrawn correction episodes. */
+  scoringHoldCleanups: defineTable({
+    seasonId: v.id("poolSeasons"),
+    gameId: v.id("nflGames"),
+    gameWeek: v.number(),
+    candidateKey: v.string(),
+    reason: v.union(
+      v.literal("superseded_candidate"),
+      v.literal("withdrawn_candidate"),
+    ),
+    status: v.union(v.literal("pending"), v.literal("complete")),
+    phase: v.union(v.literal("evaluations"), v.literal("holds")),
+    evaluationCursor: v.optional(v.string()),
+    holdCursor: v.optional(v.string()),
+    abandonedEvaluations: v.number(),
+    resolvedHolds: v.number(),
+    startedAtMs: v.number(),
+    completedAtMs: v.optional(v.number()),
+  })
+    .index("by_seasonId_and_status", ["seasonId", "status"])
+    .index("by_seasonId_and_status_and_gameWeek", [
+      "seasonId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ]),
+
+  /** Durable, fail-closed validation and application of an accepted result. */
+  scoringHoldAcceptances: defineTable({
+    seasonId: v.id("poolSeasons"),
+    gameId: v.id("nflGames"),
+    gameWeek: v.number(),
+    candidateKey: v.string(),
+    status: v.union(
+      v.literal("validating_evaluations"),
+      v.literal("validating_holds"),
+      v.literal("resolving_holds"),
+      v.literal("applying_evaluations"),
+      v.literal("complete"),
+      v.literal("abandoned"),
+      v.literal("rejected"),
+    ),
+    cursor: v.optional(v.string()),
+    validatedHolds: v.number(),
+    processedHolds: v.number(),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    startedAtMs: v.number(),
+    appliedAtMs: v.optional(v.number()),
+    completedAtMs: v.optional(v.number()),
+    abandonedAtMs: v.optional(v.number()),
+  })
+    .index("by_seasonId_and_status", ["seasonId", "status"])
+    .index("by_seasonId_and_status_and_gameWeek", [
+      "seasonId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_gameId_and_candidateKey", ["gameId", "candidateKey"])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ]),
+
+  /** Deduplicated scoring work suppressed while a correction gate is open. */
+  scoringBlockedWork: defineTable({
+    poolId: v.id("pools"),
+    kind: v.union(v.literal("survivor"), v.literal("confidence")),
+    week: v.number(),
+    dedupeKey: v.string(),
+    status: v.union(v.literal("pending"), v.literal("replayed")),
+    candidateKey: v.string(),
+    holdId: v.optional(v.id("scoringHolds")),
+    evaluationId: v.optional(v.id("scoringHoldEvaluations")),
+    cleanupId: v.optional(v.id("scoringHoldCleanups")),
+    acceptanceId: v.optional(v.id("scoringHoldAcceptances")),
+    blockedAtMs: v.number(),
+    replayedAtMs: v.optional(v.number()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_poolId_and_kind_and_status", [
+      "poolId",
+      "kind",
+      "status",
+    ]),
+
+  /**
    * Ordinary Pool Invite — at most one active per Pool. Accept lookup uses
    * credentialHash only; credentialSecret is returned solely after step-up
    * via createOrRetrieveInvite / rotateInvite and never logged or audited.

@@ -26,6 +26,7 @@ import { runEffect } from "./effect/run";
 import { AuthError, requireParticipant } from "./lib/auth";
 import { isProductionOperator } from "./lib/operator";
 import { isGameKickoffLocked } from "./lib/pickLock";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
@@ -317,6 +318,18 @@ export const applyScheduleGameObservation = internalMutation({
       lastObservedAtMs: observation.observedAtMs,
       revision: (game.revision ?? 0) + 1,
     });
+    if (
+      reduced.scheduledKickoffMs !== game.scheduledKickoffMs ||
+      reduced.lifecycle !== game.lifecycle ||
+      reduced.kickoffLockReachedAtMs !==
+        (game.kickoffLockReachedAtMs ?? null)
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        game.seasonId,
+        game.week,
+      );
+    }
     await attachNflGameAlias(ctx, {
       nflGameId: game._id,
       alias: {

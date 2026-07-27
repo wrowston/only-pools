@@ -89,6 +89,19 @@ export function SurvivorStandingsView({
           </Link>
         </header>
 
+        {standings.scoringHold ? (
+          <div
+            className="rounded-md border border-op-banner-border bg-op-banner-bg px-3 py-2 text-sm text-op-banner-fg"
+            role="status"
+          >
+            <p className="font-medium">{standings.scoringHold.label}</p>
+            <p className="mt-0.5 text-xs">
+              Week {standings.scoringHold.gameWeek}.{" "}
+              {standings.scoringHold.note}
+            </p>
+          </div>
+        ) : null}
+
         {standings.rows.length === 0 ? (
           <EmptyState
             title="No standings yet"

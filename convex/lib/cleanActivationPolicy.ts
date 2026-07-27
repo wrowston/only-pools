@@ -141,6 +141,30 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "preserve",
     reason: "Production Operator audit history is permanently preserved.",
   },
+  scoringHolds: {
+    disposition: "delete",
+    reason: "Scoring holds reference Pools and NFL Games being replaced.",
+  },
+  scoringDependencyEvents: {
+    disposition: "delete",
+    reason: "Dependency watermarks belong to the active Pool Season dataset.",
+  },
+  scoringHoldEvaluations: {
+    disposition: "delete",
+    reason: "Correction evaluations reference the active sports dataset.",
+  },
+  scoringHoldCleanups: {
+    disposition: "delete",
+    reason: "Correction cleanup workflows reference the active sports dataset.",
+  },
+  scoringHoldAcceptances: {
+    disposition: "delete",
+    reason: "Correction acceptance workflows reference the active sports dataset.",
+  },
+  scoringBlockedWork: {
+    disposition: "delete",
+    reason: "Blocked scoring work belongs to deleted Pools and correction evaluations.",
+  },
   poolInvites: {
     disposition: "delete",
     reason: "Invite credentials belong to deleted Pools.",
@@ -236,6 +260,12 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "survivorTeamReservations",
   "poolWeeks",
   "scoringRevisions",
+  "scoringBlockedWork",
+  "scoringHolds",
+  "scoringHoldEvaluations",
+  "scoringHoldCleanups",
+  "scoringHoldAcceptances",
+  "scoringDependencyEvents",
   "poolAuditEvents",
   "poolInvites",
   "returningParticipantInvites",
