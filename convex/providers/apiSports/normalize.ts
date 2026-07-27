@@ -48,12 +48,9 @@ const providerCodeAliases: Readonly<
   WSH: "WAS",
 };
 
-function teamAbbreviation(
-  team: Pick<ApiSportsTeamWire, "code" | "name">,
+function teamCodeAbbreviation(
+  team: Pick<ApiSportsTeamWire, "code">,
 ): CanonicalNflTeamAbbreviation | null {
-  const byName = abbreviationsByName.get(team.name.trim().toLowerCase());
-  if (byName) return byName;
-
   const code = team.code?.trim().toUpperCase();
   if (!code) return null;
   if (code in CANONICAL_NFL_TEAMS) {
@@ -148,22 +145,50 @@ function statusObservation(
 
 export function normalizeApiSportsTeams(
   rows: readonly ApiSportsTeamWire[],
+  options: {
+    mode?: "strict" | "bootstrap-candidates";
+  } = {},
 ): Effect.Effect<readonly SportsDataTeam[], ApiSportsDecodeError> {
   return Effect.gen(function* () {
+    const mode = options.mode ?? "strict";
     const teams = new Map<
       CanonicalNflTeamAbbreviation,
       SportsDataTeam
     >();
+    const candidates: SportsDataTeam[] = [];
 
     for (const row of rows) {
-      const abbreviation = teamAbbreviation(row);
-      if (!abbreviation || teams.has(abbreviation)) continue;
-      teams.set(abbreviation, {
+      const byName =
+        abbreviationsByName.get(row.name.trim().toLowerCase()) ?? null;
+      const byCode = teamCodeAbbreviation(row);
+      if (byName !== null && byCode !== null && byName !== byCode) {
+        return yield* new ApiSportsDecodeError({
+          endpoint: "/teams",
+          detail: `NFL Team ${row.id} has conflicting deterministic aliases: name maps to ${byName}, code maps to ${byCode}`,
+        });
+      }
+      const abbreviation = byName ?? byCode;
+      if (abbreviation === null) {
+        return yield* new ApiSportsDecodeError({
+          endpoint: "/teams",
+          detail: `NFL Team ${row.id} has no approved deterministic alias`,
+        });
+      }
+
+      const team: SportsDataTeam = {
         ...CANONICAL_NFL_TEAMS[abbreviation],
         providerAliases: [
           { provider: "api-sports", id: String(row.id) },
         ],
-      });
+      };
+      candidates.push(team);
+      if (!teams.has(abbreviation)) {
+        teams.set(abbreviation, team);
+      }
+    }
+
+    if (mode === "bootstrap-candidates") {
+      return candidates;
     }
 
     if (teams.size !== CANONICAL_NFL_TEAM_LIST.length) {
@@ -217,6 +242,14 @@ export function normalizeApiSportsGame(
       week,
       homeTeamAbbreviation,
       awayTeamAbbreviation,
+      homeTeamProviderAlias: {
+        provider: "api-sports",
+        id: String(row.teams.home.id),
+      },
+      awayTeamProviderAlias: {
+        provider: "api-sports",
+        id: String(row.teams.away.id),
+      },
       scheduledKickoffMs,
       lifecycle,
       homeScore: row.scores.home.total,

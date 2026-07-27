@@ -38,6 +38,9 @@ export type SportsDataGame = Readonly<{
   week: number;
   homeTeamAbbreviation: CanonicalNflTeamAbbreviation;
   awayTeamAbbreviation: CanonicalNflTeamAbbreviation;
+  /** Provider identity evidence cross-checked against staged NFL Team aliases. */
+  homeTeamProviderAlias?: SportsDataProviderAlias;
+  awayTeamProviderAlias?: SportsDataProviderAlias;
   scheduledKickoffMs: number;
   lifecycle: NflGameLifecycle;
   homeScore: number | null;

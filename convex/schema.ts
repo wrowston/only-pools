@@ -225,6 +225,103 @@ export default defineSchema({
     .index("by_seasonId_and_week", ["seasonId", "week"]),
 
   /**
+   * Immutable parent report for a fetched Season Bootstrap candidate.
+   * A staged row is not an Available Season and cannot affect active domain
+   * data. Ticket #36 may activate only rows with activationEligible=true.
+   */
+  seasonBootstrapStages: defineTable({
+    seasonYear: v.number(),
+    sourceProvider: v.literal("api-sports"),
+    invariantsVersion: v.string(),
+    validationStatus: v.union(
+      v.literal("valid"),
+      v.literal("invalid"),
+    ),
+    activationEligible: v.boolean(),
+    teamCount: v.number(),
+    gameCount: v.number(),
+    weekCount: v.number(),
+    teamAliasCount: v.number(),
+    gameAliasCount: v.number(),
+    failureCount: v.number(),
+    storedFailureCount: v.number(),
+    failuresTruncated: v.boolean(),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    stagedAtMs: v.number(),
+  })
+    .index("by_seasonYear_and_stagedAtMs", [
+      "seasonYear",
+      "stagedAtMs",
+    ])
+    .index("by_validationStatus_and_stagedAtMs", [
+      "validationStatus",
+      "stagedAtMs",
+    ]),
+
+  /** Bounded child rows for a staged candidate's canonical NFL Teams. */
+  seasonBootstrapStagedTeams: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    stableKey: v.string(),
+    abbreviation: v.string(),
+    name: v.string(),
+    logoUrl: v.string(),
+  }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
+
+  /** Bounded child rows for a staged candidate's regular-season NFL Games. */
+  seasonBootstrapStagedGames: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    stableKey: v.string(),
+    seasonYear: v.number(),
+    week: v.number(),
+    homeTeamAbbreviation: v.string(),
+    awayTeamAbbreviation: v.string(),
+    homeTeamProviderAliasId: v.optional(v.string()),
+    awayTeamProviderAliasId: v.optional(v.string()),
+    scheduledKickoffMs: v.number(),
+    lifecycle: nflGameLifecycle,
+    homeScore: v.union(v.number(), v.null()),
+    awayScore: v.union(v.number(), v.null()),
+    observedAtMs: v.number(),
+  }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
+
+  /**
+   * Provider aliases remain replaceable child identities. Arrays are not
+   * embedded in stage/team/game documents.
+   */
+  seasonBootstrapStagedAliases: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    entityType: v.union(v.literal("team"), v.literal("game")),
+    entityStableKey: v.string(),
+    provider: v.string(),
+    externalId: v.string(),
+  })
+    .index("by_stageId_and_ordinal", ["stageId", "ordinal"])
+    .index("by_stageId_and_entityType_and_entityStableKey", [
+      "stageId",
+      "entityType",
+      "entityStableKey",
+    ]),
+
+  /** Actionable validation details stored separately from the parent report. */
+  seasonBootstrapValidationFailures: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    code: v.string(),
+    scope: v.union(
+      v.literal("season"),
+      v.literal("team"),
+      v.literal("game"),
+      v.literal("alias"),
+    ),
+    entityKey: v.optional(v.string()),
+    message: v.string(),
+  }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
+
+  /**
    * Active Pool competitive container. Pool Type and Pool Season are immutable
    * after create; Start Week / Pick Lock mode freeze via rulesFrozen.
    * `archived` is a reversible read-only overlay — does not pause lifecycle,

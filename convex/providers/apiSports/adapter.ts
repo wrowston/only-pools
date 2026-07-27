@@ -77,14 +77,18 @@ export class ApiSportsProvider
   readonly name = "api-sports" as const;
 
   readonly #client: ReturnType<typeof createApiSportsClient>;
+  readonly #bootstrapTeamCandidates: boolean;
 
   constructor(input: {
     apiKey: string;
     fetch?: ApiSportsFetch;
     nowMs?: () => number;
     teamSeasonYear?: number;
+    bootstrapTeamCandidates?: boolean;
   }) {
     this.#client = createApiSportsClient(input);
+    this.#bootstrapTeamCandidates =
+      input.bootstrapTeamCandidates ?? false;
   }
 
   listTeams(): Effect.Effect<
@@ -93,7 +97,11 @@ export class ApiSportsProvider
   > {
     return this.#client.fetchTeams().pipe(
       Effect.flatMap((response) =>
-        normalizeApiSportsTeams(response.data),
+        normalizeApiSportsTeams(response.data, {
+          mode: this.#bootstrapTeamCandidates
+            ? "bootstrap-candidates"
+            : "strict",
+        }),
       ),
     );
   }

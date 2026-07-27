@@ -1,12 +1,16 @@
 import { v } from "convex/values";
+import type { Auth } from "convex/server";
 import {
   action,
+  env,
   internalAction,
   internalMutation,
   mutation,
+  query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { runEffect } from "./effect/run";
 import { AuthError } from "./lib/auth";
 import { evaluateBootstrapAvailability } from "./lib/bootstrapAvailability";
 import { isProductionOperator } from "./lib/operator";
@@ -41,6 +45,26 @@ import {
   reconcileStoredNflTeam,
   SportsIdentityConflict,
 } from "./providers/sportsData/identityStore";
+import { ApiSportsProvider } from "./providers/apiSports";
+import { selectSportsDataProvider } from "./providers/sportsData/config";
+import {
+  exceedsSeasonBootstrapStageLimits,
+  fetchSeasonBootstrapSnapshot,
+  SEASON_BOOTSTRAP_STAGE_LIMITS,
+  seasonBootstrapSnapshotCounts,
+  type SeasonBootstrapSnapshotCounts,
+} from "./providers/sportsData/seasonBootstrap";
+import {
+  isSeasonBootstrapYear,
+  SEASON_BOOTSTRAP_INVARIANTS,
+  validateSeasonBootstrap,
+  type SeasonBootstrapValidationReport,
+} from "./providers/sportsData/seasonBootstrapValidation";
+import type {
+  SportsDataGame,
+  SportsDataProviderName,
+  SportsDataTeam,
+} from "./providers/sportsData/types";
 
 const log = createLogger("bootstrap");
 
@@ -73,6 +97,55 @@ const normalizedGameValidator = v.object({
   aliases: v.object({ sportsDbEventId: v.string() }),
 });
 
+const sportsDataProviderNameValidator = v.union(
+  v.literal("api-sports"),
+  v.literal("in-memory"),
+);
+
+const sportsDataAliasValidator = v.object({
+  provider: sportsDataProviderNameValidator,
+  id: v.string(),
+});
+
+const stagedTeamValidator = v.object({
+  stableKey: v.string(),
+  abbreviation: v.string(),
+  name: v.string(),
+  logoUrl: v.string(),
+  providerAliases: v.array(sportsDataAliasValidator),
+});
+
+const stagedGameValidator = v.object({
+  stableKey: v.string(),
+  seasonYear: v.number(),
+  week: v.number(),
+  homeTeamAbbreviation: v.string(),
+  awayTeamAbbreviation: v.string(),
+  homeTeamProviderAlias: v.optional(sportsDataAliasValidator),
+  awayTeamProviderAlias: v.optional(sportsDataAliasValidator),
+  scheduledKickoffMs: v.number(),
+  lifecycle: v.union(
+    v.literal("scheduled"),
+    v.literal("in_progress"),
+    v.literal("interrupted"),
+    v.literal("postponed"),
+    v.literal("canceled"),
+    v.literal("terminal"),
+    v.literal("unknown"),
+  ),
+  homeScore: v.union(v.number(), v.null()),
+  awayScore: v.union(v.number(), v.null()),
+  observedAtMs: v.number(),
+  providerAliases: v.array(sportsDataAliasValidator),
+});
+
+const seasonBootstrapSnapshotCountsValidator = v.object({
+  teams: v.number(),
+  games: v.number(),
+  teamAliases: v.number(),
+  gameAliases: v.number(),
+});
+
 function yearFromSeasonLabel(seasonLabel: string): number {
   const year = Number.parseInt(seasonLabel, 10);
   if (!Number.isFinite(year)) {
@@ -81,31 +154,458 @@ function yearFromSeasonLabel(seasonLabel: string): number {
   return year;
 }
 
+type OperatorActor = {
+  tokenIdentifier: string;
+  clerkUserId: string;
+};
+
+async function requireProductionOperator(
+  auth: Auth,
+): Promise<OperatorActor> {
+  const identity = await auth.getUserIdentity();
+  if (identity === null) {
+    throw new AuthError("Unauthenticated");
+  }
+  const allowed = isProductionOperator(
+    {
+      tokenIdentifier: identity.tokenIdentifier,
+      clerkUserId: identity.subject,
+    },
+    process.env as Record<string, string | undefined>,
+  );
+  if (!allowed) {
+    log.warn("operator_denied", {
+      reason: "not_production_operator",
+      clerkUserId: identity.subject,
+    });
+    throw new AuthError("Production Operator required");
+  }
+  log.info("operator_asserted", { clerkUserId: identity.subject });
+  return {
+    tokenIdentifier: identity.tokenIdentifier,
+    clerkUserId: identity.subject,
+  };
+}
+
 export const assertProductionOperator = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new AuthError("Unauthenticated");
-    }
-    const allowed = isProductionOperator(
+    return await requireProductionOperator(ctx.auth);
+  },
+});
+
+type SeasonBootstrapStageResult = Readonly<{
+  stageId: Id<"seasonBootstrapStages">;
+  report: SeasonBootstrapValidationReport;
+}>;
+
+function oversizedSeasonBootstrapReport(
+  counts: SeasonBootstrapSnapshotCounts,
+): SeasonBootstrapValidationReport {
+  return {
+    invariantsVersion: SEASON_BOOTSTRAP_INVARIANTS.version,
+    valid: false,
+    activationEligible: false,
+    failuresTruncated: false,
+    counts: {
+      teams: counts.teams,
+      expectedTeams: SEASON_BOOTSTRAP_INVARIANTS.teamCount,
+      games: counts.games,
+      expectedGames:
+        SEASON_BOOTSTRAP_INVARIANTS.regularSeasonGameCount,
+      weeks: 0,
+      expectedWeeks: SEASON_BOOTSTRAP_INVARIANTS.weeks.length,
+      teamAliases: counts.teamAliases,
+      gameAliases: counts.gameAliases,
+      failures: 1,
+    },
+    failures: [
       {
-        tokenIdentifier: identity.tokenIdentifier,
-        clerkUserId: identity.subject,
+        code: "provider_snapshot_too_large",
+        scope: "season",
+        message: `Provider snapshot exceeds staging limits: received ${counts.teams} teams, ${counts.games} games, and ${counts.teamAliases + counts.gameAliases} aliases; limits are ${SEASON_BOOTSTRAP_STAGE_LIMITS.teams}, ${SEASON_BOOTSTRAP_STAGE_LIMITS.games}, and ${SEASON_BOOTSTRAP_STAGE_LIMITS.aliases}`,
       },
-      process.env as Record<string, string | undefined>,
+    ],
+  };
+}
+
+function boundSeasonBootstrapFailures(
+  report: SeasonBootstrapValidationReport,
+): SeasonBootstrapValidationReport {
+  const limit = SEASON_BOOTSTRAP_STAGE_LIMITS.validationFailureRows;
+  if (report.failures.length <= limit) return report;
+
+  const retained = report.failures.slice(0, limit - 1);
+  const omitted = report.failures.length - retained.length;
+  return {
+    ...report,
+    failuresTruncated: true,
+    failures: [
+      ...retained,
+      {
+        code: "validation_report_truncated",
+        scope: "season",
+        message: `${omitted} additional validation failures were omitted by the ${limit}-row staging report limit`,
+      },
+    ],
+  };
+}
+
+/**
+ * Persist an immutable staged snapshot and its validation report.
+ *
+ * This mutation deliberately does not write Pool Seasons, NFL Teams, NFL
+ * Games, Pools, picks, standings, or the Sync Gate. Activation is a separate
+ * Production Operator operation owned by ticket #36.
+ */
+export const persistSeasonBootstrapStage = internalMutation({
+  args: {
+    seasonYear: v.number(),
+    sourceProvider: v.literal("api-sports"),
+    teams: v.array(stagedTeamValidator),
+    games: v.array(stagedGameValidator),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    providerFailure: v.optional(
+      v.object({
+        code: v.union(
+          v.literal("provider_configuration_failure"),
+          v.literal("provider_fetch_failure"),
+        ),
+        message: v.string(),
+      }),
+    ),
+    oversizedCounts: v.optional(
+      seasonBootstrapSnapshotCountsValidator,
+    ),
+    nowMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<SeasonBootstrapStageResult> => {
+    const nowMs = args.nowMs ?? Date.now();
+    const teams = args.teams as readonly SportsDataTeam[];
+    const games = args.games as readonly SportsDataGame[];
+    const sourceProvider: SportsDataProviderName = args.sourceProvider;
+    const inputCounts = seasonBootstrapSnapshotCounts(teams, games);
+    const oversizedCounts =
+      args.oversizedCounts ??
+      (exceedsSeasonBootstrapStageLimits(inputCounts)
+        ? inputCounts
+        : null);
+    const teamsToPersist = oversizedCounts ? [] : teams;
+    const gamesToPersist = oversizedCounts ? [] : games;
+    const validationReport = oversizedCounts
+      ? oversizedSeasonBootstrapReport(oversizedCounts)
+      : validateSeasonBootstrap({
+          seasonYear: args.seasonYear,
+          sourceProvider,
+          teams,
+          games,
+        });
+    const providerFailure = args.providerFailure
+      ? {
+          ...args.providerFailure,
+          message: args.providerFailure.message.trim(),
+        }
+      : undefined;
+    const report = boundSeasonBootstrapFailures(
+      providerFailure
+        ? {
+            ...validationReport,
+            valid: false,
+            activationEligible: false,
+            counts: {
+              ...validationReport.counts,
+              failures: validationReport.counts.failures + 1,
+            },
+            failures: [
+              {
+                code: providerFailure.code,
+                scope: "season",
+                entityKey: args.sourceProvider,
+                message: providerFailure.message,
+              },
+              ...validationReport.failures,
+            ],
+          }
+        : validationReport,
     );
-    if (!allowed) {
-      log.warn("operator_denied", {
-        reason: "not_production_operator",
-        clerkUserId: identity.subject,
+
+    const stageId = await ctx.db.insert("seasonBootstrapStages", {
+      seasonYear: args.seasonYear,
+      sourceProvider: args.sourceProvider,
+      invariantsVersion: report.invariantsVersion,
+      validationStatus: report.valid ? "valid" : "invalid",
+      activationEligible: report.activationEligible,
+      teamCount: report.counts.teams,
+      gameCount: report.counts.games,
+      weekCount: report.counts.weeks,
+      teamAliasCount: report.counts.teamAliases,
+      gameAliasCount: report.counts.gameAliases,
+      failureCount: report.counts.failures,
+      storedFailureCount: report.failures.length,
+      failuresTruncated: report.failuresTruncated,
+      actorTokenIdentifier: args.actorTokenIdentifier,
+      actorClerkUserId: args.actorClerkUserId,
+      stagedAtMs: nowMs,
+    });
+
+    let aliasOrdinal = 0;
+    for (const [ordinal, team] of teamsToPersist.entries()) {
+      await ctx.db.insert("seasonBootstrapStagedTeams", {
+        stageId,
+        ordinal,
+        stableKey: team.stableKey,
+        abbreviation: team.abbreviation,
+        name: team.name,
+        logoUrl: team.logoUrl,
       });
-      throw new AuthError("Production Operator required");
+      for (const alias of team.providerAliases) {
+        await ctx.db.insert("seasonBootstrapStagedAliases", {
+          stageId,
+          ordinal: aliasOrdinal++,
+          entityType: "team",
+          entityStableKey: team.stableKey,
+          provider: alias.provider,
+          externalId: alias.id,
+        });
+      }
     }
-    log.info("operator_asserted", { clerkUserId: identity.subject });
+
+    for (const [ordinal, game] of gamesToPersist.entries()) {
+      await ctx.db.insert("seasonBootstrapStagedGames", {
+        stageId,
+        ordinal,
+        stableKey: game.stableKey,
+        seasonYear: game.seasonYear,
+        week: game.week,
+        homeTeamAbbreviation: game.homeTeamAbbreviation,
+        awayTeamAbbreviation: game.awayTeamAbbreviation,
+        homeTeamProviderAliasId:
+          game.homeTeamProviderAlias?.id,
+        awayTeamProviderAliasId:
+          game.awayTeamProviderAlias?.id,
+        scheduledKickoffMs: game.scheduledKickoffMs,
+        lifecycle: game.lifecycle,
+        homeScore: game.homeScore,
+        awayScore: game.awayScore,
+        observedAtMs: game.observedAtMs,
+      });
+      for (const alias of game.providerAliases) {
+        await ctx.db.insert("seasonBootstrapStagedAliases", {
+          stageId,
+          ordinal: aliasOrdinal++,
+          entityType: "game",
+          entityStableKey: game.stableKey,
+          provider: alias.provider,
+          externalId: alias.id,
+        });
+      }
+    }
+
+    for (const [ordinal, failure] of report.failures.entries()) {
+      await ctx.db.insert("seasonBootstrapValidationFailures", {
+        stageId,
+        ordinal,
+        code: failure.code,
+        scope: failure.scope,
+        entityKey: failure.entityKey,
+        message: failure.message,
+      });
+    }
+
+    await ctx.db.insert("operatorAuditEvents", {
+      action: "season_bootstrap_staged",
+      actorTokenIdentifier: args.actorTokenIdentifier,
+      actorClerkUserId: args.actorClerkUserId,
+      atMs: nowMs,
+      detailsJson: JSON.stringify({
+        stageId,
+        seasonYear: args.seasonYear,
+        sourceProvider: args.sourceProvider,
+        invariantsVersion: report.invariantsVersion,
+        validationStatus: report.valid ? "valid" : "invalid",
+        activationEligible: report.activationEligible,
+        counts: report.counts,
+      }),
+    });
+
+    log.info("bootstrap_staged", {
+      stageId,
+      seasonYear: args.seasonYear,
+      sourceProvider: args.sourceProvider,
+      validationStatus: report.valid ? "valid" : "invalid",
+      teamCount: report.counts.teams,
+      gameCount: report.counts.games,
+      failureCount: report.counts.failures,
+      actorClerkUserId: args.actorClerkUserId,
+    });
+
+    return { stageId, report };
+  },
+});
+
+/**
+ * Fetch and stage an API-Sports Season Bootstrap through the provider-neutral
+ * sports-data interface. Fetch Effects execute only at this action edge.
+ */
+export const stageSeasonBootstrap = action({
+  args: {
+    seasonYear: v.number(),
+  },
+  handler: async (ctx, args): Promise<SeasonBootstrapStageResult> => {
+    const actor: OperatorActor = await ctx.runMutation(
+      internal.bootstrap.assertProductionOperator,
+      {},
+    );
+    const persistSnapshot = async (
+      teams: readonly SportsDataTeam[],
+      games: readonly SportsDataGame[],
+      providerFailure?: Readonly<{
+        code:
+          | "provider_configuration_failure"
+          | "provider_fetch_failure";
+        message: string;
+      }>,
+    ): Promise<SeasonBootstrapStageResult> => {
+      const snapshotCounts = seasonBootstrapSnapshotCounts(
+        teams,
+        games,
+      );
+      const oversizedCounts = exceedsSeasonBootstrapStageLimits(
+        snapshotCounts,
+      )
+        ? snapshotCounts
+        : undefined;
+      const result: SeasonBootstrapStageResult = await ctx.runMutation(
+        internal.bootstrap.persistSeasonBootstrapStage,
+        {
+          seasonYear: args.seasonYear,
+          sourceProvider: "api-sports",
+          teams: oversizedCounts
+            ? []
+            : teams.map((team) => ({
+                stableKey: team.stableKey,
+                abbreviation: team.abbreviation,
+                name: team.name,
+                logoUrl: team.logoUrl,
+                providerAliases: [...team.providerAliases],
+              })),
+          games: oversizedCounts
+            ? []
+            : games.map((game) => ({
+                stableKey: game.stableKey,
+                seasonYear: game.seasonYear,
+                week: game.week,
+                homeTeamAbbreviation:
+                  game.homeTeamAbbreviation,
+                awayTeamAbbreviation:
+                  game.awayTeamAbbreviation,
+                homeTeamProviderAlias:
+                  game.homeTeamProviderAlias,
+                awayTeamProviderAlias:
+                  game.awayTeamProviderAlias,
+                scheduledKickoffMs: game.scheduledKickoffMs,
+                lifecycle: game.lifecycle,
+                homeScore: game.homeScore,
+                awayScore: game.awayScore,
+                observedAtMs: game.observedAtMs,
+                providerAliases: [...game.providerAliases],
+              })),
+          actorTokenIdentifier: actor.tokenIdentifier,
+          actorClerkUserId: actor.clerkUserId,
+          providerFailure,
+          oversizedCounts,
+        },
+      );
+      return result;
+    };
+
+    if (!isSeasonBootstrapYear(args.seasonYear)) {
+      return await persistSnapshot([], []);
+    }
+
+    let provider;
+    try {
+      provider = selectSportsDataProvider({
+        config: {
+          provider: env.SPORTS_DATA_PROVIDER,
+          apiSportsKey: env.API_SPORTS_KEY,
+        },
+        providers: {
+          "api-sports": ({ apiKey }) =>
+            new ApiSportsProvider({
+              apiKey,
+              teamSeasonYear: args.seasonYear,
+              bootstrapTeamCandidates: true,
+            }),
+        },
+      });
+    } catch (error) {
+      return await persistSnapshot([], [], {
+        code: "provider_configuration_failure",
+        message: errorMessage(error),
+      });
+    }
+    let snapshot: {
+      teams: readonly SportsDataTeam[];
+      games: readonly SportsDataGame[];
+    };
+    try {
+      snapshot = await runEffect(
+        fetchSeasonBootstrapSnapshot(provider, args.seasonYear),
+      );
+    } catch (error) {
+      return await persistSnapshot([], [], {
+        code: "provider_fetch_failure",
+        message: errorMessage(error),
+      });
+    }
+    return await persistSnapshot(snapshot.teams, snapshot.games);
+  },
+});
+
+/** Retrieve the durable staged report through the Production Operator seam. */
+export const getSeasonBootstrapStageReport = query({
+  args: {
+    stageId: v.id("seasonBootstrapStages"),
+  },
+  handler: async (ctx, args) => {
+    await requireProductionOperator(ctx.auth);
+    const stage = await ctx.db.get(args.stageId);
+    if (stage === null) return null;
+
+    const failures = await ctx.db
+      .query("seasonBootstrapValidationFailures")
+      .withIndex("by_stageId_and_ordinal", (q) =>
+        q.eq("stageId", args.stageId),
+      )
+      .take(SEASON_BOOTSTRAP_STAGE_LIMITS.validationFailureRows);
+
     return {
-      tokenIdentifier: identity.tokenIdentifier,
-      clerkUserId: identity.subject,
+      stageId: stage._id,
+      seasonYear: stage.seasonYear,
+      sourceProvider: stage.sourceProvider,
+      invariantsVersion: stage.invariantsVersion,
+      validationStatus: stage.validationStatus,
+      activationEligible: stage.activationEligible,
+      failuresTruncated: stage.failuresTruncated,
+      counts: {
+        teams: stage.teamCount,
+        games: stage.gameCount,
+        weeks: stage.weekCount,
+        teamAliases: stage.teamAliasCount,
+        gameAliases: stage.gameAliasCount,
+        failures: stage.failureCount,
+        storedFailures: stage.storedFailureCount,
+      },
+      stagedAtMs: stage.stagedAtMs,
+      actorClerkUserId: stage.actorClerkUserId,
+      failures: failures.map((failure) => ({
+        code: failure.code,
+        scope: failure.scope,
+        entityKey: failure.entityKey,
+        message: failure.message,
+      })),
     };
   },
 });
@@ -354,11 +854,6 @@ export const applyNormalizedBootstrap = internalMutation({
     };
   },
 });
-
-type OperatorActor = {
-  tokenIdentifier: string;
-  clerkUserId: string;
-};
 
 type BootstrapApplyResult = {
   seasonId: Id<"poolSeasons">;
