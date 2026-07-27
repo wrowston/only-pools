@@ -37,6 +37,7 @@ import type * as lib_myPoolsStatus from "../lib/myPoolsStatus.js";
 import type * as lib_operator from "../lib/operator.js";
 import type * as lib_pickLock from "../lib/pickLock.js";
 import type * as lib_poolArchive from "../lib/poolArchive.js";
+import type * as lib_poolDescription from "../lib/poolDescription.js";
 import type * as lib_poolEntries from "../lib/poolEntries.js";
 import type * as lib_poolRules from "../lib/poolRules.js";
 import type * as lib_providerBudget from "../lib/providerBudget.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/operator": typeof lib_operator;
   "lib/pickLock": typeof lib_pickLock;
   "lib/poolArchive": typeof lib_poolArchive;
+  "lib/poolDescription": typeof lib_poolDescription;
   "lib/poolEntries": typeof lib_poolEntries;
   "lib/poolRules": typeof lib_poolRules;
   "lib/providerBudget": typeof lib_providerBudget;
