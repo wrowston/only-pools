@@ -69,6 +69,7 @@ import type * as providers_sportsData_inMemory from "../providers/sportsData/inM
 import type * as providers_sportsData_index from "../providers/sportsData/index.js";
 import type * as providers_sportsData_liveSyncPolicy from "../providers/sportsData/liveSyncPolicy.js";
 import type * as providers_sportsData_reconciliation from "../providers/sportsData/reconciliation.js";
+import type * as providers_sportsData_resultAuthority from "../providers/sportsData/resultAuthority.js";
 import type * as providers_sportsData_scheduleSync from "../providers/sportsData/scheduleSync.js";
 import type * as providers_sportsData_seasonBootstrap from "../providers/sportsData/seasonBootstrap.js";
 import type * as providers_sportsData_seasonBootstrapValidation from "../providers/sportsData/seasonBootstrapValidation.js";
@@ -154,6 +155,7 @@ declare const fullApi: ApiFromModules<{
   "providers/sportsData/index": typeof providers_sportsData_index;
   "providers/sportsData/liveSyncPolicy": typeof providers_sportsData_liveSyncPolicy;
   "providers/sportsData/reconciliation": typeof providers_sportsData_reconciliation;
+  "providers/sportsData/resultAuthority": typeof providers_sportsData_resultAuthority;
   "providers/sportsData/scheduleSync": typeof providers_sportsData_scheduleSync;
   "providers/sportsData/seasonBootstrap": typeof providers_sportsData_seasonBootstrap;
   "providers/sportsData/seasonBootstrapValidation": typeof providers_sportsData_seasonBootstrapValidation;

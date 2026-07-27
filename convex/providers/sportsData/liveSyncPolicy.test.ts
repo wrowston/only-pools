@@ -208,6 +208,6 @@ describe("API-Sports live sync policy", () => {
         },
         hasVerifiedResult: false,
       }),
-    ).toBe("defer_terminal");
+    ).toBe("apply_verified");
   });
 });

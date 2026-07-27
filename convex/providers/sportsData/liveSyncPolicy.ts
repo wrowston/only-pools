@@ -37,7 +37,7 @@ export type LiveObservationDecision =
   | "stale"
   | "duplicate"
   | "evidence_only"
-  | "defer_terminal"
+  | "apply_verified"
   | "trusted_state";
 
 export function isLivePollingActive(
@@ -147,7 +147,7 @@ export function classifyLiveObservation(input: {
     input.observation.lifecycle === "canceled" ||
     input.observation.providerStatus.terminal
   ) {
-    return "defer_terminal";
+    return "apply_verified";
   }
   return "apply_projected";
 }

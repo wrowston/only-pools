@@ -6,7 +6,7 @@ import { convexTest } from "convex-test";
 import * as Effect from "effect/Effect";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { ApiSportsProvider } from "./providers/apiSports";
@@ -72,7 +72,7 @@ async function seed(t: ReturnType<typeof convexTest>) {
       firstObservedAtMs: NOW_MS,
       lastObservedAtMs: NOW_MS,
     });
-    return { seasonId, gameId };
+    return { seasonId, gameId, homeTeamId, awayTeamId };
   });
   const asOwner = t.withIdentity(identity());
   await asOwner.mutation(api.participants.ensureMyParticipant, {});
@@ -102,6 +102,21 @@ function observation(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function terminalObservation(overrides: Record<string, unknown> = {}) {
+  return observation({
+    lifecycle: "terminal",
+    homeScore: 27,
+    awayScore: 24,
+    providerStatus: {
+      rawShort: "FT",
+      rawLong: "Finished",
+      recognized: true,
+      terminal: true,
+    },
+    ...overrides,
+  });
+}
+
 async function providerObservation() {
   const fetch: typeof globalThis.fetch = async () =>
     new Response(
@@ -124,6 +139,53 @@ async function providerObservation() {
             scores: {
               home: { total: 14 },
               away: { total: 10 },
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  const provider = new ApiSportsProvider({
+    apiKey: "in-memory-test-key",
+    fetch,
+    nowMs: () => NOW_MS + 30_000,
+  });
+  const [game] = await Effect.runPromise(provider.listLiveGames());
+  const alias = game!.providerAliases.find(
+    (candidate) => candidate.provider === "api-sports",
+  )!;
+  return {
+    externalId: alias.id,
+    observedAtMs: game!.observedAtMs,
+    lifecycle: game!.lifecycle,
+    homeScore: game!.homeScore,
+    awayScore: game!.awayScore,
+    providerStatus: game!.providerStatus,
+  };
+}
+
+async function providerTerminalObservation() {
+  const fetch: typeof globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        errors: [],
+        response: [
+          {
+            game: {
+              id: 77_779,
+              stage: "Regular Season",
+              week: "Week 1",
+              date: { timestamp: NOW_MS / 1_000 },
+              status: { short: "FT", long: "Finished" },
+            },
+            league: { id: 1, season: "2026" },
+            teams: {
+              home: { id: 12, name: "Green Bay Packers" },
+              away: { id: 11, name: "Detroit Lions" },
+            },
+            scores: {
+              home: { total: 27 },
+              away: { total: 24 },
             },
           },
         ],
@@ -248,6 +310,345 @@ describe("API-Sports live slate ingestion", () => {
     expect(stale.status).toBe("stale");
     expect(after?.revision).toBe(afterFirst?.revision);
     expect(after?.homeScore).toBe(14);
+  });
+
+  it("makes the first coherent terminal observation immediately Verified and publishes one scoring revision", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { asOwner, poolId, gameId } = await seed(t);
+      const terminal = await providerTerminalObservation();
+
+      const first = await t.action(
+        internal.syncApiSportsLive.applySuccessfulSlateBatch,
+        {
+          observations: [terminal],
+          nowMs: terminal.observedAtMs,
+        },
+      );
+      expect(first.results[0]?.status).toBe("verified");
+      const board = await asOwner.query(api.pools.getWeekBoard, {
+        poolId,
+        week: 1,
+      });
+      expect(board.slate[0]).toMatchObject({
+        gameId,
+        lifecycle: "terminal",
+        projectedHomeScore: 27,
+        projectedAwayScore: 24,
+        resultAuthority: "verified",
+        isOfficial: true,
+        verifiedResult: {
+          homeScore: 27,
+          awayScore: 24,
+          status: "FT",
+        },
+      });
+      const confirmationWork = await t.run(async (ctx) =>
+        ctx.db
+          .query("syncWorkItems")
+          .filter((q) => q.eq(q.field("surface"), "confirmation"))
+          .collect(),
+      );
+      expect(confirmationWork).toEqual([]);
+
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminal],
+        nowMs: terminal.observedAtMs,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const revisions = await t.run(async (ctx) =>
+        ctx.db.query("scoringRevisions").collect(),
+      );
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0]).toMatchObject({
+        poolId,
+        week: 1,
+        kind: "survivor",
+        revisionNumber: 1,
+        status: "published",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves the last trusted state and opens an incident for incoherent terminal scores", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId } = await seed(t);
+    await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+      observations: [observation()],
+      nowMs: NOW_MS + 30_000,
+    });
+
+    const result = await t.action(
+      internal.syncApiSportsLive.applySuccessfulSlateBatch,
+      {
+        observations: [
+          terminalObservation({
+            observedAtMs: NOW_MS + 60_000,
+            homeScore: 27.5,
+          }),
+        ],
+        nowMs: NOW_MS + 60_000,
+      },
+    );
+    expect(result.results[0]?.status).toBe("incoherent_terminal");
+
+    const state = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      incidents: await ctx.db.query("operatorIncidents").collect(),
+    }));
+    expect(state.game).toMatchObject({
+      lifecycle: "in_progress",
+      homeScore: 14,
+      awayScore: 10,
+      resultAuthority: "projected",
+    });
+    expect(state.game?.verifiedResult).toBeUndefined();
+    expect(state.incidents).toHaveLength(1);
+    expect(state.incidents[0]).toMatchObject({
+      scopeKey: "terminal:77779",
+      status: "open",
+    });
+  });
+
+  it("preserves Survivor tie elimination and winner rules through immediate verification", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { asOwner, poolId, gameId, homeTeamId } = await seed(t);
+      await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId,
+        week: 1,
+        nflTeamId: homeTeamId,
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(gameId, {
+          scheduledKickoffMs: Date.now() - 1_000,
+        });
+      });
+      await asOwner.mutation(
+        api.survivorPicks.materializeSurvivorLocks,
+        { poolId, week: 1 },
+      );
+
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [
+          terminalObservation({ homeScore: 21, awayScore: 21 }),
+        ],
+        nowMs: NOW_MS + 30_000,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      const standings = await asOwner.query(
+        api.survivorScoring.getSurvivorStandings,
+        { poolId },
+      );
+      expect(standings?.rows[0]).toMatchObject({
+        eligibility: "winner",
+        eliminationReason: "tie",
+      });
+      const pool = await t.run(async (ctx) => ctx.db.get(poolId));
+      expect(pool?.status).toBe("completed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("invalidates and releases a pre-lock canceled pick before Survivor scoring", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { asOwner, poolId, homeTeamId } = await seed(t);
+      await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId,
+        week: 1,
+        nflTeamId: homeTeamId,
+      });
+
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [
+          terminalObservation({
+            lifecycle: "canceled",
+            homeScore: null,
+            awayScore: null,
+            providerStatus: {
+              rawShort: "CANC",
+              rawLong: "Cancelled",
+              recognized: true,
+              terminal: true,
+            },
+          }),
+        ],
+        nowMs: NOW_MS + 30_000,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      const state = await t.run(async (ctx) => ({
+        picks: await ctx.db
+          .query("survivorPicks")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", poolId).eq("week", 1),
+          )
+          .collect(),
+        reservations: await ctx.db
+          .query("survivorTeamReservations")
+          .filter((q) => q.eq(q.field("poolId"), poolId))
+          .collect(),
+        outcomes: await ctx.db
+          .query("survivorPickOutcomes")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", poolId).eq("week", 1),
+          )
+          .collect(),
+      }));
+      expect(state.picks[0]).toMatchObject({
+        invalidated: true,
+        locked: false,
+      });
+      expect(state.reservations[0]?.released).toBe(true);
+      expect(state.outcomes).toHaveLength(1);
+      expect(state.outcomes[0]?.outcome).toBe("invalidated");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts scoreless cancellation and preserves locked No-Contest Advance", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { asOwner, poolId, gameId, homeTeamId } = await seed(t);
+      await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId,
+        week: 1,
+        nflTeamId: homeTeamId,
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(gameId, {
+          scheduledKickoffMs: Date.now() - 1_000,
+        });
+      });
+      await asOwner.mutation(
+        api.survivorPicks.materializeSurvivorLocks,
+        { poolId, week: 1 },
+      );
+
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [
+          terminalObservation({
+            lifecycle: "canceled",
+            homeScore: null,
+            awayScore: null,
+            providerStatus: {
+              rawShort: "CANC",
+              rawLong: "Cancelled",
+              recognized: true,
+              terminal: true,
+            },
+          }),
+        ],
+        nowMs: NOW_MS + 30_000,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      const state = await t.run(async (ctx) => ({
+        game: await ctx.db.get(gameId),
+        outcomes: await ctx.db
+          .query("survivorPickOutcomes")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", poolId).eq("week", 1),
+          )
+          .collect(),
+        picks: await ctx.db
+          .query("survivorPicks")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", poolId).eq("week", 1),
+          )
+          .collect(),
+      }));
+      expect(state.game?.verifiedResult).toMatchObject({
+        homeScore: 0,
+        awayScore: 0,
+        status: "CANC",
+      });
+      expect(state.outcomes[0]?.outcome).toBe("no_contest_advance");
+      expect(state.picks[0]?.invalidated).not.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("publishes Confidence Weekly and Season Standings from the first terminal observation", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const { asOwner, gameId, homeTeamId } = await seed(t);
+      const confidence = await asOwner.mutation(api.pools.createPool, {
+        name: "Immediate Confidence Pool",
+        type: "confidence",
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+      });
+      await asOwner.mutation(api.confidencePicks.ensurePickSheet, {
+        poolId: confidence.poolId,
+        week: 1,
+      });
+      await asOwner.mutation(api.confidencePicks.autosaveConfidence, {
+        poolId: confidence.poolId,
+        week: 1,
+        predictions: [{ gameId, pickedTeamId: homeTeamId }],
+        tiebreakerPrediction: 51,
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(gameId, {
+          scheduledKickoffMs: Date.now() - 1_000,
+        });
+      });
+      await asOwner.mutation(
+        api.confidencePicks.materializeConfidenceLocks,
+        { poolId: confidence.poolId, week: 1 },
+      );
+
+      await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+        observations: [terminalObservation()],
+        nowMs: NOW_MS + 30_000,
+      });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      const standings = await asOwner.query(
+        api.confidenceScoring.getConfidenceStandings,
+        { poolId: confidence.poolId, week: 1 },
+      );
+      expect(standings?.weekly.official).toBe(true);
+      expect(standings?.weekly.rows[0]).toMatchObject({
+        points: 16,
+        possibleRemainingPoints: 0,
+        rank: 1,
+        correctPickCount: 1,
+      });
+      expect(standings?.season.official).toBe(true);
+      expect(standings?.season.rows[0]).toMatchObject({
+        seasonPoints: 16,
+        seasonRank: 1,
+        wins: 1,
+        losses: 0,
+      });
+      const revisions = await t.run(async (ctx) =>
+        ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", confidence.poolId).eq("week", 1),
+          )
+          .collect(),
+      );
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0]?.kind).toBe("confidence");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves absent state and coalesces one targeted lookup after two successful misses", async () => {

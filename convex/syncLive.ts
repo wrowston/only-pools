@@ -189,12 +189,13 @@ export const applyLiveObservation = internalMutation({
             internal.survivorScoring.handleVerifiedCancellation,
             { gameId: game._id, nowMs: observation.observedAtMs },
           );
+        } else {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+            { gameId: game._id, nowMs: observation.observedAtMs },
+          );
         }
-        await ctx.scheduler.runAfter(
-          0,
-          internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
-          { gameId: game._id, nowMs: observation.observedAtMs },
-        );
         await ctx.scheduler.runAfter(
           0,
           internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
@@ -349,12 +350,13 @@ export const applyConfirmationObservationMutation = internalMutation({
           internal.survivorScoring.handleVerifiedCancellation,
           { gameId: game._id, nowMs: observation.observedAtMs },
         );
+      } else {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+          { gameId: game._id, nowMs: observation.observedAtMs },
+        );
       }
-      await ctx.scheduler.runAfter(
-        0,
-        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
-        { gameId: game._id, nowMs: observation.observedAtMs },
-      );
       await ctx.scheduler.runAfter(
         0,
         internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,

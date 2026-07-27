@@ -195,6 +195,8 @@ export class ApiSportsProvider
           if (
             result.game.lifecycle !== "in_progress" &&
             result.game.lifecycle !== "interrupted" &&
+            result.game.lifecycle !== "terminal" &&
+            result.game.lifecycle !== "canceled" &&
             result.game.lifecycle !== "unknown"
           ) {
             continue;

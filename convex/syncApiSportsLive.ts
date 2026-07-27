@@ -3,7 +3,7 @@
  *
  * Provider I/O is owned by action edges. Normalized observations cross one
  * mutation at a time so a malformed or unresolved row cannot roll back valid
- * siblings. Terminal handling intentionally remains owned by ticket #39.
+ * siblings. The first coherent terminal observation becomes Verified here.
  */
 import { v } from "convex/values";
 
@@ -17,6 +17,7 @@ import {
 } from "./_generated/server";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { runEffect } from "./effect/run";
+import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
@@ -30,6 +31,7 @@ import {
   isLivePollingActive,
   liveObservationFingerprint,
 } from "./providers/sportsData/liveSyncPolicy";
+import { immediateVerifiedResult } from "./providers/sportsData/resultAuthority";
 
 const providerStatusValidator = v.object({
   rawShort: v.string(),
@@ -67,7 +69,8 @@ type ApplyResult = {
     | "stale"
     | "duplicate"
     | "evidence_only"
-    | "defer_terminal"
+    | "verified"
+    | "incoherent_terminal"
     | "trusted_state"
     | "wrong_target"
     | "applied"
@@ -315,6 +318,65 @@ export const applyObservation = internalMutation({
         lastAppliedObservedAtMs: observation.observedAtMs,
         consecutiveSuccessfulSlateMisses: 0,
       });
+    }
+
+    if (decision === "apply_verified") {
+      const terminal = immediateVerifiedResult(observation);
+      if (!terminal.accepted) {
+        const incidentId = await openLiveIncident(ctx, {
+          scopeKey: `terminal:${observation.externalId}`,
+          summary:
+            "API-Sports terminal evidence was incoherent; the last trusted NFL Game state was preserved.",
+          nowMs: observation.observedAtMs,
+        });
+        return {
+          status: "incoherent_terminal" as const,
+          gameId,
+          incidentId,
+        };
+      }
+
+      await ctx.db.patch(gameId, {
+        lifecycle:
+          terminal.result.status === "CANC" ? "canceled" : "terminal",
+        homeScore: terminal.result.homeScore,
+        awayScore: terminal.result.awayScore,
+        resultAuthority: "verified",
+        verifiedResult: terminal.result,
+        provisionalTerminalAtMs: undefined,
+        confirmationObservations: undefined,
+        lastObservedAtMs: observation.observedAtMs,
+        kickoffLockReachedAtMs:
+          game.kickoffLockReachedAtMs ?? observation.observedAtMs,
+        revision: (game.revision ?? 0) + 1,
+      });
+      if (terminal.result.status === "CANC") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.survivorScoring.handleVerifiedCancellation,
+          { gameId, nowMs: observation.observedAtMs },
+        );
+      } else {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+          { gameId, nowMs: observation.observedAtMs },
+        );
+      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+        { gameId, nowMs: observation.observedAtMs },
+      );
+      await ctx.scheduler.runAfter(
+        SCORING_DELAY_THRESHOLD_MS + 1_000,
+        internal.incidents.checkScoringDelayForGame,
+        {
+          gameId,
+          verifiedAtMs: terminal.result.verifiedAtMs,
+        },
+      );
+      return { status: "verified" as const, gameId, incidentId: null };
     }
 
     if (decision !== "apply_projected") {

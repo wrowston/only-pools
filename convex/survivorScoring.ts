@@ -211,7 +211,7 @@ async function reinstateProvisionalIfNeeded(
   pick: Doc<"survivorPicks">,
   nowMs: number,
 ): Promise<Doc<"survivorPicks">> {
-  if (!pick.invalidated) return pick;
+  if (!pick.invalidated || !pick.provisional) return pick;
   await ctx.db.patch(pick._id, {
     invalidated: undefined,
     invalidatedAtMs: undefined,
@@ -765,6 +765,15 @@ export const handleVerifiedCancellation = internalMutation({
         invalidated += 1;
       }
     }
+
+    // Survivor scoring must observe every pre-lock invalidation and released
+    // reservation. Scheduling it from this mutation establishes that order;
+    // callers must not schedule a competing scoring job for cancellations.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+      { gameId: game._id, nowMs },
+    );
     return { invalidated };
   },
 });
