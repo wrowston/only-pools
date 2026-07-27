@@ -54,6 +54,7 @@ import {
   resolveNflGameAlias,
   SportsIdentityConflict,
 } from "./providers/sportsData/identityStore";
+import { isLivePollingActive } from "./providers/sportsData/liveSyncPolicy";
 
 const log = createLogger("syncLive");
 
@@ -702,8 +703,7 @@ async function budgetUsageInWindow(
   return usage;
 }
 
-const LIVE_LEAD_MS = 15 * 60 * 1000;
-const LIVE_CADENCE_MS = 2 * 60 * 1000;
+const LIVE_CADENCE_MS = 60 * 1000;
 // Clean activation produces one Available Season. Four is bounded defensive
 // headroom; 400 similarly exceeds the validated 272-game regular season.
 const MAX_AVAILABLE_SEASONS_PER_DISPATCH = 4;
@@ -722,6 +722,7 @@ async function enqueuePhaseAwareWork(
     .withIndex("by_status", (q) => q.eq("status", "available"))
     .order("desc")
     .take(MAX_AVAILABLE_SEASONS_PER_DISPATCH);
+  let needsLeagueLive = false;
 
   for (const season of seasons) {
     const games = await ctx.db
@@ -757,60 +758,49 @@ async function enqueuePhaseAwareWork(
       });
     }
 
-    const needsLive = games.some((g) => {
-      if (
-        g.lifecycle === "in_progress" ||
-        g.lifecycle === "interrupted" ||
-        g.resultAuthority === "confirmation_pending"
-      ) {
-        return true;
-      }
-      const untilKickoff = g.scheduledKickoffMs - nowMs;
-      const sinceKickoff = nowMs - g.scheduledKickoffMs;
-      // Approaching kickoff or recently kicked off without terminal.
-      if (untilKickoff >= 0 && untilKickoff <= LIVE_LEAD_MS) return true;
-      if (
-        sinceKickoff >= 0 &&
-        sinceKickoff <= 4 * 60 * 60 * 1000 &&
-        g.lifecycle === "scheduled"
-      ) {
-        return true;
-      }
-      return false;
-    });
+    needsLeagueLive ||= games.some((game) =>
+      isLivePollingActive(game, nowMs),
+    );
+  }
 
-    if (!needsLive) continue;
-
-    const scopeKey = `live:${season._id}`;
-    const existing = await ctx.db
-      .query("syncWorkItems")
-      .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
-      .unique();
-
-    if (existing) {
-      if (existing.status === "due" || existing.status === "claimed") {
-        // Coalesce — leave existing claim/due item.
-        continue;
-      }
-      // Reschedule completed live poll on cadence.
+  const scopeKey = "live:nfl";
+  const existing = await ctx.db
+    .query("syncWorkItems")
+    .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
+    .unique();
+  if (!needsLeagueLive) {
+    if (
+      existing &&
+      (existing.status !== "claimed" ||
+        (existing.leaseExpiresAtMs !== undefined &&
+          existing.leaseExpiresAtMs <= nowMs))
+    ) {
       await ctx.db.patch(existing._id, {
-        status: "due",
-        dueAtMs: nowMs,
+        status: "done",
         claimedAtMs: undefined,
         leaseExpiresAtMs: undefined,
       });
-    } else {
-      await ctx.db.insert("syncWorkItems", {
-        surface: "live",
-        scopeKey,
-        priority: "routine",
-        status: "due",
-        dueAtMs: nowMs,
-        attemptCount: 0,
-        seasonId: season._id,
-        purpose: "league_live",
-      });
     }
+    return;
+  }
+  if (existing) {
+    if (existing.status === "due" || existing.status === "claimed") return;
+    await ctx.db.patch(existing._id, {
+      status: "due",
+      dueAtMs: nowMs,
+      claimedAtMs: undefined,
+      leaseExpiresAtMs: undefined,
+    });
+  } else {
+    await ctx.db.insert("syncWorkItems", {
+      surface: "live",
+      scopeKey,
+      priority: "routine",
+      status: "due",
+      dueAtMs: nowMs,
+      attemptCount: 0,
+      purpose: "league_live",
+    });
   }
 }
 
@@ -949,6 +939,22 @@ export const dispatchSyncWork = internalMutation({
             workItemId: item._id,
             seasonId: item.seasonId,
           },
+        );
+      } else if (
+        item.surface === "live" &&
+        item.purpose === "targeted_live_recovery" &&
+        item.gameId !== undefined
+      ) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.syncApiSportsLive.runClaimedTargetedRecovery,
+          { workItemId: item._id, gameId: item.gameId },
+        );
+      } else if (item.surface === "live") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.syncApiSportsLive.runClaimedLiveFetch,
+          { workItemId: item._id },
         );
       } else {
         await ctx.scheduler.runAfter(0, internal.syncLive.runClaimedFetch, {

@@ -28,6 +28,7 @@ describe("clean Season Bootstrap activation policy", () => {
         "confidencePickSheets",
         "confidencePicks",
         "inviteThrottle",
+        "liveGameIngestionState",
         "operatorIncidents",
         "ownershipTransferOffers",
         "participants",

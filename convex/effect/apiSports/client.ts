@@ -316,6 +316,31 @@ export function createApiSportsClient(input: {
           quota: latest.quota,
         };
       }),
+    /**
+     * The league-wide live slate is an availability feed. Keep the envelope
+     * strict, but leave row decoding to the adapter so one bad row cannot
+     * suppress valid sibling observations.
+     */
+    fetchLiveGameCandidates: (): Effect.Effect<
+      ApiSportsResponse<readonly unknown[]>,
+      ApiSportsClientError
+    > =>
+      requestEffect({
+        endpoint: "/games",
+        parameters: {
+          league: API_SPORTS_NFL_LEAGUE_ID,
+          live: "all",
+        },
+        apiKey: input.apiKey,
+        fetch,
+        nowMs,
+        schema: apiSportsEnvelopeSchema(Schema.Unknown),
+      }).pipe(
+        Effect.map((result) => ({
+          ...result,
+          data: result.data.response,
+        })),
+      ),
     fetchGame: (
       gameId: string,
     ): Effect.Effect<

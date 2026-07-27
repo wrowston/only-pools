@@ -77,6 +77,10 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "delete",
     reason: "Provider status evidence belongs to the replaced sports dataset.",
   },
+  liveGameIngestionState: {
+    disposition: "delete",
+    reason: "Live ingestion state belongs to the replaced NFL Game dataset.",
+  },
   seasonBootstrapStages: {
     disposition: "preserve",
     reason: "Immutable staging and validation history supports the activation audit.",
@@ -237,6 +241,7 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "syncSurfaceHealth",
   "providerExceptions",
   "operatorIncidents",
+  "liveGameIngestionState",
   "sportsDataStatusEvidence",
   "nflGameScheduleHistory",
   "nflGameAliases",

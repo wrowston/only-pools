@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import {
   createApiSportsClient,
@@ -6,6 +7,7 @@ import {
   type ApiSportsFetch,
   type ApiSportsQuotaMetadata,
 } from "../../effect/apiSports/client";
+import { ApiSportsGameSchema } from "../../effect/apiSports/schemas";
 import { ApiSportsDecodeError } from "../../effect/errors";
 import type {
   SportsDataProvider,
@@ -133,18 +135,75 @@ export class ApiSportsProvider
     readonly ApiSportsGame[],
     ApiSportsClientError | ApiSportsDecodeError
   > {
-    return this.#client.fetchLiveGames().pipe(
+    return this.listLiveGamesWithFailures().pipe(
+      Effect.map((result) => result.games),
+    );
+  }
+
+  listLiveGamesWithFailures(): Effect.Effect<
+    Readonly<{
+      games: readonly ApiSportsGame[];
+      failures: readonly Readonly<{
+        rowIndex: number;
+        detail: string;
+      }>[];
+    }>,
+    ApiSportsClientError
+  > {
+    return this.#client.fetchLiveGameCandidates().pipe(
       Effect.flatMap((response) =>
-        normalizeApiSportsGames(response.data, response.observedAtMs),
-      ),
-      Effect.map((games) =>
-        games.filter(
-          (game) =>
-            game.lifecycle === "in_progress" ||
-            game.lifecycle === "interrupted" ||
-            game.lifecycle === "unknown",
+        Effect.all(
+          response.data.map((candidate, rowIndex) =>
+            Schema.decodeUnknown(ApiSportsGameSchema)(candidate).pipe(
+              Effect.mapError(
+                () =>
+                  new ApiSportsDecodeError({
+                    endpoint: "/games",
+                    detail: `live row ${rowIndex} did not match the expected schema`,
+                  }),
+              ),
+              Effect.flatMap((row) =>
+                normalizeApiSportsGame(row, response.observedAtMs),
+              ),
+              Effect.map(
+                (game) =>
+                  ({ _tag: "game" as const, game, rowIndex }),
+              ),
+              Effect.catchAll((error) =>
+                Effect.succeed({
+                  _tag: "failure" as const,
+                  rowIndex,
+                  detail: error.detail,
+                }),
+              ),
+            ),
+          ),
+          { concurrency: "unbounded" },
         ),
       ),
+      Effect.map((results) => {
+        const games = new Map<string, ApiSportsGame>();
+        const failures: Array<{ rowIndex: number; detail: string }> = [];
+        for (const result of results) {
+          if (result._tag === "failure") {
+            failures.push({
+              rowIndex: result.rowIndex,
+              detail: result.detail,
+            });
+            continue;
+          }
+          if (
+            result.game.lifecycle !== "in_progress" &&
+            result.game.lifecycle !== "interrupted" &&
+            result.game.lifecycle !== "unknown"
+          ) {
+            continue;
+          }
+          const externalId = result.game.providerAliases[0]?.id;
+          if (externalId) games.set(externalId, result.game);
+        }
+        return { games: [...games.values()], failures };
+      }),
     );
   }
 

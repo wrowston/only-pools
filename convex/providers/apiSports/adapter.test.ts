@@ -118,6 +118,74 @@ describe("ApiSportsProvider", () => {
     });
   });
 
+  it("quarantines malformed live rows without blocking valid siblings", async () => {
+    const requestedUrls: string[] = [];
+    const validRow = {
+      game: {
+        id: 77_779,
+        stage: "Regular Season",
+        week: "Week 1",
+        date: { timestamp: 1_788_998_400 },
+        status: { short: "Q2", long: "Second Quarter" },
+      },
+      league: { id: 1, season: "2026" },
+      teams: {
+        home: { id: 12, name: "Green Bay Packers" },
+        away: { id: 11, name: "Detroit Lions" },
+      },
+      scores: {
+        home: { total: 14 },
+        away: { total: 10 },
+      },
+    };
+    const fetch: typeof globalThis.fetch = async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          errors: [],
+          response: [
+            validRow,
+            { game: { id: 88_888 }, scores: "malformed" },
+            {
+              ...validRow,
+              game: { ...validRow.game, id: 99_999 },
+              teams: {
+                home: { id: 100, name: "Unknown Franchise" },
+                away: validRow.teams.away,
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    };
+    const provider = new ApiSportsProvider({
+      apiKey: "sanitized-fixture-key",
+      fetch,
+      nowMs: () => Date.parse("2026-09-14T01:30:30Z"),
+    });
+
+    const result = await Effect.runPromise(
+      provider.listLiveGamesWithFailures(),
+    );
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      providerAliases: [{ provider: "api-sports", id: "77779" }],
+      lifecycle: "in_progress",
+      homeScore: 14,
+      awayScore: 10,
+    });
+    expect(result.failures).toHaveLength(2);
+    expect(result.failures.map((failure) => failure.rowIndex)).toEqual([
+      1, 2,
+    ]);
+    expect(requestedUrls).toHaveLength(1);
+    expect(new URL(requestedUrls[0]!).searchParams.get("live")).toBe(
+      "all",
+    );
+  });
+
   it("maps every recognized status to neutral lifecycle and terminal evidence", async () => {
     const cases = [
       ["NS", "scheduled", false],

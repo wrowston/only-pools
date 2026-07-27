@@ -67,6 +67,7 @@ import type * as providers_sportsData_identity from "../providers/sportsData/ide
 import type * as providers_sportsData_identityStore from "../providers/sportsData/identityStore.js";
 import type * as providers_sportsData_inMemory from "../providers/sportsData/inMemory.js";
 import type * as providers_sportsData_index from "../providers/sportsData/index.js";
+import type * as providers_sportsData_liveSyncPolicy from "../providers/sportsData/liveSyncPolicy.js";
 import type * as providers_sportsData_reconciliation from "../providers/sportsData/reconciliation.js";
 import type * as providers_sportsData_scheduleSync from "../providers/sportsData/scheduleSync.js";
 import type * as providers_sportsData_seasonBootstrap from "../providers/sportsData/seasonBootstrap.js";
@@ -81,6 +82,7 @@ import type * as sentry from "../sentry.js";
 import type * as survivorPicks from "../survivorPicks.js";
 import type * as survivorScoring from "../survivorScoring.js";
 import type * as sync from "../sync.js";
+import type * as syncApiSportsLive from "../syncApiSportsLive.js";
 import type * as syncLive from "../syncLive.js";
 import type * as syncSchedule from "../syncSchedule.js";
 
@@ -150,6 +152,7 @@ declare const fullApi: ApiFromModules<{
   "providers/sportsData/identityStore": typeof providers_sportsData_identityStore;
   "providers/sportsData/inMemory": typeof providers_sportsData_inMemory;
   "providers/sportsData/index": typeof providers_sportsData_index;
+  "providers/sportsData/liveSyncPolicy": typeof providers_sportsData_liveSyncPolicy;
   "providers/sportsData/reconciliation": typeof providers_sportsData_reconciliation;
   "providers/sportsData/scheduleSync": typeof providers_sportsData_scheduleSync;
   "providers/sportsData/seasonBootstrap": typeof providers_sportsData_seasonBootstrap;
@@ -164,6 +167,7 @@ declare const fullApi: ApiFromModules<{
   survivorPicks: typeof survivorPicks;
   survivorScoring: typeof survivorScoring;
   sync: typeof sync;
+  syncApiSportsLive: typeof syncApiSportsLive;
   syncLive: typeof syncLive;
   syncSchedule: typeof syncSchedule;
 }>;

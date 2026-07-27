@@ -245,6 +245,15 @@ export default defineSchema({
     )
     .index("by_lastObservedAtMs", ["lastObservedAtMs"]),
 
+  /** Per-game idempotency and successful-slate absence state for live sync. */
+  liveGameIngestionState: defineTable({
+    nflGameId: v.id("nflGames"),
+    lastFingerprint: v.optional(v.string()),
+    lastAppliedObservedAtMs: v.optional(v.number()),
+    consecutiveSuccessfulSlateMisses: v.number(),
+    lastSuccessfulSlateAtMs: v.optional(v.number()),
+  }).index("by_nflGameId", ["nflGameId"]),
+
   /**
    * Immutable parent report for a fetched Season Bootstrap candidate.
    * A staged row is not an Available Season and cannot affect active domain

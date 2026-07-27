@@ -149,7 +149,10 @@ export function createSanitizedApiSportsFetch(
       });
     }
 
-    if (url.pathname === "/games" && url.searchParams.has("date")) {
+    if (
+      url.pathname === "/games" &&
+      (url.searchParams.has("date") || url.searchParams.has("live"))
+    ) {
       const liveIds = new Set(
         fixture.liveGameAliases.map((alias) => gameIds.get(alias)),
       );
