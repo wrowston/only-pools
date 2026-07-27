@@ -67,7 +67,15 @@ export const CLEAN_ACTIVATION_POLICY = {
   },
   nflGameResultReconciliationObservations: {
     disposition: "delete",
-    reason: "Result reconciliation evidence belongs to the replaced sports dataset.",
+    reason: "Transient reconciliation rows are replaced with the active sports dataset.",
+  },
+  nflGameResultOverrides: {
+    disposition: "preserve",
+    reason: "Production Operator override history is a permanent audit record.",
+  },
+  nflGameResultOverrideEvidence: {
+    disposition: "preserve",
+    reason: "Self-contained exact-episode provider evidence is permanent audit history.",
   },
   nflTeamAliases: {
     disposition: "rebuild",

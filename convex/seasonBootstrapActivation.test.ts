@@ -54,8 +54,132 @@ async function establishSteppedUpOperator(
 ) {
   const asOperator = t.withIdentity(identity("operator"));
   await asOperator.mutation(api.participants.ensureMyParticipant, {});
-  await asOperator.mutation(api.invites.confirmStepUp, {});
+  await t.run(async (ctx) => {
+    const participant = (await ctx.db.query("participants").take(10)).find(
+      (row) => row.clerkUserId === "operator",
+    );
+    await ctx.db.patch(participant!._id, {
+      operatorStepUpVerifiedAtMs: Date.now(),
+      operatorStepUpSessionId: "session_operator",
+    });
+  });
   return asOperator;
+}
+
+async function seedOverrideAuditEpisode(
+  t: ReturnType<typeof convexTest>,
+  status: "active" | "released",
+) {
+  return await t.run(async (ctx) => {
+    const seasonId = await ctx.db.insert("poolSeasons", {
+      label: "2025",
+      year: 2025,
+      status: "available",
+      usableStartWeek: 1,
+      bootstrappedAtMs: 1,
+    });
+    const homeTeamId = await ctx.db.insert("nflTeams", {
+      stableKey: "nfl-team:old-home",
+      name: "Old Home",
+      abbreviation: "OH",
+      sportsDbTeamId: "old-home",
+    });
+    const awayTeamId = await ctx.db.insert("nflTeams", {
+      stableKey: "nfl-team:old-away",
+      name: "Old Away",
+      abbreviation: "OA",
+      sportsDbTeamId: "old-away",
+    });
+    const gameId = await ctx.db.insert("nflGames", {
+      stableKey: "nfl:2025:w1:oa@oh",
+      seasonId,
+      seasonLabel: "2025",
+      week: 1,
+      homeTeamId,
+      awayTeamId,
+      scheduledKickoffMs: 1,
+      lifecycle: "terminal",
+      homeScore: 30,
+      awayScore: 24,
+      sportsDbEventId: "old-game",
+      resultAuthority: "verified",
+      verifiedResult: {
+        homeScore: 30,
+        awayScore: 24,
+        status: "FT",
+        verifiedAtMs: 2,
+      },
+    });
+    const overrideId = await ctx.db.insert("nflGameResultOverrides", {
+      ...(status === "active" ? { nflGameId: gameId } : {}),
+      gameStableKey: "nfl:2025:w1:oa@oh",
+      seasonLabel: "2025",
+      gameWeek: 1,
+      homeTeamAbbreviation: "OH",
+      awayTeamAbbreviation: "OA",
+      status,
+      reason: "Permanent gamebook audit",
+      replacedResult: {
+        homeScore: 27,
+        awayScore: 24,
+        status: "FT",
+        verifiedAtMs: 1,
+      },
+      overrideResult: {
+        homeScore: 30,
+        awayScore: 24,
+        status: "FT",
+        verifiedAtMs: 2,
+      },
+      actorTokenIdentifier: "https://auth.example.test|operator",
+      actorClerkUserId: "operator",
+      pinnedAtMs: 2,
+      ...(status === "released"
+        ? {
+            releaseReason: "Provider recovered",
+            releasedAtMs: 4,
+            releasedByTokenIdentifier:
+              "https://auth.example.test|operator",
+            releasedByClerkUserId: "operator",
+          }
+        : {}),
+    });
+    await ctx.db.patch(gameId, {
+      pinnedResultOverrideId:
+        status === "active" ? overrideId : undefined,
+    });
+    const evidenceId = await ctx.db.insert(
+      "nflGameResultReconciliationObservations",
+      {
+        nflGameId: gameId,
+        pinnedOverrideId: overrideId,
+        observedAtMs: 3,
+        homeScore: 27,
+        awayScore: 24,
+        status: "FT",
+        matchesVerified: false,
+        disposition: "pinned_conflicting",
+      },
+    );
+    const permanentEvidenceId = await ctx.db.insert(
+      "nflGameResultOverrideEvidence",
+      {
+        overrideId,
+        observedAtMs: 3,
+        homeScore: 27,
+        awayScore: 24,
+        status: "FT",
+        disposition: "pinned_conflicting",
+        source: "api_sports_targeted",
+      },
+    );
+    return {
+      gameId,
+      overrideId,
+      evidenceId,
+      permanentEvidenceId,
+    };
+  });
 }
 
 describe("audited clean Season Bootstrap activation", () => {
@@ -113,6 +237,24 @@ describe("audited clean Season Bootstrap activation", () => {
     ).rejects.toThrow(/Step-up/i);
 
     await asOperator.mutation(api.invites.confirmStepUp, {});
+    await expect(
+      asOperator.mutation(
+        api.bootstrap.requestCleanSeasonActivation,
+        { stageId: stage.stageId, seasonYear },
+      ),
+    ).rejects.toThrow(/Step-up/i);
+    await t.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("participants")
+        .withIndex("by_clerkUserId", (q) =>
+          q.eq("clerkUserId", "operator"),
+        )
+        .unique();
+      await ctx.db.patch(participant!._id, {
+        operatorStepUpVerifiedAtMs: Date.now(),
+        operatorStepUpSessionId: "session_operator",
+      });
+    });
     const request = await asOperator.mutation(
       api.bootstrap.requestCleanSeasonActivation,
       { stageId: stage.stageId, seasonYear },
@@ -122,6 +264,198 @@ describe("audited clean Season Bootstrap activation", () => {
     );
     expect(request.confirmationText).toContain(String(stage.stageId));
     expect(request.confirmationText).toContain(String(seasonYear));
+  });
+
+  it("refuses clean activation while an active pinned result exists, including after confirmation was requested", async () => {
+    const t = convexTest(schema, modules);
+    const stage = await persistValidStage(t);
+    const asOperator = await establishSteppedUpOperator(t);
+    const active = await seedOverrideAuditEpisode(t, "active");
+    await expect(
+      asOperator.mutation(
+        api.bootstrap.requestCleanSeasonActivation,
+        { stageId: stage.stageId, seasonYear },
+      ),
+    ).rejects.toThrow(/active pinned.*result|result.*active pin/i);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(active.overrideId, {
+        status: "released",
+        releaseReason: "Prepare clean activation",
+        releasedAtMs: Date.now(),
+        releasedByTokenIdentifier:
+          "https://auth.example.test|operator",
+        releasedByClerkUserId: "operator",
+      });
+      await ctx.db.patch(active.gameId, {
+        pinnedResultOverrideId: undefined,
+      });
+    });
+    const request = await asOperator.mutation(
+      api.bootstrap.requestCleanSeasonActivation,
+      { stageId: stage.stageId, seasonYear },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(active.overrideId, {
+        status: "active",
+        releaseReason: undefined,
+        releasedAtMs: undefined,
+        releasedByTokenIdentifier: undefined,
+        releasedByClerkUserId: undefined,
+      });
+      await ctx.db.patch(active.gameId, {
+        pinnedResultOverrideId: active.overrideId,
+      });
+    });
+    await expect(
+      asOperator.mutation(
+        api.bootstrap.activateCleanSeasonBootstrap,
+        {
+          requestId: request.requestId,
+          confirmationText: request.confirmationText,
+        },
+      ),
+    ).rejects.toThrow(/active pinned.*result|result.*active pin/i);
+  });
+
+  it("preserves released override identity and exact-episode evidence across clean activation", async () => {
+    const t = convexTest(schema, modules);
+    const stage = await persistValidStage(t);
+    const asOperator = await establishSteppedUpOperator(t);
+    const released = await seedOverrideAuditEpisode(t, "released");
+    const unrelatedEvidenceId = await t.run(async (ctx) =>
+      await ctx.db.insert("nflGameResultReconciliationObservations", {
+        nflGameId: released.gameId,
+        observedAtMs: 5,
+        homeScore: 30,
+        awayScore: 24,
+        status: "FT",
+        matchesVerified: true,
+        disposition: "unchanged",
+      }),
+    );
+    const request = await asOperator.mutation(
+      api.bootstrap.requestCleanSeasonActivation,
+      { stageId: stage.stageId, seasonYear },
+    );
+    await asOperator.mutation(
+      api.bootstrap.activateCleanSeasonBootstrap,
+      {
+        requestId: request.requestId,
+        confirmationText: request.confirmationText,
+      },
+    );
+    const state = await t.run(async (ctx) => ({
+      game: await ctx.db.get(released.gameId),
+      override: await ctx.db.get(released.overrideId),
+      evidence: await ctx.db.get(released.evidenceId),
+      permanentEvidence: await ctx.db.get(
+        released.permanentEvidenceId,
+      ),
+      unrelatedEvidence: await ctx.db.get(unrelatedEvidenceId),
+    }));
+    expect(state.game).toBeNull();
+    expect(state.override).toMatchObject({
+      status: "released",
+      gameStableKey: "nfl:2025:w1:oa@oh",
+      seasonLabel: "2025",
+      gameWeek: 1,
+      homeTeamAbbreviation: "OH",
+      awayTeamAbbreviation: "OA",
+      reason: "Permanent gamebook audit",
+    });
+    expect(state.override?.nflGameId).toBeUndefined();
+    expect(state.override?.workflowCleanupId).toBeUndefined();
+    expect(state.evidence).toBeNull();
+    expect(state.unrelatedEvidence).toBeNull();
+    expect(state.permanentEvidence).toMatchObject({
+      overrideId: released.overrideId,
+      observedAtMs: 3,
+      disposition: "pinned_conflicting",
+      homeScore: 27,
+      awayScore: 24,
+    });
+    expect(state.permanentEvidence).not.toHaveProperty("nflGameId");
+    expect(state.permanentEvidence).not.toHaveProperty(
+      "pinnedOverrideId",
+    );
+    const history = await asOperator.query(
+      api.resultOverrides.listOperatorResultOverrides,
+      {
+        status: "released",
+        paginationOpts: { numItems: 10, cursor: null },
+      },
+    );
+    expect(history.page).toContainEqual(
+      expect.objectContaining({
+        _id: released.overrideId,
+        seasonLabel: "2025",
+        week: 1,
+        matchup: "OA at OH",
+        latestConflicting: expect.objectContaining({
+          observedAtMs: 3,
+          homeScore: 27,
+        }),
+      }),
+    );
+  });
+
+  it("retains every meaningful episode observation beyond 64 rows while deleting the bounded transient scope", async () => {
+    const t = convexTest(schema, modules);
+    const stage = await persistValidStage(t);
+    const asOperator = await establishSteppedUpOperator(t);
+    const released = await seedOverrideAuditEpisode(t, "released");
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 64; index++) {
+        const evidence = {
+          nflGameId: released.gameId,
+          pinnedOverrideId: released.overrideId,
+          observedAtMs: 10 + index,
+          homeScore: index % 2 === 0 ? 30 : 27,
+          awayScore: 24,
+          status: "FT",
+          matchesVerified: index % 2 === 0,
+          disposition:
+            index % 2 === 0
+              ? "pinned_matching"
+              : "pinned_conflicting",
+        } as const;
+        await ctx.db.insert(
+          "nflGameResultReconciliationObservations",
+          evidence,
+        );
+        await ctx.db.insert("nflGameResultOverrideEvidence", {
+          overrideId: released.overrideId,
+          observedAtMs: evidence.observedAtMs,
+          homeScore: evidence.homeScore,
+          awayScore: evidence.awayScore,
+          status: evidence.status,
+          disposition: evidence.disposition,
+          source: "api_sports_targeted",
+        });
+      }
+    });
+    const request = await asOperator.mutation(
+      api.bootstrap.requestCleanSeasonActivation,
+      { stageId: stage.stageId, seasonYear },
+    );
+    await asOperator.mutation(
+      api.bootstrap.activateCleanSeasonBootstrap,
+      {
+        requestId: request.requestId,
+        confirmationText: request.confirmationText,
+      },
+    );
+    const retained = await t.run(async (ctx) => ({
+      permanent: await ctx.db
+        .query("nflGameResultOverrideEvidence")
+        .collect(),
+      transient: await ctx.db
+        .query("nflGameResultReconciliationObservations")
+        .collect(),
+    }));
+    expect(retained.permanent).toHaveLength(65);
+    expect(retained.transient).toEqual([]);
   });
 
   it("replaces authorized domain data atomically and publishes an audited report", async () => {

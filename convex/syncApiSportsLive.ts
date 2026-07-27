@@ -31,6 +31,11 @@ import {
   scoringHoldDedupeKey,
   selectScoringHoldDependency,
 } from "./lib/scoringHolds";
+import {
+  hasPinnedResultEvidence,
+  PINNED_RESULT_EVIDENCE_CADENCE_MS,
+  recordPinnedProviderEvidence,
+} from "./lib/pinnedResultEvidence";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
@@ -89,6 +94,7 @@ type ApplyResult = {
     | "verified"
     | "incoherent_terminal"
     | "trusted_state"
+    | "pinned"
     | "wrong_target"
     | "applied"
     | "failed";
@@ -771,6 +777,89 @@ async function startScoringHoldCleanup(
   return { cleanupId, status: "pending", resolvedHolds: 0 };
 }
 
+/**
+ * Retire correction work that was based on provider evidence before a
+ * Production Operator pinned a different authoritative result.
+ */
+export async function retireCorrectionWorkflowForPinnedOverride(
+  ctx: MutationCtx,
+  input: {
+    game: Doc<"nflGames">;
+    nowMs: number;
+  },
+): Promise<{
+  candidateKey: string;
+  cleanupId: Id<"scoringHoldCleanups">;
+  cleanupStatus: "pending" | "complete";
+} | null> {
+  const candidate = input.game.correctionCandidate;
+  const candidateKey = candidate
+    ? scoringHoldCandidateKey({
+        gameId: input.game._id,
+        ...candidate,
+      })
+    : null;
+  const activeAcceptanceStatuses = [
+    "validating_evaluations",
+    "validating_holds",
+    "applying_evaluations",
+    "resolving_holds",
+  ] as const;
+  const activeAcceptances = (
+    await Promise.all(
+      activeAcceptanceStatuses.map((status) =>
+        ctx.db
+          .query("scoringHoldAcceptances")
+          .withIndex("by_gameId_and_status", (q) =>
+            q.eq("gameId", input.game._id).eq("status", status),
+          )
+          .unique(),
+      ),
+    )
+  ).filter(
+    (row): row is Doc<"scoringHoldAcceptances"> => row !== null,
+  );
+  if (activeAcceptances.length > 1) {
+    throw new Error(
+      "Scoring Hold acceptance invariant violated while pinning an override",
+    );
+  }
+  const workflowCandidateKey =
+    candidateKey ?? activeAcceptances[0]?.candidateKey ?? null;
+  if (!workflowCandidateKey) return null;
+  if (
+    candidateKey &&
+    activeAcceptances[0] &&
+    activeAcceptances[0].candidateKey !== candidateKey
+  ) {
+    throw new Error(
+      "Scoring Hold acceptance does not match the current correction candidate",
+    );
+  }
+  for (const status of activeAcceptanceStatuses) {
+    const acceptance = activeAcceptances.find(
+      (row) => row.status === status,
+    );
+    if (acceptance) {
+      await ctx.db.patch(acceptance._id, {
+        status: "abandoned",
+        abandonedAtMs: input.nowMs,
+      });
+    }
+  }
+  const cleanup = await startScoringHoldCleanup(ctx, {
+    game: input.game,
+    candidateKey: workflowCandidateKey,
+    reason: "superseded_candidate",
+    startedAtMs: input.nowMs,
+  });
+  return {
+    candidateKey: workflowCandidateKey,
+    cleanupId: cleanup.cleanupId,
+    cleanupStatus: cleanup.status,
+  };
+}
+
 async function activeEvaluationForGame(
   ctx: MutationCtx,
   gameId: Id<"nflGames">,
@@ -1043,6 +1132,17 @@ export const getApiSportsAlias = internalQuery({
   },
 });
 
+export const isPinnedResultOverrideCurrent = internalQuery({
+  args: {
+    gameId: v.id("nflGames"),
+    overrideId: v.id("nflGameResultOverrides"),
+  },
+  handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    return game?.pinnedResultOverrideId === args.overrideId;
+  },
+});
+
 export const continueScoringHoldCleanup = internalMutation({
   args: {
     cleanupId: v.id("scoringHoldCleanups"),
@@ -1155,6 +1255,73 @@ export const applyObservation = internalMutation({
       lastFingerprint: state?.lastFingerprint,
       hasVerifiedResult: game.resultAuthority === "verified",
     });
+
+    if (game.pinnedResultOverrideId !== undefined) {
+      if (decision === "stale") {
+        return { status: "stale" as const, gameId, incidentId: null };
+      }
+      if (decision === "duplicate") {
+        const terminal = immediateVerifiedResult(observation);
+        const needsFirstEpisodeEvidence =
+          terminal.accepted &&
+          !(await hasPinnedResultEvidence(
+            ctx,
+            game.pinnedResultOverrideId,
+          ));
+        if (needsFirstEpisodeEvidence && terminal.accepted) {
+          const disposition = await recordPinnedProviderEvidence(ctx, {
+            game,
+            source: "api_sports_live",
+            result: terminal.result,
+          });
+          if (disposition === "stale") {
+            return { status: "stale" as const, gameId, incidentId: null };
+          }
+        }
+        if (
+          state &&
+          observation.observedAtMs >
+            (state.lastAppliedObservedAtMs ?? 0)
+        ) {
+          await ctx.db.patch(state._id, {
+            lastAppliedObservedAtMs: observation.observedAtMs,
+          });
+        }
+        return {
+          status: needsFirstEpisodeEvidence
+            ? ("pinned" as const)
+            : ("duplicate" as const),
+          gameId,
+          incidentId: null,
+        };
+      }
+      const terminal = immediateVerifiedResult(observation);
+      if (terminal.accepted) {
+        const disposition = await recordPinnedProviderEvidence(ctx, {
+          game,
+          source: "api_sports_live",
+          result: terminal.result,
+        });
+        if (disposition === "stale") {
+          return { status: "stale" as const, gameId, incidentId: null };
+        }
+      }
+      if (!state) {
+        await ctx.db.insert("liveGameIngestionState", {
+          nflGameId: gameId,
+          lastFingerprint: fingerprint,
+          lastAppliedObservedAtMs: observation.observedAtMs,
+          consecutiveSuccessfulSlateMisses: 0,
+        });
+      } else {
+        await ctx.db.patch(state._id, {
+          lastFingerprint: fingerprint,
+          lastAppliedObservedAtMs: observation.observedAtMs,
+          consecutiveSuccessfulSlateMisses: 0,
+        });
+      }
+      return { status: "pinned" as const, gameId, incidentId: null };
+    }
 
     if (decision === "stale") {
       return { status: "stale" as const, gameId, incidentId: null };
@@ -1326,10 +1493,19 @@ export const applyObservation = internalMutation({
 export const applyReconciliationObservation = internalMutation({
   args: {
     gameId: v.id("nflGames"),
+    expectedPinnedOverrideId: v.optional(
+      v.id("nflGameResultOverrides"),
+    ),
     observation: liveObservationValidator,
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
+    if (
+      args.expectedPinnedOverrideId !== undefined &&
+      game?.pinnedResultOverrideId !== args.expectedPinnedOverrideId
+    ) {
+      return { result: "pin_episode_ended" as const };
+    }
     if (
       !game ||
       game.resultAuthority !== "verified" ||
@@ -1351,6 +1527,14 @@ export const applyReconciliationObservation = internalMutation({
         terminal.result,
       ),
     };
+    if (game.pinnedResultOverrideId !== undefined) {
+      const disposition = await recordPinnedProviderEvidence(ctx, {
+        game,
+        source: "api_sports_targeted",
+        result: terminal.result,
+      });
+      return { result: disposition };
+    }
     if (
       game.lastObservedAtMs !== undefined &&
       args.observation.observedAtMs < game.lastObservedAtMs
@@ -1866,6 +2050,7 @@ async function failReconciliationForCtx(
   input: {
     workItemId: Id<"syncWorkItems">;
     gameId: Id<"nflGames">;
+    expectedPinnedOverrideId?: Id<"nflGameResultOverrides">;
     nowMs: number;
     reason: string;
   },
@@ -1881,6 +2066,8 @@ async function failReconciliationForCtx(
   await ctx.runMutation(internal.syncLive.requeueFailedWork, {
     workItemId: input.workItemId,
     dueAtMs: input.nowMs + LIVE_REFRESH_CADENCE_MS,
+    gameId: input.gameId,
+    expectedPinnedOverrideId: input.expectedPinnedOverrideId,
   });
   return { ok: false, reason: input.reason };
 }
@@ -1890,6 +2077,7 @@ async function applyReconciliationLookupForCtx(
   input: {
     workItemId: Id<"syncWorkItems">;
     gameId: Id<"nflGames">;
+    expectedPinnedOverrideId?: Id<"nflGameResultOverrides">;
     requestedExternalId: string;
     observation: LiveObservation | null;
     nowMs: number;
@@ -1901,7 +2089,10 @@ async function applyReconciliationLookupForCtx(
     | "candidate"
     | "corrected"
     | "not_verified"
-    | "stale";
+    | "stale"
+    | "pinned_matching"
+    | "pinned_conflicting"
+    | "pin_episode_ended";
   reason?: string;
 }> {
   if (input.observation === null) {
@@ -1920,6 +2111,7 @@ async function applyReconciliationLookupForCtx(
     internal.syncApiSportsLive.applyReconciliationObservation,
     {
       gameId: input.gameId,
+      expectedPinnedOverrideId: input.expectedPinnedOverrideId,
       observation: input.observation,
     },
   );
@@ -1928,6 +2120,19 @@ async function applyReconciliationLookupForCtx(
       ...input,
       reason: "incoherent_terminal",
     });
+  }
+  if (
+    input.expectedPinnedOverrideId !== undefined &&
+    applied.result !== "pin_episode_ended"
+  ) {
+    await ctx.runMutation(internal.syncLive.requeueFailedWork, {
+      workItemId: input.workItemId,
+      dueAtMs:
+        input.nowMs + PINNED_RESULT_EVIDENCE_CADENCE_MS,
+      gameId: input.gameId,
+      expectedPinnedOverrideId: input.expectedPinnedOverrideId,
+    });
+    return { ok: true, result: applied.result };
   }
   await ctx.runMutation(internal.syncLive.completeSyncWork, {
     workItemId: input.workItemId,
@@ -1940,6 +2145,9 @@ export const applyReconciliationLookupResult = internalAction({
   args: {
     workItemId: v.id("syncWorkItems"),
     gameId: v.id("nflGames"),
+    expectedPinnedOverrideId: v.optional(
+      v.id("nflGameResultOverrides"),
+    ),
     requestedExternalId: v.string(),
     observation: v.union(liveObservationValidator, v.null()),
     nowMs: v.number(),
@@ -2001,6 +2209,9 @@ export const runClaimedResultReconciliation = internalAction({
   args: {
     workItemId: v.id("syncWorkItems"),
     gameId: v.id("nflGames"),
+    expectedPinnedOverrideId: v.optional(
+      v.id("nflGameResultOverrides"),
+    ),
   },
   handler: async (
     ctx,
@@ -2012,10 +2223,31 @@ export const runClaimedResultReconciliation = internalAction({
       | "candidate"
       | "corrected"
       | "not_verified"
-      | "stale";
+      | "stale"
+      | "pinned_matching"
+      | "pinned_conflicting"
+      | "pin_episode_ended";
     reason?: string;
   }> => {
     const nowMs = Date.now();
+    if (args.expectedPinnedOverrideId !== undefined) {
+      const current = await ctx.runQuery(
+        internal.syncApiSportsLive.isPinnedResultOverrideCurrent,
+        {
+          gameId: args.gameId,
+          overrideId: args.expectedPinnedOverrideId,
+        },
+      );
+      if (!current) {
+        await ctx.runMutation(internal.syncLive.completeSyncWork, {
+          workItemId: args.workItemId,
+        });
+        return {
+          ok: true,
+          result: "pin_episode_ended" as const,
+        };
+      }
+    }
     const externalId: string | null = await ctx.runQuery(
       internal.syncApiSportsLive.getApiSportsAlias,
       { gameId: args.gameId },

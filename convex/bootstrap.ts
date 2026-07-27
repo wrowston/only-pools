@@ -956,6 +956,22 @@ async function assertStageNotActivatedInDeployment(
   }
 }
 
+async function assertNoActivePinnedResultOverrides(
+  ctx: MutationCtx,
+): Promise<void> {
+  const activeOverride = await ctx.db
+    .query("nflGameResultOverrides")
+    .withIndex("by_status_and_pinnedAtMs", (q) =>
+      q.eq("status", "active"),
+    )
+    .first();
+  if (activeOverride) {
+    throw new CleanActivationError(
+      "Clean activation is unavailable while an active pinned NFL Game result exists",
+    );
+  }
+}
+
 type CleanActivationRequestResult = Readonly<{
   requestId: Id<"seasonBootstrapActivationRequests">;
   confirmationText: string;
@@ -988,6 +1004,7 @@ export const requestCleanSeasonActivation = mutation({
       nowMs,
       activationEnv,
     );
+    await assertNoActivePinnedResultOverrides(ctx);
     const deployment = resolveCleanActivationDeployment(activationEnv);
     const snapshot = await loadCurrentlyValidActivationSnapshot(ctx, {
       ...args,
@@ -1128,6 +1145,7 @@ export const activateCleanSeasonBootstrap = mutation({
       deploymentKind: deployment.kind,
       deploymentId: deployment.id,
     });
+    await assertNoActivePinnedResultOverrides(ctx);
 
     const snapshot = await loadCurrentlyValidActivationSnapshot(ctx, {
       stageId: request.stageId,

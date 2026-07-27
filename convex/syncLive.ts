@@ -28,6 +28,7 @@ import {
 import { applyKickoffScheduleChange } from "./lib/pickLock";
 import { deriveFreshness } from "./lib/freshness";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
+import { recordPinnedProviderEvidence } from "./lib/pinnedResultEvidence";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   admitProviderFetch,
@@ -121,6 +122,33 @@ export const applyLiveObservation = internalMutation({
     const game = await ctx.db.get(observation.gameId);
     if (!game) {
       throw new Error(`NFL Game not found: ${observation.gameId}`);
+    }
+    if (game.pinnedResultOverrideId !== undefined) {
+      const isTerminalLifecycle =
+        observation.lifecycle === "terminal" ||
+        observation.lifecycle === "canceled";
+      if (
+        isTerminalLifecycle &&
+        observation.terminalStatus !== undefined &&
+        observation.homeScore !== null &&
+        observation.awayScore !== null
+      ) {
+        await recordPinnedProviderEvidence(ctx, {
+          game,
+          source: "legacy_live",
+          result: {
+            homeScore: observation.homeScore,
+            awayScore: observation.awayScore,
+            status: observation.terminalStatus,
+            verifiedAtMs: observation.observedAtMs,
+          },
+        });
+      }
+      return {
+        gameId: game._id,
+        resultAuthority: "verified" as const,
+        scheduledConfirmationLookups: [] as string[],
+      };
     }
 
     const revision = (game.revision ?? 0) + 1;
@@ -305,6 +333,29 @@ export const applyConfirmationObservationMutation = internalMutation({
     const game = await ctx.db.get(observation.gameId);
     if (!game) {
       throw new Error(`NFL Game not found: ${observation.gameId}`);
+    }
+    if (game.pinnedResultOverrideId !== undefined) {
+      if (!observation.lookupFailed) {
+        await recordPinnedProviderEvidence(ctx, {
+          game,
+          source: "legacy_confirmation",
+          result: {
+            homeScore: observation.homeScore,
+            awayScore: observation.awayScore,
+            status: observation.status,
+            verifiedAtMs: observation.observedAtMs,
+          },
+        });
+      }
+      return {
+        gameId: game._id,
+        resultAuthority: "verified" as const,
+        justVerified: false,
+        justCorrected: false,
+        restarted: false,
+        pendingRetry: false,
+        verifiedResult: game.verifiedResult,
+      };
     }
 
     const prior = gameConfirmationState(game);
@@ -999,7 +1050,11 @@ export const dispatchSyncWork = internalMutation({
         await ctx.scheduler.runAfter(
           0,
           internal.syncApiSportsLive.runClaimedResultReconciliation,
-          { workItemId: item._id, gameId: item.gameId },
+          {
+            workItemId: item._id,
+            gameId: item.gameId,
+            expectedPinnedOverrideId: item.pinnedResultOverrideId,
+          },
         );
       } else if (item.surface === "live") {
         await ctx.scheduler.runAfter(
@@ -1483,14 +1538,36 @@ export const requeueFailedWork = internalMutation({
   args: {
     workItemId: v.id("syncWorkItems"),
     dueAtMs: v.number(),
+    gameId: v.optional(v.id("nflGames")),
+    expectedPinnedOverrideId: v.optional(
+      v.id("nflGameResultOverrides"),
+    ),
   },
   handler: async (ctx, args) => {
+    if (
+      args.gameId !== undefined &&
+      args.expectedPinnedOverrideId !== undefined
+    ) {
+      const game = await ctx.db.get(args.gameId);
+      if (
+        !game ||
+        game.pinnedResultOverrideId !== args.expectedPinnedOverrideId
+      ) {
+        await ctx.db.patch(args.workItemId, {
+          status: "done",
+          claimedAtMs: undefined,
+          leaseExpiresAtMs: undefined,
+        });
+        return { requeued: false as const };
+      }
+    }
     await ctx.db.patch(args.workItemId, {
       status: "due",
       dueAtMs: args.dueAtMs,
       claimedAtMs: undefined,
       leaseExpiresAtMs: undefined,
     });
+    return { requeued: true as const };
   },
 });
 

@@ -9,5 +9,6 @@ export default defineApp({
     PRODUCTION_OPERATOR_TOKEN_IDENTIFIER: v.optional(v.string()),
     DEPLOYMENT_KIND: v.optional(v.string()),
     CLEAN_ACTIVATION_DEPLOYMENT_ID: v.optional(v.string()),
+    CLERK_SECRET_KEY: v.optional(v.string()),
   },
 });

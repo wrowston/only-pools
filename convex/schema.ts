@@ -53,6 +53,10 @@ export default defineSchema({
      * in invite retrieve/rotate helpers.
      */
     stepUpVerifiedAtMs: v.optional(v.number()),
+    /** Clerk-verified Production Operator reverification marker. */
+    operatorStepUpVerifiedAtMs: v.optional(v.number()),
+    /** Marker is valid only for this exact authenticated Clerk session. */
+    operatorStepUpSessionId: v.optional(v.string()),
   })
     .index("by_tokenIdentifier", ["tokenIdentifier"])
     .index("by_clerkUserId", ["clerkUserId"]),
@@ -170,6 +174,11 @@ export default defineSchema({
         ),
       }),
     ),
+    /**
+     * Active Production Operator override. While present, this pinned result
+     * remains authoritative and provider observations are evidence-only.
+     */
+    pinnedResultOverrideId: v.optional(v.id("nflGameResultOverrides")),
     lastObservedAtMs: v.optional(v.number()),
     revision: v.optional(v.number()),
   })
@@ -204,6 +213,8 @@ export default defineSchema({
   /** Immutable provider evidence from every coherent correction lookup. */
   nflGameResultReconciliationObservations: defineTable({
     nflGameId: v.id("nflGames"),
+    /** Present when evidence was received during a specific pin episode. */
+    pinnedOverrideId: v.optional(v.id("nflGameResultOverrides")),
     observedAtMs: v.number(),
     homeScore: v.number(),
     awayScore: v.number(),
@@ -218,13 +229,98 @@ export default defineSchema({
       v.literal("candidate"),
       v.literal("corrected"),
       v.literal("stale"),
+      v.literal("pinned_matching"),
+      v.literal("pinned_conflicting"),
     ),
   })
     .index("by_nflGameId", ["nflGameId"])
     .index("by_nflGameId_and_observedAtMs", [
       "nflGameId",
       "observedAtMs",
-    ]),
+    ])
+    .index("by_pinnedOverrideId_and_observedAtMs", [
+      "pinnedOverrideId",
+      "observedAtMs",
+    ])
+    .index(
+      "by_pinnedOverrideId_and_disposition_and_observedAtMs",
+      ["pinnedOverrideId", "disposition", "observedAtMs"],
+    ),
+
+  /** Append-only audit history for Production Operator result overrides. */
+  nflGameResultOverrides: defineTable({
+    /** Present only while the override is active in the live sports dataset. */
+    nflGameId: v.optional(v.id("nflGames")),
+    /** Denormalized permanent identity survives clean sports-data activation. */
+    gameStableKey: v.string(),
+    seasonLabel: v.string(),
+    gameWeek: v.number(),
+    homeTeamAbbreviation: v.string(),
+    awayTeamAbbreviation: v.string(),
+    status: v.union(v.literal("active"), v.literal("released")),
+    reason: v.string(),
+    replacedResult: v.object({
+      homeScore: v.number(),
+      awayScore: v.number(),
+      verifiedAtMs: v.number(),
+      status: v.union(
+        v.literal("FT"),
+        v.literal("AOT"),
+        v.literal("CANC"),
+      ),
+    }),
+    overrideResult: v.object({
+      homeScore: v.number(),
+      awayScore: v.number(),
+      verifiedAtMs: v.number(),
+      status: v.union(
+        v.literal("FT"),
+        v.literal("AOT"),
+        v.literal("CANC"),
+      ),
+    }),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    pinnedAtMs: v.number(),
+    /** Pending superseded-hold cleanup must complete before release. */
+    workflowCleanupId: v.optional(v.id("scoringHoldCleanups")),
+    releaseReason: v.optional(v.string()),
+    releasedAtMs: v.optional(v.number()),
+    releasedByTokenIdentifier: v.optional(v.string()),
+    releasedByClerkUserId: v.optional(v.string()),
+  })
+    .index("by_nflGameId_and_status", ["nflGameId", "status"])
+    .index("by_status_and_pinnedAtMs", ["status", "pinnedAtMs"])
+    .index("by_pinnedAtMs", ["pinnedAtMs"]),
+
+  /**
+   * Permanent, self-contained provider evidence for exactly one override
+   * episode. No transient sports-data document IDs are retained here.
+   */
+  nflGameResultOverrideEvidence: defineTable({
+    overrideId: v.id("nflGameResultOverrides"),
+    observedAtMs: v.number(),
+    homeScore: v.number(),
+    awayScore: v.number(),
+    status: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    disposition: v.union(
+      v.literal("pinned_matching"),
+      v.literal("pinned_conflicting"),
+    ),
+    source: v.union(
+      v.literal("api_sports_live"),
+      v.literal("api_sports_targeted"),
+      v.literal("legacy_live"),
+      v.literal("legacy_confirmation"),
+    ),
+  }).index(
+    "by_overrideId_and_disposition_and_observedAtMs",
+    ["overrideId", "disposition", "observedAtMs"],
+  ),
 
   /**
    * Replaceable provider aliases. Legacy SportsDB columns remain temporarily
@@ -735,7 +831,8 @@ export default defineSchema({
       "gameId",
       "candidateKey",
       "status",
-    ]),
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"]),
 
   /** Durable, fail-closed validation and application of an accepted result. */
   scoringHoldAcceptances: defineTable({
@@ -773,7 +870,8 @@ export default defineSchema({
       "gameId",
       "candidateKey",
       "status",
-    ]),
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"]),
 
   /** Deduplicated scoring work suppressed while a correction gate is open. */
   scoringBlockedWork: defineTable({
@@ -924,6 +1022,8 @@ export default defineSchema({
     leaseExpiresAtMs: v.optional(v.number()),
     attemptCount: v.number(),
     gameId: v.optional(v.id("nflGames")),
+    /** Exact pin episode expected by targeted evidence work. */
+    pinnedResultOverrideId: v.optional(v.id("nflGameResultOverrides")),
     seasonId: v.optional(v.id("poolSeasons")),
     purpose: v.optional(v.string()),
   })

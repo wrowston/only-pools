@@ -76,6 +76,8 @@ describe("clean Season Bootstrap activation policy", () => {
       tablesFor("preserve"),
     ).toEqual(
       [
+        "nflGameResultOverrides",
+        "nflGameResultOverrideEvidence",
         "operatorAuditEvents",
         "seasonBootstrapActivationRequests",
         "seasonBootstrapStages",
@@ -125,6 +127,13 @@ describe("clean Season Bootstrap activation policy", () => {
     expect(
       CLEAN_ACTIVATION_POLICY.sportsDataStatusEvidence.disposition,
     ).toBe("delete");
+    expect(
+      CLEAN_ACTIVATION_POLICY.nflGameResultReconciliationObservations
+        .disposition,
+    ).toBe("delete");
+    expect(
+      CLEAN_ACTIVATION_POLICY.nflGameResultOverrideEvidence.disposition,
+    ).toBe("preserve");
 
     expect(CLEAN_ACTIVATION_PRESERVED_CATEGORIES).toEqual([
       "sync_gate",

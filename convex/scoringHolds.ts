@@ -300,6 +300,7 @@ async function processScoringHoldAcceptance(
     acceptance.appliedAtMs !== undefined;
   if (
     !game ||
+    game.pinnedResultOverrideId !== undefined ||
     (!resultAlreadyApplied &&
       (game.resultAuthority !== "verified" ||
         !game.verifiedResult ||
@@ -587,6 +588,7 @@ export const resolveScoringHold = mutation({
     const game = await ctx.db.get(selectedHold.gameId);
     if (
       !game ||
+      game.pinnedResultOverrideId !== undefined ||
       game.resultAuthority !== "verified" ||
       !game.verifiedResult ||
       !holdMatchesCurrentCandidate(selectedHold, game)

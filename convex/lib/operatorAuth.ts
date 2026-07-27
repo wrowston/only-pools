@@ -1,4 +1,8 @@
-import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type {
+  ActionCtx,
+  MutationCtx,
+  QueryCtx,
+} from "../_generated/server";
 import { AuthError, requireParticipant } from "./auth";
 import { isProductionOperator } from "./operator";
 
@@ -9,10 +13,18 @@ export type ProductionOperatorActor = Readonly<{
   clerkUserId: string;
 }>;
 
-type OperatorAuthCtx = QueryCtx | MutationCtx;
+type OperatorIdentityCtx = QueryCtx | MutationCtx | ActionCtx;
+type OperatorStepUpCtx = QueryCtx | MutationCtx;
+
+export function operatorSessionId(
+  identity: Record<string, unknown>,
+): string | null {
+  const sid = identity.sid;
+  return typeof sid === "string" && sid.trim().length > 0 ? sid : null;
+}
 
 export async function requireProductionOperatorIdentity(
-  ctx: OperatorAuthCtx,
+  ctx: OperatorIdentityCtx,
   env: Record<string, string | undefined>,
 ): Promise<ProductionOperatorActor> {
   const identity = await ctx.auth.getUserIdentity();
@@ -30,20 +42,30 @@ export async function requireProductionOperatorIdentity(
 }
 
 export async function requireProductionOperatorWithStepUp(
-  ctx: OperatorAuthCtx,
+  ctx: OperatorStepUpCtx,
   nowMs: number,
   env: Record<string, string | undefined>,
 ): Promise<ProductionOperatorActor> {
   const actor = await requireProductionOperatorIdentity(ctx, env);
+  const identity = await ctx.auth.getUserIdentity();
+  const sessionId = identity
+    ? operatorSessionId(identity as Record<string, unknown>)
+    : null;
+  if (!sessionId) {
+    throw new AuthError(
+      "Authenticated Clerk session required for Production Operator Step-up Verification",
+    );
+  }
   const participant = await requireParticipant(ctx);
-  const verifiedAtMs = participant.stepUpVerifiedAtMs;
+  const verifiedAtMs = participant.operatorStepUpVerifiedAtMs;
   if (
     verifiedAtMs === undefined ||
     verifiedAtMs > nowMs ||
-    nowMs - verifiedAtMs > PRODUCTION_OPERATOR_STEP_UP_TTL_MS
+    nowMs - verifiedAtMs > PRODUCTION_OPERATOR_STEP_UP_TTL_MS ||
+    participant.operatorStepUpSessionId !== sessionId
   ) {
     throw new AuthError(
-      "Fresh Step-up Verification required for clean Season Bootstrap activation",
+      "Fresh Step-up Verification required for this Production Operator action",
     );
   }
   if (participant.tokenIdentifier !== actor.tokenIdentifier) {

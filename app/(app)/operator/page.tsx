@@ -6,6 +6,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
 import { OperatorIncidentsPanel } from "@/components/OperatorIncidentsPanel";
 import { OperatorScoringHoldsPanel } from "@/components/OperatorScoringHoldsPanel";
+import { OperatorResultOverridesPanel } from "@/components/OperatorResultOverridesPanel";
 import { OperatorPageSkeleton } from "@/components/OperatorSkeleton";
 import { api } from "@/convex/_generated/api";
 
@@ -56,6 +57,7 @@ export default function OperatorPage() {
 
   return (
     <div>
+      <OperatorResultOverridesPanel />
       <OperatorScoringHoldsPanel />
       <OperatorIncidentsPanel />
     </div>
