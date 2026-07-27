@@ -1,3 +1,5 @@
+import * as Effect from "effect/Effect";
+
 import type {
   SportsDataGame,
   SportsDataProvider,
@@ -20,7 +22,9 @@ export type InMemorySportsDataFixture = Readonly<{
  * the provider boundary where absence from a live response is not evidence
  * about an NFL Game's state.
  */
-export class InMemorySportsDataProvider implements SportsDataProvider {
+export class InMemorySportsDataProvider
+  implements SportsDataProvider<never>
+{
   readonly name = "in-memory" as const;
 
   readonly #teams: readonly SportsDataTeam[];
@@ -35,43 +39,47 @@ export class InMemorySportsDataProvider implements SportsDataProvider {
     this.#health = fixture.health;
   }
 
-  async listTeams(): Promise<readonly SportsDataTeam[]> {
-    return this.#teams;
+  listTeams(): Effect.Effect<readonly SportsDataTeam[]> {
+    return Effect.succeed(this.#teams);
   }
 
-  async listSeasonGames(
+  listSeasonGames(
     seasonYear: number,
-  ): Promise<readonly SportsDataGame[]> {
-    return this.#games.filter((game) => game.seasonYear === seasonYear);
+  ): Effect.Effect<readonly SportsDataGame[]> {
+    return Effect.succeed(
+      this.#games.filter((game) => game.seasonYear === seasonYear),
+    );
   }
 
-  async listLiveGames(): Promise<readonly SportsDataGame[]> {
-    return this.#games.filter((game) =>
-      game.providerAliases.some(
-        (alias) =>
-          alias.provider === this.name &&
-          this.#liveGameAliases.has(alias.id),
+  listLiveGames(): Effect.Effect<readonly SportsDataGame[]> {
+    return Effect.succeed(
+      this.#games.filter((game) =>
+        game.providerAliases.some(
+          (alias) =>
+            alias.provider === this.name &&
+            this.#liveGameAliases.has(alias.id),
+        ),
       ),
     );
   }
 
-  async getGame(
+  getGame(
     alias: SportsDataProviderAlias,
-  ): Promise<SportsDataGame | null> {
-    if (alias.provider !== this.name) return null;
+  ): Effect.Effect<SportsDataGame | null> {
+    if (alias.provider !== this.name) return Effect.succeed(null);
 
-    return (
+    return Effect.succeed(
       this.#games.find((game) =>
         game.providerAliases.some(
           (candidate) =>
             candidate.provider === alias.provider &&
             candidate.id === alias.id,
         ),
-      ) ?? null
+      ) ?? null,
     );
   }
 
-  async getHealth(): Promise<SportsDataProviderHealth> {
-    return this.#health;
+  getHealth(): Effect.Effect<SportsDataProviderHealth> {
+    return Effect.succeed(this.#health);
   }
 }

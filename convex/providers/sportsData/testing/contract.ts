@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { expect, it } from "vitest";
 import { CANONICAL_NFL_TEAM_LIST } from "../catalog";
 import { nflGameStableKey } from "../identity";
@@ -126,6 +127,39 @@ export function sportsDataContractFixtureFor(
   };
 }
 
+function withReplacementProviderAliases(
+  fixture: SportsDataContractFixture,
+): SportsDataContractFixture {
+  const replacements = new Map<string, string>();
+  let nextAlias = 900_001;
+  const replaceAlias = (id: string): string => {
+    const existing = replacements.get(id);
+    if (existing) return existing;
+    const replacement = String(nextAlias++);
+    replacements.set(id, replacement);
+    return replacement;
+  };
+
+  return {
+    ...fixture,
+    teams: fixture.teams.map((team) => ({
+      ...team,
+      providerAliases: team.providerAliases.map((alias) => ({
+        ...alias,
+        id: replaceAlias(alias.id),
+      })),
+    })),
+    games: fixture.games.map((game) => ({
+      ...game,
+      providerAliases: game.providerAliases.map((alias) => ({
+        ...alias,
+        id: replaceAlias(alias.id),
+      })),
+    })),
+    liveGameAliases: fixture.liveGameAliases.map(replaceAlias),
+  };
+}
+
 /**
  * Shared observable contract. Provider adapters call this unchanged with their
  * own fixture-backed factory.
@@ -142,7 +176,9 @@ export function defineSportsDataProviderContract(
   it(`${label} returns canonical NFL Teams through the neutral interface`, async () => {
     const provider = createProvider(fixture);
 
-    const result = await provider.listTeams();
+    const program = provider.listTeams();
+    expect(Effect.isEffect(program)).toBe(true);
+    const result = await Effect.runPromise(program);
 
     expect(result).toHaveLength(32);
     expect(result.find((team) => team.abbreviation === "DET")).toMatchObject({
@@ -150,64 +186,105 @@ export function defineSportsDataProviderContract(
       name: "Detroit Lions",
     });
     expect(result[0]).not.toHaveProperty("sportsDbTeamId");
-    for (const team of result) {
-      for (const alias of team.providerAliases) {
-        expect(team.stableKey).not.toContain(alias.id);
-      }
-    }
+
+    const replacementResult = await Effect.runPromise(
+      createProvider(
+        withReplacementProviderAliases(fixture),
+      ).listTeams(),
+    );
+    expect(replacementResult.map((team) => team.stableKey)).toEqual(
+      result.map((team) => team.stableKey),
+    );
+    expect(replacementResult.map((team) => team.providerAliases)).not.toEqual(
+      result.map((team) => team.providerAliases),
+    );
   });
 
   it(`${label} limits a Pool Season schedule to the requested season`, async () => {
     const provider = createProvider(fixture);
 
-    const result = await provider.listSeasonGames(2026);
+    const result = await Effect.runPromise(
+      provider.listSeasonGames(2026),
+    );
 
     expect(result.map((game) => game.stableKey)).toEqual([
       "nfl-game:2026:w1:franchise-11@franchise-12",
       "nfl-game:2026:w1:franchise-4@franchise-16",
     ]);
-    for (const game of result) {
-      for (const alias of game.providerAliases) {
-        expect(game.stableKey).not.toContain(alias.id);
-      }
-    }
+    expect(result.map((game) => game.lifecycle)).toEqual([
+      "scheduled",
+      "in_progress",
+    ]);
+
+    const replacementResult = await Effect.runPromise(
+      createProvider(
+        withReplacementProviderAliases(fixture),
+      ).listSeasonGames(2026),
+    );
+    expect(replacementResult.map((game) => game.stableKey)).toEqual(
+      result.map((game) => game.stableKey),
+    );
+    expect(replacementResult.map((game) => game.providerAliases)).not.toEqual(
+      result.map((game) => game.providerAliases),
+    );
+
+    const [terminalGame] = await Effect.runPromise(
+      provider.listSeasonGames(2025),
+    );
+    expect(terminalGame).toMatchObject({
+      lifecycle: "terminal",
+      awayScore: 27,
+      homeScore: 21,
+    });
   });
 
   it(`${label} returns only the provider's current live slate`, async () => {
     const provider = createProvider(fixture);
 
-    const result = await provider.listLiveGames();
+    const result = await Effect.runPromise(provider.listLiveGames());
 
     expect(result.map((game) => game.stableKey)).toEqual([
       "nfl-game:2026:w1:franchise-4@franchise-16",
     ]);
+    expect(result[0]?.lifecycle).toBe("in_progress");
   });
 
   it(`${label} supports targeted lookup by replaceable provider alias`, async () => {
     const provider = createProvider(fixture);
     const foreignProvider =
       provider.name === "api-sports" ? "in-memory" : "api-sports";
-    const [scheduledGame] = await provider.listSeasonGames(2026);
+    const [scheduledGame] = await Effect.runPromise(
+      provider.listSeasonGames(2026),
+    );
     const lookupAlias = scheduledGame?.providerAliases.find(
       (alias) => alias.provider === provider.name,
     );
     expect(lookupAlias).toBeDefined();
 
-    await expect(provider.getGame(lookupAlias!)).resolves.toMatchObject({
+    await expect(
+      Effect.runPromise(provider.getGame(lookupAlias!)),
+    ).resolves.toMatchObject({
       stableKey: "nfl-game:2026:w1:franchise-11@franchise-12",
     });
     await expect(
-      provider.getGame({ provider: provider.name, id: "missing" }),
+      Effect.runPromise(
+        provider.getGame({ provider: provider.name, id: "missing" }),
+      ),
     ).resolves.toBeNull();
     await expect(
-      provider.getGame({ provider: foreignProvider, id: "game-2026-1" }),
+      Effect.runPromise(
+        provider.getGame({
+          provider: foreignProvider,
+          id: "game-2026-1",
+        }),
+      ),
     ).resolves.toBeNull();
   });
 
   it(`${label} reports neutral provider health and quota metadata`, async () => {
     const provider = createProvider(fixture);
 
-    const result = await provider.getHealth();
+    const result = await Effect.runPromise(provider.getHealth());
 
     expect(result).toMatchObject({
       provider: provider.name,
@@ -221,5 +298,16 @@ export function defineSportsDataProviderContract(
     expect(result.quota).toHaveProperty("requestsUsedThisMinute");
     expect(result.quota).toHaveProperty("requestsRemainingThisMinute");
     expect(result.quota).toHaveProperty("resetsAtMs");
+    expect(result.quota).toMatchObject({
+      dailyLimit: 7_500,
+      requestsUsed: 125,
+      requestsRemaining: 7_375,
+      minuteLimit: 300,
+      requestsUsedThisMinute: 2,
+      requestsRemainingThisMinute: 298,
+    });
+    expect(result.quota.resetsAtMs).toBe(
+      Date.parse("2026-09-15T00:00:00Z"),
+    );
   });
 }

@@ -1,3 +1,5 @@
+import type * as Effect from "effect/Effect";
+
 import type {
   CanonicalNflTeam,
   CanonicalNflTeamAbbreviation,
@@ -66,13 +68,15 @@ export type SportsDataProviderHealth = Readonly<{
  * The sole provider-facing interface used by Season Bootstrap and sync work.
  * Implementations perform I/O only when called from an action or script edge.
  */
-export interface SportsDataProvider {
+export interface SportsDataProvider<Error = unknown> {
   readonly name: SportsDataProviderName;
-  listTeams(): Promise<readonly SportsDataTeam[]>;
-  listSeasonGames(seasonYear: number): Promise<readonly SportsDataGame[]>;
-  listLiveGames(): Promise<readonly SportsDataGame[]>;
+  listTeams(): Effect.Effect<readonly SportsDataTeam[], Error>;
+  listSeasonGames(
+    seasonYear: number,
+  ): Effect.Effect<readonly SportsDataGame[], Error>;
+  listLiveGames(): Effect.Effect<readonly SportsDataGame[], Error>;
   getGame(
     alias: SportsDataProviderAlias,
-  ): Promise<SportsDataGame | null>;
-  getHealth(): Promise<SportsDataProviderHealth>;
+  ): Effect.Effect<SportsDataGame | null, Error>;
+  getHealth(): Effect.Effect<SportsDataProviderHealth, Error>;
 }

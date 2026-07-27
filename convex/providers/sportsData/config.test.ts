@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
 import { InMemorySportsDataProvider } from "./inMemory";
 import { SPORTS_DATA_CONTRACT_FIXTURE } from "./testing/contract";
@@ -14,10 +15,13 @@ const apiSportsAdapter: SportsDataProvider = {
   listSeasonGames: (seasonYear) => adapter.listSeasonGames(seasonYear),
   listLiveGames: () => adapter.listLiveGames(),
   getGame: (alias) => adapter.getGame(alias),
-  getHealth: async () => ({
-    ...(await adapter.getHealth()),
-    provider: "api-sports",
-  }),
+  getHealth: () =>
+    adapter.getHealth().pipe(
+      Effect.map((health) => ({
+        ...health,
+        provider: "api-sports",
+      })),
+    ),
 };
 
 describe("deployment sports-data provider selection", () => {

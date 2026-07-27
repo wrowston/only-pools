@@ -23,6 +23,11 @@ export {
   InMemorySportsDataProvider,
 } from "./inMemory";
 export type { InMemorySportsDataFixture } from "./inMemory";
+export { ApiSportsProvider } from "../apiSports";
+export type {
+  ApiSportsGame,
+  ApiSportsStatusObservation,
+} from "../apiSports";
 export type {
   NflGameLifecycle,
   NflGameStableKey,
