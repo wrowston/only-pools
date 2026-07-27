@@ -704,6 +704,10 @@ async function budgetUsageInWindow(
 
 const LIVE_LEAD_MS = 15 * 60 * 1000;
 const LIVE_CADENCE_MS = 2 * 60 * 1000;
+// Clean activation produces one Available Season. Four is bounded defensive
+// headroom; 400 similarly exceeds the validated 272-game regular season.
+const MAX_AVAILABLE_SEASONS_PER_DISPATCH = 4;
+const MAX_NFL_GAMES_PER_SEASON = 400;
 
 /**
  * Enqueue league-live (and light schedule) work when any NFL Game is in an
@@ -716,13 +720,42 @@ async function enqueuePhaseAwareWork(
   const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .collect();
+    .order("desc")
+    .take(MAX_AVAILABLE_SEASONS_PER_DISPATCH);
 
   for (const season of seasons) {
     const games = await ctx.db
       .query("nflGames")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", season._id))
-      .collect();
+      .take(MAX_NFL_GAMES_PER_SEASON);
+
+    const scheduleKey = `schedule:${season._id}`;
+    const scheduleWork = await ctx.db
+      .query("syncWorkItems")
+      .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scheduleKey))
+      .unique();
+    if (!scheduleWork) {
+      await ctx.db.insert("syncWorkItems", {
+        surface: "schedule",
+        scopeKey: scheduleKey,
+        priority: "routine",
+        status: "due",
+        dueAtMs: nowMs,
+        attemptCount: 0,
+        seasonId: season._id,
+        purpose: "season_schedule",
+      });
+    } else if (
+      scheduleWork.status === "done" ||
+      scheduleWork.status === "failed"
+    ) {
+      await ctx.db.patch(scheduleWork._id, {
+        status: "due",
+        dueAtMs: nowMs,
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      });
+    }
 
     const needsLive = games.some((g) => {
       if (
@@ -908,12 +941,23 @@ export const dispatchSyncWork = internalMutation({
       });
 
       // Schedule fetch action — no provider I/O inside this mutation.
-      await ctx.scheduler.runAfter(0, internal.syncLive.runClaimedFetch, {
-        workItemId: item._id,
-        surface: item.surface,
-        gameId: item.gameId,
-        purpose: item.purpose,
-      });
+      if (item.surface === "schedule" && item.seasonId !== undefined) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.syncSchedule.runClaimedScheduleFetch,
+          {
+            workItemId: item._id,
+            seasonId: item.seasonId,
+          },
+        );
+      } else {
+        await ctx.scheduler.runAfter(0, internal.syncLive.runClaimedFetch, {
+          workItemId: item._id,
+          surface: item.surface,
+          gameId: item.gameId,
+          purpose: item.purpose,
+        });
+      }
     }
 
     log.info("dispatch_complete", {

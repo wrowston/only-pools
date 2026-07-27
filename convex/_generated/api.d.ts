@@ -68,6 +68,7 @@ import type * as providers_sportsData_identityStore from "../providers/sportsDat
 import type * as providers_sportsData_inMemory from "../providers/sportsData/inMemory.js";
 import type * as providers_sportsData_index from "../providers/sportsData/index.js";
 import type * as providers_sportsData_reconciliation from "../providers/sportsData/reconciliation.js";
+import type * as providers_sportsData_scheduleSync from "../providers/sportsData/scheduleSync.js";
 import type * as providers_sportsData_seasonBootstrap from "../providers/sportsData/seasonBootstrap.js";
 import type * as providers_sportsData_seasonBootstrapValidation from "../providers/sportsData/seasonBootstrapValidation.js";
 import type * as providers_sportsData_testing_contract from "../providers/sportsData/testing/contract.js";
@@ -81,6 +82,7 @@ import type * as survivorPicks from "../survivorPicks.js";
 import type * as survivorScoring from "../survivorScoring.js";
 import type * as sync from "../sync.js";
 import type * as syncLive from "../syncLive.js";
+import type * as syncSchedule from "../syncSchedule.js";
 
 import type {
   ApiFromModules,
@@ -149,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "providers/sportsData/inMemory": typeof providers_sportsData_inMemory;
   "providers/sportsData/index": typeof providers_sportsData_index;
   "providers/sportsData/reconciliation": typeof providers_sportsData_reconciliation;
+  "providers/sportsData/scheduleSync": typeof providers_sportsData_scheduleSync;
   "providers/sportsData/seasonBootstrap": typeof providers_sportsData_seasonBootstrap;
   "providers/sportsData/seasonBootstrapValidation": typeof providers_sportsData_seasonBootstrapValidation;
   "providers/sportsData/testing/contract": typeof providers_sportsData_testing_contract;
@@ -162,6 +165,7 @@ declare const fullApi: ApiFromModules<{
   survivorScoring: typeof survivorScoring;
   sync: typeof sync;
   syncLive: typeof syncLive;
+  syncSchedule: typeof syncSchedule;
 }>;
 
 /**

@@ -42,6 +42,7 @@ describe("clean Season Bootstrap activation policy", () => {
         "returningParticipantInvites",
         "scoringRevisions",
         "seasonStandings",
+        "sportsDataStatusEvidence",
         "survivorPickOutcomes",
         "survivorPicks",
         "survivorTeamReservations",
@@ -112,6 +113,9 @@ describe("clean Season Bootstrap activation policy", () => {
     expect(
       CLEAN_ACTIVATION_POLICY.nflGameScheduleHistory.disposition,
     ).toBe("rebuild");
+    expect(
+      CLEAN_ACTIVATION_POLICY.sportsDataStatusEvidence.disposition,
+    ).toBe("delete");
 
     expect(CLEAN_ACTIVATION_PRESERVED_CATEGORIES).toEqual([
       "sync_gate",

@@ -225,6 +225,27 @@ export default defineSchema({
     .index("by_seasonId_and_week", ["seasonId", "week"]),
 
   /**
+   * Raw provider status evidence for contract changes. Unknown statuses never
+   * replace the NFL Game's last trusted lifecycle.
+   */
+  sportsDataStatusEvidence: defineTable({
+    provider: v.string(),
+    externalId: v.string(),
+    nflGameId: v.optional(v.id("nflGames")),
+    rawShort: v.string(),
+    rawLong: v.string(),
+    recognized: v.boolean(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+    observationCount: v.number(),
+  })
+    .index(
+      "by_provider_and_externalId_and_rawShort_and_rawLong",
+      ["provider", "externalId", "rawShort", "rawLong"],
+    )
+    .index("by_lastObservedAtMs", ["lastObservedAtMs"]),
+
+  /**
    * Immutable parent report for a fetched Season Bootstrap candidate.
    * A staged row is not an Available Season and cannot affect active domain
    * data. Ticket #36 may activate only rows with activationEligible=true.
@@ -693,6 +714,10 @@ export default defineSchema({
   })
     .index("by_dedupeKey_and_status", ["dedupeKey", "status"])
     .index("by_status_and_openedAtMs", ["status", "openedAtMs"])
+    .index(
+      "by_status_and_surface_and_openedAtMs",
+      ["status", "surface", "openedAtMs"],
+    )
     .index("by_participantVisible_and_status", [
       "participantVisible",
       "status",

@@ -73,6 +73,10 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "rebuild",
     reason: "Seed one validated schedule fact for every rebuilt NFL Game.",
   },
+  sportsDataStatusEvidence: {
+    disposition: "delete",
+    reason: "Provider status evidence belongs to the replaced sports dataset.",
+  },
   seasonBootstrapStages: {
     disposition: "preserve",
     reason: "Immutable staging and validation history supports the activation audit.",
@@ -233,6 +237,7 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "syncSurfaceHealth",
   "providerExceptions",
   "operatorIncidents",
+  "sportsDataStatusEvidence",
   "nflGameScheduleHistory",
   "nflGameAliases",
   "nflTeamAliases",
