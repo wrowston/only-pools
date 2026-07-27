@@ -32,6 +32,7 @@ type Env = {
   readonly DEPLOYMENT_KIND: string | undefined;
   readonly PRODUCTION_OPERATOR_CLERK_USER_ID: string | undefined;
   readonly PRODUCTION_OPERATOR_TOKEN_IDENTIFIER: string | undefined;
+  readonly SENTRY_INCIDENT_EMAIL_ENABLED: string | undefined;
   readonly SPORTS_DATA_PROVIDER: string | undefined;
 };
 

@@ -188,6 +188,10 @@ export default defineSchema({
       "by_seasonId_and_week_and_homeTeamId_and_awayTeamId",
       ["seasonId", "week", "homeTeamId", "awayTeamId"],
     )
+    .index(
+      "by_seasonId_and_lifecycle_and_scheduledKickoffMs",
+      ["seasonId", "lifecycle", "scheduledKickoffMs"],
+    )
     .index("by_sportsDbEventId", ["sportsDbEventId"])
     .index("by_seasonId", ["seasonId"]),
 
@@ -1109,6 +1113,19 @@ export default defineSchema({
   }).index("by_surface_and_scopeKey", ["surface", "scopeKey"]),
 
   /**
+   * One durable episode anchor for the global API-Sports live feed watchdog.
+   * This is dataset freshness state and is reset by clean activation.
+   */
+  liveIngestionWatchdogState: defineTable({
+    key: v.literal("live:nfl"),
+    active: v.boolean(),
+    activeWindowStartedAtMs: v.optional(v.number()),
+    lastSuccessfulExpectedIngestionAtMs: v.optional(v.number()),
+    lastEvaluatedAtMs: v.number(),
+    updatedAtMs: v.number(),
+  }).index("by_key", ["key"]),
+
+  /**
    * Provider Exception records — distinguishable from Late / Stale freshness.
    * Opening an Operator Incident is handled by the incidents module (ticket 13).
    */
@@ -1121,6 +1138,7 @@ export default defineSchema({
     resolvedAtMs: v.optional(v.number()),
   })
     .index("by_createdAtMs", ["createdAtMs"])
+    .index("by_scopeKey_and_createdAtMs", ["scopeKey", "createdAtMs"])
     .index("by_gameId", ["gameId"]),
 
   /**
@@ -1145,11 +1163,23 @@ export default defineSchema({
     scopeKey: v.string(),
     dedupeKey: v.string(),
     participantVisible: v.boolean(),
+    severity: v.optional(
+      v.union(v.literal("warning"), v.literal("critical")),
+    ),
     summary: v.string(),
     openedAtMs: v.number(),
+    criticalAtMs: v.optional(v.number()),
+    lastSuccessfulIngestionAtMs: v.optional(v.number()),
+    watchdogReferenceAtMs: v.optional(v.number()),
     acknowledgedAtMs: v.optional(v.number()),
     resolvedAtMs: v.optional(v.number()),
     resolutionNote: v.optional(v.string()),
+    resolutionCause: v.optional(
+      v.union(
+        v.literal("healthy_ingestion"),
+        v.literal("window_ended"),
+      ),
+    ),
     resolvedAutomatically: v.optional(v.boolean()),
     /** Never true while an incident is open — picking continues. */
     maintenanceLock: v.literal(false),

@@ -166,6 +166,7 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
   it("returns a single participant banner; clears on resolve; healthy is null (scenario 43)", async () => {
     const t = convexTest(schema, modules);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
 
     const healthy = await asAlex.query(
       api.incidents.getParticipantStatusBanner,
@@ -202,14 +203,10 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
       {},
     );
     expect(banner).not.toBeNull();
-    expect(banner!.type).toBe("provider_exception");
+    expect(banner!.severity).toBe("critical");
     expect(banner!.summary).toMatch(/temporarily delayed/i);
     expect(banner!.maintenanceLock).toBe(false);
-    // No last-updated chrome fields on the banner payload beyond incident status.
-    expect(
-      Object.keys(banner!).includes("lastUpdatedAtMs") ||
-        Object.keys(banner!).includes("lastSuccessAtMs"),
-    ).toBe(false);
+    expect(banner).not.toHaveProperty("lastSuccessfulUpdateAtMs");
 
     const asOps = t.withIdentity(operatorIdentity());
     await asOps.mutation(api.participants.ensureMyParticipant, {});

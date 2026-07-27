@@ -2,6 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { StatusBannerMessage } from "./StatusBannerMessage";
 
 /**
  * Single top-of-experience StatusBanner for participant-visible Operator
@@ -15,16 +16,5 @@ export function StatusBanner() {
     return null;
   }
 
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      data-status-banner={banner.type}
-      data-incident-status={banner.status}
-      data-live-region="incident-banner"
-      className="border-b border-op-banner-border bg-op-banner-bg px-6 py-3 text-sm text-op-banner-fg"
-    >
-      {banner.summary}
-    </div>
-  );
+  return <StatusBannerMessage banner={banner} />;
 }

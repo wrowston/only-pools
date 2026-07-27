@@ -12,8 +12,37 @@ type IncidentRow = {
   _id: Id<"operatorIncidents">;
   type: string;
   status: string;
+  severity?: "warning" | "critical";
   summary: string;
+  operatorDetails?: {
+    provider: string;
+    lastSuccessfulIngestionAtMs: number | null;
+    delayedForMs: number | null;
+    thresholds: { warningMs: number; criticalMs: number };
+    quota: {
+      dailyUsed: number;
+      dailyLimit: number;
+      dailyRemaining: number | null;
+      minuteUsed: number;
+      minuteLimit: number;
+    } | null;
+    circuit: {
+      status: string;
+      consecutiveFailures: number;
+      lastFailureReason: string | null;
+    } | null;
+    exception: {
+      message: string;
+      createdAtMs: number;
+    } | null;
+  } | null;
 };
+
+function operatorTime(value: number | null | undefined): string {
+  return value === null || value === undefined
+    ? "No successful live update yet"
+    : new Date(value).toLocaleString();
+}
 
 /**
  * Minimal operator incidents panel for the allowlisted Production Operator.
@@ -93,11 +122,69 @@ export function OperatorIncidentsPanel() {
             >
               <div>
                 <div className="font-medium text-zinc-900 dark:text-zinc-50">
-                  {inc.type} · {inc.status}
+                  {inc.type} · {inc.severity ?? "warning"} · {inc.status}
                 </div>
                 <div className="text-zinc-500 dark:text-zinc-400">
                   {inc.summary}
                 </div>
+                {inc.operatorDetails ? (
+                  <dl className="mt-2 grid gap-x-3 text-xs text-zinc-500 dark:text-zinc-400 sm:grid-cols-2">
+                    <div>
+                      <dt className="inline font-medium">Provider: </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.provider}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium">Last success: </dt>
+                      <dd className="inline">
+                        {operatorTime(
+                          inc.operatorDetails
+                            .lastSuccessfulIngestionAtMs,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium">Quota: </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.quota
+                          ? `${inc.operatorDetails.quota.dailyUsed}/${inc.operatorDetails.quota.dailyLimit} daily · ${inc.operatorDetails.quota.minuteUsed}/${inc.operatorDetails.quota.minuteLimit} minute`
+                          : "not initialized"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium">Circuit: </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.circuit
+                          ? `${inc.operatorDetails.circuit.status} (${inc.operatorDetails.circuit.consecutiveFailures} failures)`
+                          : "not initialized"}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="inline font-medium">
+                        Freshness thresholds:{" "}
+                      </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.thresholds.warningMs / 1_000}s
+                        warning ·{" "}
+                        {inc.operatorDetails.thresholds.criticalMs /
+                          1_000}
+                        s critical · delayed{" "}
+                        {inc.operatorDetails.delayedForMs === null
+                          ? "unknown"
+                          : `${Math.floor(inc.operatorDetails.delayedForMs / 1_000)}s`}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="inline font-medium">
+                        Latest exception:{" "}
+                      </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.exception?.message ?? "none"}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : null}
               </div>
               <div className="flex gap-2">
                 {inc.status === "open" ? (

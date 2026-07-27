@@ -28,6 +28,7 @@ import {
 import { applyKickoffScheduleChange } from "./lib/pickLock";
 import { deriveFreshness } from "./lib/freshness";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
+import { LIVE_INGESTION_WATCHDOG } from "./lib/liveIngestionWatchdog";
 import { recordPinnedProviderEvidence } from "./lib/pinnedResultEvidence";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
@@ -625,13 +626,33 @@ export const recordSyncSurfaceHealth = internalMutation({
       .unique();
 
     const providerException = args.providerException ?? false;
+    const previousLastSuccessAtMs =
+      existing?.lastSuccessAtMs ?? null;
+    const acceptsSuccessfulIngestion =
+      args.success &&
+      (previousLastSuccessAtMs === null ||
+        args.nowMs > previousLastSuccessAtMs);
+    if (args.success && !acceptsSuccessfulIngestion) {
+      return deriveFreshness({
+        surface:
+          args.surface === "confirmation"
+            ? "confirmation"
+            : args.surface === "schedule"
+              ? "schedule"
+              : "league_live",
+        lastSuccessAtMs: previousLastSuccessAtMs,
+        nowMs: Math.max(args.nowMs, existing?.updatedAtMs ?? args.nowMs),
+        dueAtMs: existing?.expectedNextRefreshAtMs ?? null,
+        providerException: existing?.providerException ?? false,
+      });
+    }
     const fields = {
       surface: args.surface,
       scopeKey: args.scopeKey,
       lastAttemptAtMs: args.nowMs,
       lastSuccessAtMs: args.success
         ? args.nowMs
-        : (existing?.lastSuccessAtMs ?? undefined),
+        : (previousLastSuccessAtMs ?? undefined),
       expectedNextRefreshAtMs: args.expectedNextRefreshAtMs,
       consecutiveFailures: args.success
         ? 0
@@ -691,35 +712,58 @@ export const recordSyncSurfaceHealth = internalMutation({
       providerException,
     });
 
-    // Operator Incidents: Provider Exception / Stale-in-window open; Late alone
-    // does not. Active game window = live or confirmation surfaces.
+    // The global API-Sports live feed has a dedicated 90s/120s watchdog. Its
+    // transport failures remain operator diagnostics and must not expose a
+    // participant banner before the critical freshness threshold.
+    const isGlobalApiSportsLive =
+      args.surface === LIVE_INGESTION_WATCHDOG.surface &&
+      args.scopeKey === LIVE_INGESTION_WATCHDOG.scopeKey;
+
+    // Other surfaces retain the settled freshness incident behavior.
+    // Active game window = live or confirmation surfaces.
     const activeGameWindow =
-      args.surface === "live" || args.surface === "confirmation";
-    await ctx.runMutation(internal.incidents.evaluateAndOpenIncident, {
-      trigger: {
-        kind: "freshness",
-        freshnessState: freshness.state,
-        activeGameWindow,
-      },
-      surface: args.surface,
-      scopeKey: args.scopeKey,
-      nowMs: args.nowMs,
-    });
+      args.surface === "live" ||
+      args.surface === "league_live" ||
+      args.surface === "confirmation";
+    if (!isGlobalApiSportsLive) {
+      await ctx.runMutation(internal.incidents.evaluateAndOpenIncident, {
+        trigger: {
+          kind: "freshness",
+          freshnessState: freshness.state,
+          activeGameWindow,
+        },
+        surface: args.surface,
+        scopeKey: args.scopeKey,
+        nowMs: args.nowMs,
+      });
+    }
 
     // Heal: successful fresh refresh auto-resolves matching open incidents.
-    if (args.success && !providerException && freshness.state === "fresh") {
-      await ctx.runMutation(internal.incidents.autoResolveIncident, {
-        type: "stale_in_window",
-        surface: args.surface,
-        scopeKey: args.scopeKey,
-        nowMs: args.nowMs,
-      });
-      await ctx.runMutation(internal.incidents.autoResolveIncident, {
-        type: "provider_exception",
-        surface: args.surface,
-        scopeKey: args.scopeKey,
-        nowMs: args.nowMs,
-      });
+    if (
+      acceptsSuccessfulIngestion &&
+      !providerException &&
+      freshness.state === "fresh"
+    ) {
+      if (isGlobalApiSportsLive) {
+        await ctx.runMutation(
+          internal.liveIngestionWatchdog
+            .recordSuccessfulExpectedIngestion,
+          { nowMs: args.nowMs },
+        );
+      } else {
+        await ctx.runMutation(internal.incidents.autoResolveIncident, {
+          type: "stale_in_window",
+          surface: args.surface,
+          scopeKey: args.scopeKey,
+          nowMs: args.nowMs,
+        });
+        await ctx.runMutation(internal.incidents.autoResolveIncident, {
+          type: "provider_exception",
+          surface: args.surface,
+          scopeKey: args.scopeKey,
+          nowMs: args.nowMs,
+        });
+      }
     }
 
     return freshness;

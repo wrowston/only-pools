@@ -206,6 +206,10 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "delete",
     reason: "Freshness state belongs to the replaced active provider dataset.",
   },
+  liveIngestionWatchdogState: {
+    disposition: "delete",
+    reason: "The expected-live episode anchor belongs to the replaced active provider dataset.",
+  },
   providerExceptions: {
     disposition: "delete",
     reason: "Provider exceptions may reference NFL Games being replaced.",
@@ -290,6 +294,7 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "providerFetchClaims",
   "syncWorkItems",
   "syncSurfaceHealth",
+  "liveIngestionWatchdogState",
   "providerExceptions",
   "operatorIncidents",
   "liveGameIngestionState",

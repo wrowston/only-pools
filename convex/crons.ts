@@ -21,4 +21,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "watch-api-sports-live-ingestion",
+  { seconds: 30 },
+  internal.liveIngestionWatchdog.evaluate,
+  {},
+);
+
 export default crons;

@@ -1952,12 +1952,13 @@ export const runClaimedLiveFetch = internalAction({
         observations,
         nowMs,
       });
+      const completedAtMs = Date.now();
       await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
         surface: "league_live",
         scopeKey: "live:nfl",
         success: true,
-        nowMs,
-        expectedNextRefreshAtMs: nowMs + 60_000,
+        nowMs: completedAtMs,
+        expectedNextRefreshAtMs: completedAtMs + 60_000,
       });
       await ctx.runMutation(internal.syncLive.completeSyncWork, {
         workItemId: args.workItemId,
