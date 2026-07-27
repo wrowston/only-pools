@@ -25,6 +25,7 @@ export const CLEAN_ACTIVATION_PRESERVED_CATEGORIES = [
   "checked_in_nfl_team_catalog",
   "season_bootstrap_staging_history",
   "provider_reliability_state",
+  "provider_evidence_and_recent_diagnostics",
 ] as const;
 
 /**
@@ -91,8 +92,20 @@ export const CLEAN_ACTIVATION_POLICY = {
     reason: "Seed one validated schedule fact for every rebuilt NFL Game.",
   },
   sportsDataStatusEvidence: {
-    disposition: "delete",
-    reason: "Provider status evidence belongs to the replaced sports dataset.",
+    disposition: "preserve",
+    reason: "Recent status diagnostics survive activation and expire through bounded retention cleanup.",
+  },
+  providerGameEvidence: {
+    disposition: "preserve",
+    reason: "Self-contained normalized transitions are permanent competitive evidence.",
+  },
+  providerRequestDiagnostics: {
+    disposition: "preserve",
+    reason: "Recent diagnostics survive activation and age through bounded retention cleanup.",
+  },
+  providerDiagnosticCleanupRuns: {
+    disposition: "preserve",
+    reason: "Retention cleanup progress must remain resumable across activation.",
   },
   liveGameIngestionState: {
     disposition: "delete",
@@ -191,8 +204,8 @@ export const CLEAN_ACTIVATION_POLICY = {
     reason: "Pool audit history belongs to deleted Pools.",
   },
   providerFetchClaims: {
-    disposition: "delete",
-    reason: "Provider claim diagnostics are reset with the active sports dataset.",
+    disposition: "preserve",
+    reason: "Recent request-claim diagnostics survive activation and expire through bounded retention cleanup.",
   },
   providerReliabilityState: {
     disposition: "preserve",
@@ -211,8 +224,8 @@ export const CLEAN_ACTIVATION_POLICY = {
     reason: "The expected-live episode anchor belongs to the replaced active provider dataset.",
   },
   providerExceptions: {
-    disposition: "delete",
-    reason: "Provider exceptions may reference NFL Games being replaced.",
+    disposition: "preserve",
+    reason: "Recent sanitized provider exceptions survive activation and expire through bounded retention cleanup.",
   },
   operatorIncidents: {
     disposition: "delete",
@@ -291,14 +304,11 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "poolMemberships",
   "abuseReports",
   "pools",
-  "providerFetchClaims",
   "syncWorkItems",
   "syncSurfaceHealth",
   "liveIngestionWatchdogState",
-  "providerExceptions",
   "operatorIncidents",
   "liveGameIngestionState",
-  "sportsDataStatusEvidence",
   "nflGameScheduleHistory",
   "nflGameResultReconciliationObservations",
   "nflGameResultHistory",

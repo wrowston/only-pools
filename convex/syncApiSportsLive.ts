@@ -56,6 +56,10 @@ import {
   liveObservationFingerprint,
 } from "./providers/sportsData/liveSyncPolicy";
 import { immediateVerifiedResult } from "./providers/sportsData/resultAuthority";
+import {
+  providerEvidenceState,
+  recordProviderGameTransition,
+} from "./providerEvidence";
 
 const providerStatusValidator = v.object({
   rawShort: v.string(),
@@ -103,6 +107,40 @@ type ApplyResult = {
   gameId: Id<"nflGames"> | null;
   incidentId: Id<"operatorIncidents"> | null;
 };
+
+async function recordGamePollDiagnostic(
+  ctx: MutationCtx,
+  input: {
+    game: Doc<"nflGames">;
+    externalId: string;
+    surface: "live" | "correction";
+    outcome: "no_change" | "quarantined";
+    providerStatus?: {
+      rawShort: string;
+      rawLong: string;
+    };
+    incidentId?: Id<"operatorIncidents">;
+  },
+): Promise<void> {
+  await ctx.runMutation(
+    internal.providerEvidence.recordApiSportsDiagnostic,
+    {
+      surface: input.surface,
+      scopeKey: `game:${input.game._id}`,
+      gameId: input.game._id,
+      incidentId: input.incidentId,
+      endpoint: "/games",
+      parameters: { id: input.externalId },
+      outcome: input.outcome,
+      providerStatus: input.providerStatus
+        ? {
+            short: input.providerStatus.rawShort,
+            long: input.providerStatus.rawLong,
+          }
+        : undefined,
+    },
+  );
+}
 
 type SuccessfulSlateBatchInput = {
   observations: LiveObservation[];
@@ -933,6 +971,33 @@ async function applyCorrectionCandidate(
     lastObservedAtMs: input.candidate.observedAtMs,
     revision: (input.game.revision ?? 0) + 1,
   });
+  await recordProviderGameTransition(ctx, {
+    gameId: input.game._id,
+    provider: "api-sports",
+    source: "correction",
+    observedAtMs: input.candidate.observedAtMs,
+    before: providerEvidenceState(input.game),
+    after: providerEvidenceState({
+      ...input.game,
+      lifecycle:
+        input.candidate.status === "CANC"
+          ? "canceled"
+          : "terminal",
+      homeScore: input.candidate.homeScore,
+      awayScore: input.candidate.awayScore,
+      verifiedResult: {
+        homeScore: input.candidate.homeScore,
+        awayScore: input.candidate.awayScore,
+        status: input.candidate.status,
+        verifiedAtMs: input.candidate.observedAtMs,
+      },
+      priorVerifiedResult: {
+        ...verified,
+        supersededAtMs: input.appliedAtMs,
+      },
+      correctionCandidate: undefined,
+    }),
+  });
   if (input.candidate.status === "CANC") {
     await ctx.scheduler.runAfter(
       0,
@@ -1211,18 +1276,45 @@ export const applyObservation = internalMutation({
     });
     if (ownership.kind !== "owned") {
       if (args.expectedGameId !== undefined) {
+        await ctx.runMutation(
+          internal.providerEvidence.recordApiSportsDiagnostic,
+          {
+            surface: "live",
+            scopeKey: `game:${args.expectedGameId}`,
+            gameId: args.expectedGameId,
+            endpoint: "/games",
+            parameters: { id: observation.externalId },
+            outcome: "quarantined",
+          },
+        );
         return {
           status: "unresolved" as const,
           gameId: null,
           incidentId: null,
         };
       }
+      const externalCorrelation = /^\d{1,20}$/.test(
+        observation.externalId,
+      )
+        ? observation.externalId
+        : "unresolved";
       const incidentId = await openLiveIncident(ctx, {
-        scopeKey: `game-alias:${observation.externalId}`,
+        scopeKey: `game-alias:${externalCorrelation}`,
         summary:
           "A live NFL Game could not be matched; the last trusted state was preserved.",
         nowMs: observation.observedAtMs,
       });
+      await ctx.runMutation(
+        internal.providerEvidence.recordApiSportsDiagnostic,
+        {
+          surface: "live",
+          scopeKey: `game-alias:${externalCorrelation}`,
+          incidentId: incidentId ?? undefined,
+          endpoint: "/games",
+          parameters: { id: observation.externalId },
+          outcome: "quarantined",
+        },
+      );
       return {
         status: "unresolved" as const,
         gameId: null,
@@ -1260,6 +1352,12 @@ export const applyObservation = internalMutation({
 
     if (game.pinnedResultOverrideId !== undefined) {
       if (decision === "stale") {
+        await recordGamePollDiagnostic(ctx, {
+          game,
+          externalId: observation.externalId,
+          surface: "live",
+          outcome: "no_change",
+        });
         return { status: "stale" as const, gameId, incidentId: null };
       }
       if (decision === "duplicate") {
@@ -1287,6 +1385,14 @@ export const applyObservation = internalMutation({
         ) {
           await ctx.db.patch(state._id, {
             lastAppliedObservedAtMs: observation.observedAtMs,
+          });
+        }
+        if (!needsFirstEpisodeEvidence) {
+          await recordGamePollDiagnostic(ctx, {
+            game,
+            externalId: observation.externalId,
+            surface: "live",
+            outcome: "no_change",
           });
         }
         return {
@@ -1326,6 +1432,12 @@ export const applyObservation = internalMutation({
     }
 
     if (decision === "stale") {
+      await recordGamePollDiagnostic(ctx, {
+        game,
+        externalId: observation.externalId,
+        surface: "live",
+        outcome: "no_change",
+      });
       return { status: "stale" as const, gameId, incidentId: null };
     }
     if (decision === "duplicate") {
@@ -1337,40 +1449,23 @@ export const applyObservation = internalMutation({
           lastAppliedObservedAtMs: observation.observedAtMs,
         });
       }
+      await recordGamePollDiagnostic(ctx, {
+        game,
+        externalId: observation.externalId,
+        surface: "live",
+        outcome: "no_change",
+      });
       return { status: "duplicate" as const, gameId, incidentId: null };
     }
 
     if (decision === "evidence_only") {
-      const evidence = await ctx.db
-        .query("sportsDataStatusEvidence")
-        .withIndex(
-          "by_provider_and_externalId_and_rawShort_and_rawLong",
-          (q) =>
-            q
-              .eq("provider", "api-sports")
-              .eq("externalId", observation.externalId)
-              .eq("rawShort", observation.providerStatus.rawShort)
-              .eq("rawLong", observation.providerStatus.rawLong),
-        )
-        .unique();
-      if (evidence) {
-        await ctx.db.patch(evidence._id, {
-          lastObservedAtMs: observation.observedAtMs,
-          observationCount: evidence.observationCount + 1,
-        });
-      } else {
-        await ctx.db.insert("sportsDataStatusEvidence", {
-          provider: "api-sports",
-          externalId: observation.externalId,
-          nflGameId: gameId,
-          rawShort: observation.providerStatus.rawShort,
-          rawLong: observation.providerStatus.rawLong,
-          recognized: false,
-          firstObservedAtMs: observation.observedAtMs,
-          lastObservedAtMs: observation.observedAtMs,
-          observationCount: 1,
-        });
-      }
+      await recordGamePollDiagnostic(ctx, {
+        game,
+        externalId: observation.externalId,
+        surface: "live",
+        outcome: "quarantined",
+        providerStatus: observation.providerStatus,
+      });
     }
 
     if (!state) {
@@ -1392,10 +1487,18 @@ export const applyObservation = internalMutation({
       const terminal = immediateVerifiedResult(observation);
       if (!terminal.accepted) {
         const incidentId = await openLiveIncident(ctx, {
-          scopeKey: `terminal:${observation.externalId}`,
+          scopeKey: `game:${gameId}:terminal`,
           summary:
             "API-Sports terminal evidence was incoherent; the last trusted NFL Game state was preserved.",
           nowMs: observation.observedAtMs,
+        });
+        await recordGamePollDiagnostic(ctx, {
+          game,
+          externalId: observation.externalId,
+          surface: "live",
+          outcome: "quarantined",
+          providerStatus: observation.providerStatus,
+          incidentId: incidentId ?? undefined,
         });
         return {
           status: "incoherent_terminal" as const,
@@ -1417,6 +1520,30 @@ export const applyObservation = internalMutation({
         kickoffLockReachedAtMs:
           game.kickoffLockReachedAtMs ?? observation.observedAtMs,
         revision: (game.revision ?? 0) + 1,
+      });
+      await recordProviderGameTransition(ctx, {
+        gameId,
+        provider: "api-sports",
+        externalId: observation.externalId,
+        source: "live",
+        observedAtMs: observation.observedAtMs,
+        before: providerEvidenceState(game),
+        after: providerEvidenceState({
+          ...game,
+          lifecycle:
+            terminal.result.status === "CANC"
+              ? "canceled"
+              : "terminal",
+          homeScore: terminal.result.homeScore,
+          awayScore: terminal.result.awayScore,
+          resultAuthority: "verified",
+          verifiedResult: terminal.result,
+          provisionalTerminalAtMs: undefined,
+          confirmationObservations: undefined,
+          kickoffLockReachedAtMs:
+            game.kickoffLockReachedAtMs ??
+            observation.observedAtMs,
+        }),
       });
       if (game.kickoffLockReachedAtMs == null) {
         await recordScoringDependencyEvent(
@@ -1476,6 +1603,27 @@ export const applyObservation = internalMutation({
           ? observation.observedAtMs
           : undefined),
       revision: (game.revision ?? 0) + 1,
+    });
+    await recordProviderGameTransition(ctx, {
+      gameId,
+      provider: "api-sports",
+      externalId: observation.externalId,
+      source: "live",
+      observedAtMs: observation.observedAtMs,
+      before: providerEvidenceState(game),
+      after: providerEvidenceState({
+        ...game,
+        lifecycle: observation.lifecycle,
+        homeScore: observation.homeScore,
+        awayScore: observation.awayScore,
+        resultAuthority: "projected",
+        kickoffLockReachedAtMs:
+          game.kickoffLockReachedAtMs ??
+          (observation.lifecycle === "in_progress" ||
+          observation.lifecycle === "interrupted"
+            ? observation.observedAtMs
+            : undefined),
+      }),
     });
     if (
       game.kickoffLockReachedAtMs == null &&
@@ -1541,10 +1689,11 @@ export const applyReconciliationObservation = internalMutation({
       game.lastObservedAtMs !== undefined &&
       args.observation.observedAtMs < game.lastObservedAtMs
     ) {
-      await ctx.db.insert("nflGameResultReconciliationObservations", {
-        nflGameId: game._id,
-        ...evidence,
-        disposition: "stale",
+      await recordGamePollDiagnostic(ctx, {
+        game,
+        externalId: args.observation.externalId,
+        surface: "correction",
+        outcome: "no_change",
       });
       return { result: "stale" as const };
     }
@@ -1561,16 +1710,43 @@ export const applyReconciliationObservation = internalMutation({
           startedAtMs: args.observation.observedAtMs,
         });
       }
-      await ctx.db.insert("nflGameResultReconciliationObservations", {
-        nflGameId: game._id,
-        ...evidence,
-        disposition: "unchanged",
-      });
-      await ctx.db.patch(game._id, {
-        correctionCandidate: undefined,
-        lastObservedAtMs: args.observation.observedAtMs,
-        revision: (game.revision ?? 0) + 1,
-      });
+      if (game.correctionCandidate) {
+        await ctx.db.insert(
+          "nflGameResultReconciliationObservations",
+          {
+            nflGameId: game._id,
+            ...evidence,
+            disposition: "unchanged",
+          },
+        );
+        await ctx.db.patch(game._id, {
+          correctionCandidate: undefined,
+          lastObservedAtMs: args.observation.observedAtMs,
+          revision: (game.revision ?? 0) + 1,
+        });
+        await recordProviderGameTransition(ctx, {
+          gameId: game._id,
+          provider: "api-sports",
+          externalId: args.observation.externalId,
+          source: "correction",
+          observedAtMs: args.observation.observedAtMs,
+          before: providerEvidenceState(game),
+          after: providerEvidenceState({
+            ...game,
+            correctionCandidate: undefined,
+          }),
+        });
+      } else {
+        await ctx.db.patch(game._id, {
+          lastObservedAtMs: args.observation.observedAtMs,
+        });
+        await recordGamePollDiagnostic(ctx, {
+          game,
+          externalId: args.observation.externalId,
+          surface: "correction",
+          outcome: "no_change",
+        });
+      }
       return { result: "unchanged" as const };
     }
 
@@ -1624,10 +1800,11 @@ export const applyReconciliationObservation = internalMutation({
             },
           );
         }
-        await ctx.db.insert("nflGameResultReconciliationObservations", {
-          nflGameId: game._id,
-          ...evidence,
-          disposition: "candidate",
+        await recordGamePollDiagnostic(ctx, {
+          game,
+          externalId: args.observation.externalId,
+          surface: "correction",
+          outcome: "no_change",
         });
         await ctx.db.patch(game._id, {
           correctionCandidate: candidate,
@@ -1731,6 +1908,18 @@ export const applyReconciliationObservation = internalMutation({
         correctionCandidate: candidate,
         lastObservedAtMs: args.observation.observedAtMs,
         revision: (game.revision ?? 0) + 1,
+      });
+      await recordProviderGameTransition(ctx, {
+        gameId: game._id,
+        provider: "api-sports",
+        externalId: args.observation.externalId,
+        source: "correction",
+        observedAtMs: args.observation.observedAtMs,
+        before: providerEvidenceState(game),
+        after: providerEvidenceState({
+          ...game,
+          correctionCandidate: candidate,
+        }),
       });
       if (evaluationStatus === "building") {
         await ctx.scheduler.runAfter(
@@ -1913,6 +2102,7 @@ export const runClaimedLiveFetch = internalAction({
       surface: "live",
       traffic: "protected",
       jitterKey: String(args.workItemId),
+      scopeKey: "live:nfl",
     });
     let providerSucceeded = false;
     const active: boolean = await ctx.runQuery(
@@ -2221,6 +2411,8 @@ export const runClaimedTargetedRecovery = internalAction({
       surface: "live",
       traffic: "protected",
       jitterKey: String(args.workItemId),
+      scopeKey: `game:${args.gameId}`,
+      gameId: args.gameId,
     });
     let providerSucceeded = false;
     const externalId: string | null = await ctx.runQuery(
@@ -2316,6 +2508,8 @@ export const runClaimedResultReconciliation = internalAction({
       surface: "correction",
       traffic: "protected",
       jitterKey: String(args.workItemId),
+      scopeKey: `game:${args.gameId}`,
+      gameId: args.gameId,
     });
     let providerSucceeded = false;
     if (args.expectedPinnedOverrideId !== undefined) {

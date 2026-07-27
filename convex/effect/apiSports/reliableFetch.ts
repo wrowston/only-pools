@@ -2,6 +2,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 import { internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import {
   deterministicRetryJitterUnit,
@@ -9,8 +10,13 @@ import {
   type ProviderTraffic,
 } from "../../lib/providerReliabilityPolicy";
 import {
+  sanitizeRequestMetadata,
+  summarizeProviderResponse,
+} from "../../lib/providerEvidencePolicy";
+import {
   quotaFromHeaders,
   type ApiSportsRequestFence,
+  type ApiSportsRequestMetadata,
 } from "./client";
 
 type AdmissionDenial = Readonly<{
@@ -46,10 +52,17 @@ export function isApiSportsQuotaError(error: unknown): boolean {
  */
 export function createReliableApiSportsFetch(input: {
   ctx: Pick<ActionCtx, "runMutation">;
-  surface: string;
+  surface:
+    | "bootstrap"
+    | "schedule"
+    | "live"
+    | "correction"
+    | "operator";
   traffic: ProviderTraffic;
   nowMs?: () => number;
   jitterKey?: string;
+  scopeKey?: string;
+  gameId?: Id<"nflGames">;
 }) {
   const nowMs = input.nowMs ?? Date.now;
   let lastReceipt: ProviderAdmissionReceipt | null = null;
@@ -57,6 +70,76 @@ export function createReliableApiSportsFetch(input: {
   let sawRateLimit = false;
   let quotaRetryAtMs: number | null = null;
   let boundaryFailure = false;
+  const responseDetails = new WeakMap<
+    Response,
+    Readonly<{
+      summary: {
+        bodyBytes: number;
+        bodyDigest: string;
+        resultCount: number | null;
+        pagingCurrent: number | null;
+        pagingTotal: number | null;
+      };
+      quota: {
+        dailyLimit: number | null;
+        dailyRemaining: number | null;
+        minuteLimit: number | null;
+        minuteRemaining: number | null;
+      };
+    }>
+  >();
+
+  const recordDiagnostic = async (diagnostic: {
+    request: ApiSportsRequestMetadata;
+    outcome:
+      | "success"
+      | "http_error"
+      | "rate_limited"
+      | "transport_error"
+      | "malformed"
+      | "quarantined";
+    response?: Response;
+  }): Promise<void> => {
+    const request = sanitizeRequestMetadata(diagnostic.request);
+    let responseSummary:
+      | {
+          bodyBytes: number;
+          bodyDigest: string;
+          resultCount: number | null;
+          pagingCurrent: number | null;
+          pagingTotal: number | null;
+        }
+      | undefined;
+    let quota:
+      | {
+          dailyLimit: number | null;
+          dailyRemaining: number | null;
+          minuteLimit: number | null;
+          minuteRemaining: number | null;
+        }
+      | undefined;
+    if (diagnostic.response) {
+      const captured = responseDetails.get(diagnostic.response);
+      if (captured) {
+        responseSummary = captured.summary;
+        quota = captured.quota;
+      }
+    }
+    await input.ctx.runMutation(
+      internal.providerEvidence.recordApiSportsDiagnostic,
+      {
+        surface: input.surface,
+        scopeKey: input.scopeKey,
+        gameId: input.gameId,
+        endpoint: request.endpoint,
+        parameters: request.parameters,
+        outcome: diagnostic.outcome,
+        httpStatus: diagnostic.response?.status,
+        responseSummary,
+        quota,
+      },
+    );
+  };
 
   const fence: ApiSportsRequestFence = {
     beforeRequest: () =>
@@ -81,29 +164,86 @@ export function createReliableApiSportsFetch(input: {
         lastReceipt = admission.receipt;
         return admission.receipt;
       }),
-    afterResponse: (admission, response) =>
-      Effect.gen(function* () {
+    afterResponse: (admission, response, request) =>
+      Effect.tryPromise({
+        try: async () => {
         const receipt = admission as ProviderAdmissionReceipt;
         if (response.status === 429) sawRateLimit = true;
-        const reconciliation = yield* Effect.tryPromise({
-          try: () =>
-            input.ctx.runMutation(
+        try {
+          const body = await response.clone().text();
+          const summary = await summarizeProviderResponse(
+            body,
+            response.headers.get("content-type"),
+          );
+          responseDetails.set(response, {
+            summary: {
+              bodyBytes: summary.bodyBytes,
+              bodyDigest: summary.bodyDigest,
+              resultCount: summary.resultCount,
+              pagingCurrent: summary.pagingCurrent,
+              pagingTotal: summary.pagingTotal,
+            },
+            quota: quotaFromHeaders(response.headers),
+          });
+        } catch {
+          // Missing body diagnostics never changes provider request authority.
+        }
+        let reconciliation;
+        try {
+          reconciliation = await input.ctx.runMutation(
               internal.providerReliability.reconcileApiSportsQuota,
               {
                 receipt,
                 nowMs: nowMs(),
                 ...quotaFromHeaders(response.headers),
               },
-            ),
-          catch: () => {
-            boundaryFailure =
-              response.ok && response.status !== 429;
-            return new ApiSportsReliabilityBoundaryError({
-              phase: "quota_reconciliation",
+            );
+        } catch {
+          boundaryFailure = response.ok && response.status !== 429;
+          try {
+            await recordDiagnostic({
+              request,
+              response,
+              outcome: "quarantined",
             });
-          },
-        });
+          } catch {
+            // Diagnostics are best-effort and never change request authority.
+          }
+          throw new ApiSportsReliabilityBoundaryError({
+            phase: "quota_reconciliation",
+          });
+        }
         quotaRetryAtMs = reconciliation.quotaRetryAtMs;
+        },
+        catch: (error) =>
+          error instanceof ApiSportsReliabilityBoundaryError
+            ? error
+            : new ApiSportsReliabilityBoundaryError({
+                phase: "quota_reconciliation",
+              }),
+      }),
+    afterError: (_admission, request) =>
+      Effect.promise(async () => {
+        try {
+          await recordDiagnostic({
+            request,
+            outcome: "transport_error",
+          });
+        } catch {
+          // Diagnostics are best-effort and never change request authority.
+        }
+      }),
+    afterOutcome: (_admission, response, request, outcome) =>
+      Effect.promise(async () => {
+        try {
+          await recordDiagnostic({
+            request,
+            response,
+            outcome,
+          });
+        } catch {
+          // Diagnostics are best-effort and never change request authority.
+        }
       }),
   };
 

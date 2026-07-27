@@ -29,7 +29,8 @@ describe("reliable API-Sports fetch boundary", () => {
           probeToken: null,
         },
       })
-      .mockResolvedValueOnce({});
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ diagnosticId: "diagnostic" });
     const fetch = vi.fn().mockResolvedValue(
       statusResponse({
         status: 200,
@@ -56,7 +57,7 @@ describe("reliable API-Sports fetch boundary", () => {
     await runEffect(client.fetchStatus());
 
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(runMutation).toHaveBeenCalledTimes(2);
+    expect(runMutation).toHaveBeenCalledTimes(3);
     expect(runMutation.mock.calls[1]?.[1]).toMatchObject({
       nowMs: 10,
       dailyLimit: 7_500,
@@ -64,9 +65,166 @@ describe("reliable API-Sports fetch boundary", () => {
       minuteLimit: 60,
       minuteRemaining: 59,
     });
+    expect(runMutation.mock.calls[2]?.[1]).toMatchObject({
+      surface: "schedule",
+      endpoint: "/status",
+      parameters: {},
+      outcome: "success",
+      httpStatus: 200,
+      responseSummary: {
+        bodyBytes: expect.any(Number),
+        bodyDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        resultCount: null,
+      },
+    });
     expect(controller.latestReceipt()).toMatchObject({
       circuitGeneration: 3,
     });
+  });
+
+  it("records a sanitized transport diagnostic when a physical fetch rejects", async () => {
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        receipt: {
+          dailyWindowStartedAtMs: 1,
+          providerMinuteWindowStartedAtMs: 2,
+          circuitGeneration: 3,
+          probeToken: null,
+        },
+      })
+      .mockResolvedValueOnce({ diagnosticId: "transport" });
+    const controller = createReliableApiSportsFetch({
+      ctx: { runMutation } as never,
+      surface: "live",
+      traffic: "protected",
+      scopeKey: "live:nfl",
+      nowMs: () => 10,
+    });
+    const client = createApiSportsClient({
+      apiKey: "provider-secret",
+      requestFence: controller.fence,
+      fetch: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "Bearer secret person@example.com provider-secret",
+          ),
+        ),
+      nowMs: () => 10,
+    });
+
+    await expect(runEffect(client.fetchStatus())).rejects.toThrow();
+    expect(runMutation).toHaveBeenCalledTimes(2);
+    expect(runMutation.mock.calls[1]?.[1]).toEqual({
+      surface: "live",
+      scopeKey: "live:nfl",
+      endpoint: "/status",
+      parameters: {},
+      outcome: "transport_error",
+    });
+    expect(JSON.stringify(runMutation.mock.calls[1])).not.toMatch(
+      /provider-secret|bearer|person@example\\.com/i,
+    );
+  });
+
+  it("classifies a 200 invalid body as malformed without retaining the body", async () => {
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        receipt: {
+          dailyWindowStartedAtMs: 1,
+          providerMinuteWindowStartedAtMs: 2,
+          circuitGeneration: 3,
+          probeToken: null,
+        },
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ diagnosticId: "malformed" });
+    const controller = createReliableApiSportsFetch({
+      ctx: { runMutation } as never,
+      surface: "live",
+      traffic: "protected",
+      nowMs: () => 10,
+    });
+    const client = createApiSportsClient({
+      apiKey: "provider-secret",
+      requestFence: controller.fence,
+      fetch: vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            "person@example.com provider-secret",
+            { status: 200 },
+          ),
+        ),
+      nowMs: () => 10,
+    });
+
+    await expect(runEffect(client.fetchStatus())).rejects.toThrow();
+    expect(runMutation.mock.calls[2]?.[1]).toMatchObject({
+      outcome: "malformed",
+      httpStatus: 200,
+      responseSummary: {
+        bodyBytes: expect.any(Number),
+        bodyDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+    });
+    expect(JSON.stringify(runMutation.mock.calls[2]?.[1])).not.toMatch(
+      /provider-secret|person@example\\.com/i,
+    );
+  });
+
+  it("classifies a 200 provider-errors envelope as an HTTP error without retaining its strings", async () => {
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        receipt: {
+          dailyWindowStartedAtMs: 1,
+          providerMinuteWindowStartedAtMs: 2,
+          circuitGeneration: 3,
+          probeToken: null,
+        },
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ diagnosticId: "provider-error" });
+    const controller = createReliableApiSportsFetch({
+      ctx: { runMutation } as never,
+      surface: "operator",
+      traffic: "protected",
+      nowMs: () => 10,
+    });
+    const client = createApiSportsClient({
+      apiKey: "provider-secret",
+      requestFence: controller.fence,
+      fetch: vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            errors: {
+              request:
+                "person@example.com provider-secret invalid request",
+            },
+            response: {
+              requests: { current: 1, limit_day: 7_500 },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+      nowMs: () => 10,
+    });
+
+    await expect(runEffect(client.fetchStatus())).rejects.toThrow();
+    expect(runMutation.mock.calls[2]?.[1]).toMatchObject({
+      outcome: "http_error",
+      httpStatus: 200,
+    });
+    expect(JSON.stringify(runMutation.mock.calls[2]?.[1])).not.toMatch(
+      /provider-secret|person@example\\.com|invalid request/i,
+    );
   });
 
   it("never calls the provider after a denied admission", async () => {
@@ -111,6 +269,7 @@ describe("reliable API-Sports fetch boundary", () => {
         },
       })
       .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ diagnosticId: "first" })
       .mockResolvedValueOnce({
         ok: false,
         reason: "minute_exhausted",
@@ -146,7 +305,7 @@ describe("reliable API-Sports fetch boundary", () => {
       recorded: false,
       deferredReason: "minute_exhausted",
     });
-    expect(runMutation).toHaveBeenCalledTimes(3);
+    expect(runMutation).toHaveBeenCalledTimes(4);
   });
 
   it("reconciles 429 headers and returns a durable quota deferral without recording a circuit failure", async () => {
@@ -194,7 +353,7 @@ describe("reliable API-Sports fetch boundary", () => {
       recorded: false,
       deferredReason: "provider_rate_limited",
     });
-    expect(runMutation).toHaveBeenCalledTimes(2);
+    expect(runMutation).toHaveBeenCalledTimes(3);
     expect(runMutation.mock.calls[1]?.[1]).toMatchObject({
       minuteLimit: 10,
       minuteRemaining: 0,
@@ -243,7 +402,7 @@ describe("reliable API-Sports fetch boundary", () => {
       deferredReason: "provider_reliability_boundary_failed",
     });
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(runMutation).toHaveBeenCalledTimes(2);
+    expect(runMutation).toHaveBeenCalledTimes(3);
   });
 
   it("still attributes a known provider HTTP failure when quota reconciliation also fails", async () => {
@@ -259,6 +418,7 @@ describe("reliable API-Sports fetch boundary", () => {
         },
       })
       .mockRejectedValueOnce(new Error("local Convex failure"))
+      .mockResolvedValueOnce({ diagnosticId: "http-error" })
       .mockResolvedValueOnce({
         retryAtMs: 1_234,
         circuitStatus: "closed",
@@ -290,6 +450,6 @@ describe("reliable API-Sports fetch boundary", () => {
       retryAtMs: 1_234,
       recorded: true,
     });
-    expect(runMutation).toHaveBeenCalledTimes(3);
+    expect(runMutation).toHaveBeenCalledTimes(4);
   });
 });

@@ -326,17 +326,26 @@ describe("API-Sports schedule synchronization", () => {
       evidence: await ctx.db
         .query("sportsDataStatusEvidence")
         .take(10),
+      diagnostics: await ctx.db
+        .query("providerRequestDiagnostics")
+        .withIndex(
+          "by_nflGameId_and_lastRecordedAtMs",
+          (q) => q.eq("nflGameId", seeded.gameId),
+        )
+        .take(10),
       incidents: await ctx.db.query("operatorIncidents").take(10),
     }));
 
     expect(state.game?.lifecycle).toBe("scheduled");
-    expect(state.evidence).toEqual([
+    expect(state.evidence).toEqual([]);
+    expect(state.diagnostics).toEqual([
       expect.objectContaining({
         provider: "api-sports",
-        externalId: "game-original",
-        rawShort: "MYSTERY",
+        requestExternalId: "game-original",
+        outcome: "quarantined",
         observationCount: 2,
         nflGameId: seeded.gameId,
+        retentionClass: "diagnostic_30d",
       }),
     ]);
     expect(state.incidents).toHaveLength(1);
@@ -507,7 +516,7 @@ describe("API-Sports schedule synchronization", () => {
     expect(work.some((item) => item.surface === "live")).toBe(false);
   });
 
-  it("keeps raw status details on the Production Operator surface only", async () => {
+  it("keeps only sanitized status diagnostics on the Production Operator surface", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSchedule(t);
     await t.mutation(
@@ -516,7 +525,8 @@ describe("API-Sports schedule synchronization", () => {
         lifecycle: "unknown",
         providerStatus: {
           rawShort: "MYSTERY",
-          rawLong: "New Provider Status",
+          rawLong:
+            "Bearer provider-secret-canary participant-canary@example.com",
           recognized: false,
         },
       }),
@@ -551,10 +561,69 @@ describe("API-Sports schedule synchronization", () => {
         api.syncSchedule.listOperatorScheduleEvidence,
         {},
       );
-      expect(state.evidence).toEqual([
+      expect(state.evidence).toEqual([]);
+      const diagnostics = await operator.query(
+        api.providerEvidence.listOperatorGameEvidence,
+        { gameId: seeded.gameId },
+      );
+      expect(diagnostics).not.toBeNull();
+      expect(diagnostics!.diagnostics).toEqual([
         expect.objectContaining({
-          rawShort: "MYSTERY",
-          rawLong: "New Provider Status",
+          outcome: "quarantined",
+          providerStatus: {
+            short: "MYSTERY",
+            long: null,
+            fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+            redacted: true,
+          },
+          request: expect.objectContaining({
+            externalId: "game-original",
+          }),
+        }),
+      ]);
+      expect(JSON.stringify(diagnostics)).not.toMatch(
+        /provider-secret-canary|participant-canary@example\.com/,
+      );
+      for (let page = 1; page <= 55; page += 1) {
+        await t.mutation(
+          internal.providerEvidence.recordApiSportsDiagnostic,
+          {
+            surface: "schedule",
+            scopeKey: `game:${seeded.gameId}`,
+            gameId: seeded.gameId,
+            endpoint: "/games",
+            parameters: { page },
+            outcome: "no_change",
+          },
+        );
+      }
+      const persistedProviderEvidence = await t.run(async (ctx) => ({
+        diagnostics: await ctx.db
+          .query("providerRequestDiagnostics")
+          .collect(),
+        statusEvidence: await ctx.db
+          .query("sportsDataStatusEvidence")
+          .collect(),
+        incidents: await ctx.db.query("operatorIncidents").collect(),
+      }));
+      expect(JSON.stringify(persistedProviderEvidence)).not.toMatch(
+        /provider-secret-canary|participant-canary@example\.com/,
+      );
+      const scheduleIncident =
+        persistedProviderEvidence.incidents.find(
+          (incident) => incident.surface === "schedule",
+        );
+      expect(scheduleIncident).toBeDefined();
+      const incidentEvidence = await operator.query(
+        api.providerEvidence.listOperatorIncidentEvidence,
+        { incidentId: scheduleIncident!._id, limit: 10 },
+      );
+      expect(incidentEvidence.diagnostics).toEqual([
+        expect.objectContaining({
+          outcome: "quarantined",
+          providerStatus: expect.objectContaining({
+            redacted: true,
+          }),
         }),
       ]);
       expect(state.incidents).toHaveLength(1);

@@ -389,6 +389,7 @@ export const runApiSportsRecoveryProbe = internalAction({
       surface: "operator",
       traffic: "recovery_probe",
       jitterKey: String(args.workItemId),
+      scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
     });
     try {
       const provider = selectSportsDataProvider({

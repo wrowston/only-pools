@@ -32,6 +32,10 @@ import { ApiSportsProvider } from "./providers/apiSports";
 import type { ApiSportsGame } from "./providers/apiSports";
 import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
 import {
+  providerEvidenceState,
+  recordProviderGameTransition,
+} from "./providerEvidence";
+import {
   CANONICAL_NFL_TEAM_ABBREVIATIONS,
   CANONICAL_NFL_TEAMS,
   type CanonicalNflTeamAbbreviation,
@@ -162,42 +166,28 @@ async function recordUnknownStatusEvidence(
   input: {
     observation: ScheduleGameInput;
     nflGameId?: Id<"nflGames">;
+    incidentId?: Id<"operatorIncidents">;
   },
 ): Promise<void> {
   const { observation } = input;
-  const alias = observation.providerAlias;
-  const existing = await ctx.db
-    .query("sportsDataStatusEvidence")
-    .withIndex(
-      "by_provider_and_externalId_and_rawShort_and_rawLong",
-      (q) =>
-        q
-          .eq("provider", alias.provider)
-          .eq("externalId", alias.id)
-          .eq("rawShort", observation.providerStatus.rawShort)
-          .eq("rawLong", observation.providerStatus.rawLong),
-    )
-    .unique();
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      nflGameId: input.nflGameId ?? existing.nflGameId,
-      recognized: false,
-      lastObservedAtMs: observation.observedAtMs,
-      observationCount: existing.observationCount + 1,
-    });
-    return;
-  }
-  await ctx.db.insert("sportsDataStatusEvidence", {
-    provider: alias.provider,
-    externalId: alias.id,
-    nflGameId: input.nflGameId,
-    rawShort: observation.providerStatus.rawShort,
-    rawLong: observation.providerStatus.rawLong,
-    recognized: false,
-    firstObservedAtMs: observation.observedAtMs,
-    lastObservedAtMs: observation.observedAtMs,
-    observationCount: 1,
-  });
+  await ctx.runMutation(
+    internal.providerEvidence.recordApiSportsDiagnostic,
+    {
+      surface: "schedule",
+      scopeKey: input.nflGameId
+        ? `game:${input.nflGameId}`
+        : "schedule:unresolved",
+      gameId: input.nflGameId,
+      incidentId: input.incidentId,
+      endpoint: "/games",
+      parameters: { id: observation.providerAlias.id },
+      outcome: "quarantined",
+      providerStatus: {
+        short: observation.providerStatus.rawShort,
+        long: observation.providerStatus.rawLong,
+      },
+    },
+  );
 }
 
 /**
@@ -212,7 +202,7 @@ export const applyScheduleGameObservation = internalMutation({
   handler: async (ctx, args): Promise<ScheduleApplyResult> => {
     const observation = args.observation as ScheduleGameInput;
     const incidentBase =
-      `season:${args.seasonId}:provider:${observation.providerAlias.id}`;
+      `season:${args.seasonId}:provider:api-sports`;
     const season = await ctx.db.get(args.seasonId);
     const [homeTeam, awayTeam] = await Promise.all([
       findCanonicalTeam(ctx, observation.homeTeamAbbreviation),
@@ -225,14 +215,17 @@ export const applyScheduleGameObservation = internalMutation({
       !homeTeam ||
       !awayTeam
     ) {
-      if (!observation.providerStatus.recognized) {
-        await recordUnknownStatusEvidence(ctx, { observation });
-      }
       const incident = await openScheduleIncident(ctx, {
         scopeKey: `${incidentBase}:identity`,
         summary: PARTICIPANT_SAFE_SCHEDULE_INCIDENT_SUMMARY,
         nowMs: observation.observedAtMs,
       });
+      if (!observation.providerStatus.recognized) {
+        await recordUnknownStatusEvidence(ctx, {
+          observation,
+          incidentId: incident.incidentId ?? undefined,
+        });
+      }
       return {
         status: "unresolved" as const,
         gameId: null,
@@ -261,14 +254,17 @@ export const applyScheduleGameObservation = internalMutation({
       });
     } catch (cause) {
       if (!(cause instanceof SportsIdentityConflict)) throw cause;
-      if (!observation.providerStatus.recognized) {
-        await recordUnknownStatusEvidence(ctx, { observation });
-      }
       const incident = await openScheduleIncident(ctx, {
         scopeKey: `${incidentBase}:identity`,
         summary: PARTICIPANT_SAFE_SCHEDULE_INCIDENT_SUMMARY,
         nowMs: observation.observedAtMs,
       });
+      if (!observation.providerStatus.recognized) {
+        await recordUnknownStatusEvidence(ctx, {
+          observation,
+          incidentId: incident.incidentId ?? undefined,
+        });
+      }
       return {
         status: "unresolved" as const,
         gameId: null,
@@ -277,14 +273,17 @@ export const applyScheduleGameObservation = internalMutation({
     }
 
     if (reconciliation.kind === "unresolved") {
-      if (!observation.providerStatus.recognized) {
-        await recordUnknownStatusEvidence(ctx, { observation });
-      }
       const incident = await openScheduleIncident(ctx, {
         scopeKey: `${incidentBase}:identity`,
         summary: PARTICIPANT_SAFE_SCHEDULE_INCIDENT_SUMMARY,
         nowMs: observation.observedAtMs,
       });
+      if (!observation.providerStatus.recognized) {
+        await recordUnknownStatusEvidence(ctx, {
+          observation,
+          incidentId: incident.incidentId ?? undefined,
+        });
+      }
       return {
         status: "unresolved" as const,
         gameId: null,
@@ -319,6 +318,21 @@ export const applyScheduleGameObservation = internalMutation({
       lastObservedAtMs: observation.observedAtMs,
       revision: (game.revision ?? 0) + 1,
     });
+    await recordProviderGameTransition(ctx, {
+      gameId: game._id,
+      provider: "api-sports",
+      externalId: observation.providerAlias.id,
+      source: "schedule",
+      observedAtMs: observation.observedAtMs,
+      before: providerEvidenceState(game),
+      after: providerEvidenceState({
+        ...game,
+        scheduledKickoffMs: reduced.scheduledKickoffMs,
+        lifecycle: reduced.lifecycle,
+        kickoffLockReachedAtMs:
+          reduced.kickoffLockReachedAtMs ?? undefined,
+      }),
+    });
     if (
       reduced.scheduledKickoffMs !== game.scheduledKickoffMs ||
       reduced.lifecycle !== game.lifecycle ||
@@ -351,17 +365,17 @@ export const applyScheduleGameObservation = internalMutation({
 
     let incidentId: Id<"operatorIncidents"> | null = null;
     if (reduced.unknownLifecyclePreserved) {
-      await recordUnknownStatusEvidence(ctx, {
-        observation,
-        nflGameId: game._id,
-      });
       const incident = await openScheduleIncident(ctx, {
-        scopeKey:
-          `${incidentBase}:status:${observation.providerStatus.rawShort}`,
+        scopeKey: `game:${game._id}:status:unrecognized`,
         summary: PARTICIPANT_SAFE_SCHEDULE_INCIDENT_SUMMARY,
         nowMs: observation.observedAtMs,
       });
       incidentId = incident.incidentId;
+      await recordUnknownStatusEvidence(ctx, {
+        observation,
+        nflGameId: game._id,
+        incidentId: incident.incidentId ?? undefined,
+      });
     }
 
     return {
@@ -526,6 +540,7 @@ export const runClaimedScheduleFetch = internalAction({
       surface: "schedule",
       traffic: "routine",
       jitterKey: String(args.workItemId),
+      scopeKey: `schedule:${args.seasonId}`,
     });
     let providerSucceeded = false;
     const season = await ctx.runQuery(

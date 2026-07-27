@@ -553,6 +553,7 @@ export const stageSeasonBootstrap = action({
       surface: "bootstrap",
       traffic: "protected",
       jitterKey: `bootstrap:${args.seasonYear}`,
+      scopeKey: `bootstrap:${args.seasonYear}`,
     });
     let provider;
     try {

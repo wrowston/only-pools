@@ -59,6 +59,12 @@ export function OperatorIncidentsPanel() {
   const resolve = useMutation(api.incidents.resolveIncident);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [evidenceIncidentId, setEvidenceIncidentId] =
+    useState<Id<"operatorIncidents"> | null>(null);
+  const evidence = useQuery(
+    api.providerEvidence.listOperatorIncidentEvidence,
+    evidenceIncidentId ? { incidentId: evidenceIncidentId, limit: 50 } : "skip",
+  );
 
   if (me === undefined || !me.isOperator) {
     return null;
@@ -187,6 +193,20 @@ export function OperatorIncidentsPanel() {
                 ) : null}
               </div>
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="underline"
+                  aria-expanded={evidenceIncidentId === inc._id}
+                  onClick={() =>
+                    setEvidenceIncidentId((current) =>
+                      current === inc._id ? null : inc._id,
+                    )
+                  }
+                >
+                  {evidenceIncidentId === inc._id
+                    ? "Hide evidence"
+                    : "Inspect evidence"}
+                </button>
                 {inc.status === "open" ? (
                   <button
                     type="button"
@@ -212,6 +232,63 @@ export function OperatorIncidentsPanel() {
           ))}
         </ul>
       )}
+      {evidenceIncidentId ? (
+        <div
+          className="mt-4 border border-zinc-200 p-4 text-sm dark:border-zinc-700"
+          data-provider-incident-evidence
+        >
+          <h2 className="font-semibold text-op-text">
+            Sanitized provider evidence
+          </h2>
+          {evidence === undefined ? (
+            <p className="mt-2 text-op-secondary">Loading evidence…</p>
+          ) : evidence.permanent.length === 0 &&
+            evidence.diagnostics.length === 0 ? (
+            <p className="mt-2 text-op-secondary">
+              No retained evidence is linked to this incident.
+            </p>
+          ) : (
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <h3 className="font-medium text-op-text">
+                  Meaningful transitions ({evidence.permanent.length})
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs text-op-secondary">
+                  {evidence.permanent.map((row) => (
+                    <li key={row._id}>
+                      {row.transitionKind} · {row.gameStableKey} ·{" "}
+                      {row.after.lifecycle} · score{" "}
+                      {row.after.awayScore ?? "—"}–
+                      {row.after.homeScore ?? "—"} ·{" "}
+                      {new Date(row.recordedAtMs).toLocaleString()}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-medium text-op-text">
+                  Recent diagnostics ({evidence.diagnostics.length})
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs text-op-secondary">
+                  {evidence.diagnostics.map((row) => (
+                    <li key={row._id}>
+                      {row.outcome} · {row.endpoint} · seen{" "}
+                      {row.observationCount}× · status{" "}
+                      {row.providerStatus.short ??
+                        (row.providerStatus.redacted
+                          ? "redacted"
+                          : "—")}{" "}
+                      · response{" "}
+                      {row.response.fingerprint?.slice(0, 12) ?? "—"} ·{" "}
+                      {new Date(row.lastRecordedAtMs).toLocaleString()}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

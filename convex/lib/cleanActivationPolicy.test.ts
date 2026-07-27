@@ -41,8 +41,6 @@ describe("clean Season Bootstrap activation policy", () => {
         "poolMemberships",
         "poolWeeks",
         "pools",
-        "providerExceptions",
-        "providerFetchClaims",
         "returningParticipantInvites",
         "scoringDependencyEvents",
         "scoringBlockedWork",
@@ -52,7 +50,6 @@ describe("clean Season Bootstrap activation policy", () => {
         "scoringHolds",
         "scoringRevisions",
         "seasonStandings",
-        "sportsDataStatusEvidence",
         "survivorPickOutcomes",
         "survivorPicks",
         "survivorTeamReservations",
@@ -80,6 +77,11 @@ describe("clean Season Bootstrap activation policy", () => {
         "nflGameResultOverrides",
         "nflGameResultOverrideEvidence",
         "operatorAuditEvents",
+        "providerDiagnosticCleanupRuns",
+        "providerExceptions",
+        "providerFetchClaims",
+        "providerGameEvidence",
+        "providerRequestDiagnostics",
         "providerReliabilityState",
         "seasonBootstrapActivationRequests",
         "seasonBootstrapStages",
@@ -87,6 +89,7 @@ describe("clean Season Bootstrap activation policy", () => {
         "seasonBootstrapStagedGames",
         "seasonBootstrapStagedTeams",
         "seasonBootstrapValidationFailures",
+        "sportsDataStatusEvidence",
         "syncGate",
       ].sort(),
     );
@@ -131,7 +134,7 @@ describe("clean Season Bootstrap activation policy", () => {
     ).toBe("rebuild");
     expect(
       CLEAN_ACTIVATION_POLICY.sportsDataStatusEvidence.disposition,
-    ).toBe("delete");
+    ).toBe("preserve");
     expect(
       CLEAN_ACTIVATION_POLICY.nflGameResultReconciliationObservations
         .disposition,
@@ -147,6 +150,7 @@ describe("clean Season Bootstrap activation policy", () => {
       "checked_in_nfl_team_catalog",
       "season_bootstrap_staging_history",
       "provider_reliability_state",
+      "provider_evidence_and_recent_diagnostics",
     ]);
   });
 

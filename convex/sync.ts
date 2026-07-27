@@ -6,6 +6,7 @@ import {
   canClaimProviderFetch,
   type SyncSurface,
 } from "./lib/syncGate";
+import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
 
 const SYNC_GATE_KEY = "deployment" as const;
 
@@ -51,6 +52,7 @@ export const claimProviderFetch = mutation({
         status: "denied",
         reason: decision.reason,
         claimedAtMs,
+        expiresAtMs: providerDiagnosticExpiry(claimedAtMs),
       });
       return { ok: false as const, reason: decision.reason };
     }
@@ -59,6 +61,7 @@ export const claimProviderFetch = mutation({
       surface: args.surface,
       status: "claimed",
       claimedAtMs,
+      expiresAtMs: providerDiagnosticExpiry(claimedAtMs),
     });
     return { ok: true as const, surface: args.surface };
   },

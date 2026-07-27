@@ -17,6 +17,10 @@ import {
 import { latestPinnedResultEvidence } from "./lib/pinnedResultEvidence";
 import { confirmationScopeKey } from "./lib/syncObservations";
 import { retireCorrectionWorkflowForPinnedOverride } from "./syncApiSportsLive";
+import {
+  providerEvidenceState,
+  recordProviderGameTransition,
+} from "./providerEvidence";
 
 const terminalStatusValidator = v.union(
   v.literal("FT"),
@@ -368,6 +372,31 @@ export const pinNflGameResultOverride = mutation({
       pinnedResultOverrideId: overrideId,
       revision: (game.revision ?? 0) + 1,
     });
+    await recordProviderGameTransition(ctx, {
+      gameId: game._id,
+      provider: "operator",
+      externalId: `override:${overrideId}`,
+      source: "override",
+      observedAtMs: nowMs,
+      before: providerEvidenceState(game),
+      after: providerEvidenceState({
+        ...game,
+        lifecycle:
+          pinnedResult.status === "CANC"
+            ? "canceled"
+            : "terminal",
+        homeScore: pinnedResult.homeScore,
+        awayScore: pinnedResult.awayScore,
+        resultAuthority: "verified",
+        verifiedResult: pinnedResult,
+        priorVerifiedResult: {
+          ...game.verifiedResult,
+          supersededAtMs: nowMs,
+        },
+        correctionCandidate: undefined,
+        pinnedResultOverrideId: overrideId,
+      }),
+    });
     await ctx.db.insert("operatorAuditEvents", {
       action: "nfl_game_result_override_pinned",
       actorTokenIdentifier: actor.tokenIdentifier,
@@ -455,6 +484,18 @@ export const releaseNflGameResultOverride = mutation({
     await ctx.db.patch(game._id, {
       pinnedResultOverrideId: undefined,
       revision: (game.revision ?? 0) + 1,
+    });
+    await recordProviderGameTransition(ctx, {
+      gameId: game._id,
+      provider: "operator",
+      externalId: `override:${override._id}`,
+      source: "override",
+      observedAtMs: nowMs,
+      before: providerEvidenceState(game),
+      after: providerEvidenceState({
+        ...game,
+        pinnedResultOverrideId: undefined,
+      }),
     });
     const evidenceWork = await ctx.db
       .query("syncWorkItems")

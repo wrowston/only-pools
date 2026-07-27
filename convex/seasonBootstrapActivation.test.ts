@@ -327,6 +327,55 @@ describe("audited clean Season Bootstrap activation", () => {
     const stage = await persistValidStage(t);
     const asOperator = await establishSteppedUpOperator(t);
     const released = await seedOverrideAuditEpisode(t, "released");
+    const releasedGame = await t.run(async (ctx) =>
+      ctx.db.get(released.gameId),
+    );
+    if (!releasedGame) throw new Error("expected released game");
+    const normalizedState = {
+      scheduledKickoffMs: releasedGame.scheduledKickoffMs,
+      kickoffLockReachedAtMs:
+        releasedGame.kickoffLockReachedAtMs ?? null,
+      lifecycle: releasedGame.lifecycle,
+      homeScore: releasedGame.homeScore,
+      awayScore: releasedGame.awayScore,
+      resultAuthority: releasedGame.resultAuthority ?? "none",
+      verifiedResult: releasedGame.verifiedResult
+        ? {
+            homeScore: releasedGame.verifiedResult.homeScore,
+            awayScore: releasedGame.verifiedResult.awayScore,
+            status: releasedGame.verifiedResult.status,
+            observedAtMs:
+              releasedGame.verifiedResult.verifiedAtMs,
+          }
+        : null,
+      correctionCandidate: null,
+      pinned: false,
+    } as const;
+    const permanent = await t.mutation(
+      internal.providerEvidence.recordGameTransitionForTest,
+      {
+        gameId: released.gameId,
+        provider: "api-sports",
+        source: "live",
+        observedAtMs: 4,
+        before: null,
+        after: normalizedState,
+      },
+    );
+    if (!permanent.recorded) {
+      throw new Error("expected permanent provider evidence");
+    }
+    const recentDiagnostic = await t.mutation(
+      internal.providerEvidence.recordApiSportsDiagnostic,
+      {
+        surface: "live",
+        scopeKey: `game:${released.gameId}`,
+        gameId: released.gameId,
+        endpoint: "/games",
+        parameters: { id: "12345" },
+        outcome: "no_change",
+      },
+    );
     const unrelatedEvidenceId = await t.run(async (ctx) =>
       await ctx.db.insert("nflGameResultReconciliationObservations", {
         nflGameId: released.gameId,
@@ -356,6 +405,10 @@ describe("audited clean Season Bootstrap activation", () => {
       permanentEvidence: await ctx.db.get(
         released.permanentEvidenceId,
       ),
+      providerEvidence: await ctx.db.get(permanent.evidenceId),
+      recentDiagnostic: await ctx.db.get(
+        recentDiagnostic.diagnosticId,
+      ),
       unrelatedEvidence: await ctx.db.get(unrelatedEvidenceId),
     }));
     expect(state.game).toBeNull();
@@ -378,6 +431,14 @@ describe("audited clean Season Bootstrap activation", () => {
       disposition: "pinned_conflicting",
       homeScore: 27,
       awayScore: 24,
+    });
+    expect(state.providerEvidence).toMatchObject({
+      gameStableKey: "nfl:2025:w1:oa@oh",
+      source: "live",
+    });
+    expect(state.recentDiagnostic).toMatchObject({
+      gameStableKey: "nfl:2025:w1:oa@oh",
+      retentionClass: "diagnostic_30d",
     });
     expect(state.permanentEvidence).not.toHaveProperty("nflGameId");
     expect(state.permanentEvidence).not.toHaveProperty(

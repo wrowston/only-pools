@@ -11,6 +11,39 @@ const nflGameLifecycle = v.union(
   v.literal("unknown"),
 );
 
+const providerEvidenceTerminalStatus = v.union(
+  v.literal("FT"),
+  v.literal("AOT"),
+  v.literal("CANC"),
+);
+
+const providerEvidenceResultAuthority = v.union(
+  v.literal("none"),
+  v.literal("projected"),
+  v.literal("confirmation_pending"),
+  v.literal("verified"),
+  v.literal("correction_candidate"),
+);
+
+const providerEvidenceResult = v.object({
+  homeScore: v.number(),
+  awayScore: v.number(),
+  status: providerEvidenceTerminalStatus,
+  observedAtMs: v.number(),
+});
+
+const providerGameEvidenceState = v.object({
+  scheduledKickoffMs: v.number(),
+  kickoffLockReachedAtMs: v.union(v.number(), v.null()),
+  lifecycle: nflGameLifecycle,
+  homeScore: v.union(v.number(), v.null()),
+  awayScore: v.union(v.number(), v.null()),
+  resultAuthority: providerEvidenceResultAuthority,
+  verifiedResult: v.union(providerEvidenceResult, v.null()),
+  correctionCandidate: v.union(providerEvidenceResult, v.null()),
+  pinned: v.boolean(),
+});
+
 const poolType = v.union(v.literal("survivor"), v.literal("confidence"));
 const pickLockMode = v.union(
   v.literal("gameKickoff"),
@@ -294,6 +327,10 @@ export default defineSchema({
     releasedByClerkUserId: v.optional(v.string()),
   })
     .index("by_nflGameId_and_status", ["nflGameId", "status"])
+    .index("by_gameStableKey_and_pinnedAtMs", [
+      "gameStableKey",
+      "pinnedAtMs",
+    ])
     .index("by_status_and_pinnedAtMs", ["status", "pinnedAtMs"])
     .index("by_pinnedAtMs", ["pinnedAtMs"]),
 
@@ -395,12 +432,172 @@ export default defineSchema({
     firstObservedAtMs: v.number(),
     lastObservedAtMs: v.number(),
     observationCount: v.number(),
+    expiresAtMs: v.optional(v.number()),
   })
     .index(
       "by_provider_and_externalId_and_rawShort_and_rawLong",
       ["provider", "externalId", "rawShort", "rawLong"],
     )
-    .index("by_lastObservedAtMs", ["lastObservedAtMs"]),
+    .index("by_lastObservedAtMs", ["lastObservedAtMs"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
+    .index("by_nflGameId_and_lastObservedAtMs", [
+      "nflGameId",
+      "lastObservedAtMs",
+    ]),
+
+  /**
+   * Permanent, append-only normalized transitions. Rows are self-contained so
+   * operational clean activation cannot erase the evidence needed to explain
+   * a historical competitive result.
+   */
+  providerGameEvidence: defineTable({
+    nflGameId: v.optional(v.id("nflGames")),
+    incidentId: v.optional(v.id("operatorIncidents")),
+    gameStableKey: v.string(),
+    seasonLabel: v.string(),
+    gameWeek: v.number(),
+    homeTeamAbbreviation: v.string(),
+    awayTeamAbbreviation: v.string(),
+    provider: v.union(
+      v.literal("api-sports"),
+      v.literal("legacy"),
+      v.literal("operator"),
+    ),
+    externalId: v.optional(v.string()),
+    source: v.union(
+      v.literal("schedule"),
+      v.literal("live"),
+      v.literal("targeted"),
+      v.literal("correction"),
+      v.literal("override"),
+    ),
+    transitionKind: v.union(
+      v.literal("kickoff"),
+      v.literal("kickoff_lock"),
+      v.literal("lifecycle"),
+      v.literal("score"),
+      v.literal("terminal"),
+      v.literal("correction"),
+      v.literal("override"),
+    ),
+    changedFields: v.array(v.string()),
+    before: v.union(providerGameEvidenceState, v.null()),
+    after: providerGameEvidenceState,
+    fingerprint: v.string(),
+    observedAtMs: v.number(),
+    recordedAtMs: v.number(),
+  })
+    .index("by_fingerprint", ["fingerprint"])
+    .index("by_nflGameId_and_recordedAtMs", [
+      "nflGameId",
+      "recordedAtMs",
+    ])
+    .index("by_gameStableKey_and_recordedAtMs", [
+      "gameStableKey",
+      "recordedAtMs",
+    ])
+    .index("by_incidentId_and_recordedAtMs", [
+      "incidentId",
+      "recordedAtMs",
+    ]),
+
+  /**
+   * Thirty-day, server-sanitized request and no-op poll diagnostics. This
+   * table and the legacy diagnostic-only claims/exceptions/status tables are
+   * the only evidence storage retention cleanup may delete.
+   */
+  providerRequestDiagnostics: defineTable({
+    fingerprint: v.string(),
+    provider: v.literal("api-sports"),
+    surface: v.union(
+      v.literal("bootstrap"),
+      v.literal("schedule"),
+      v.literal("live"),
+      v.literal("correction"),
+      v.literal("operator"),
+    ),
+    scopeKey: v.optional(v.string()),
+    incidentId: v.optional(v.id("operatorIncidents")),
+    nflGameId: v.optional(v.id("nflGames")),
+    gameStableKey: v.optional(v.string()),
+    endpoint: v.union(
+      v.literal("/games"),
+      v.literal("/teams"),
+      v.literal("/status"),
+      v.literal("/unknown"),
+    ),
+    requestLeague: v.optional(v.number()),
+    requestSeason: v.optional(v.number()),
+    requestPage: v.optional(v.number()),
+    requestDate: v.optional(v.string()),
+    requestLive: v.optional(v.string()),
+    requestExternalId: v.optional(v.string()),
+    statusShortPreview: v.optional(v.string()),
+    statusLongPreview: v.optional(v.string()),
+    statusFingerprint: v.optional(v.string()),
+    statusRedacted: v.optional(v.boolean()),
+    outcome: v.union(
+      v.literal("success"),
+      v.literal("http_error"),
+      v.literal("rate_limited"),
+      v.literal("transport_error"),
+      v.literal("malformed"),
+      v.literal("no_change"),
+      v.literal("quarantined"),
+    ),
+    httpStatus: v.optional(v.number()),
+    bodyBytes: v.optional(v.number()),
+    responseFingerprint: v.optional(v.string()),
+    resultCount: v.optional(v.number()),
+    pagingCurrent: v.optional(v.number()),
+    pagingTotal: v.optional(v.number()),
+    quotaDailyLimit: v.optional(v.number()),
+    quotaDailyRemaining: v.optional(v.number()),
+    quotaMinuteLimit: v.optional(v.number()),
+    quotaMinuteRemaining: v.optional(v.number()),
+    firstRecordedAtMs: v.number(),
+    lastRecordedAtMs: v.number(),
+    observationCount: v.number(),
+    expiresAtMs: v.number(),
+    retentionClass: v.literal("diagnostic_30d"),
+  })
+    .index("by_fingerprint", ["fingerprint"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
+    .index("by_nflGameId_and_lastRecordedAtMs", [
+      "nflGameId",
+      "lastRecordedAtMs",
+    ])
+    .index("by_nflGameId_and_surface_and_lastRecordedAtMs", [
+      "nflGameId",
+      "surface",
+      "lastRecordedAtMs",
+    ])
+    .index("by_gameStableKey_and_lastRecordedAtMs", [
+      "gameStableKey",
+      "lastRecordedAtMs",
+    ])
+    .index("by_surface_and_scopeKey_and_lastRecordedAtMs", [
+      "surface",
+      "scopeKey",
+      "lastRecordedAtMs",
+    ])
+    .index("by_incidentId_and_lastRecordedAtMs", [
+      "incidentId",
+      "lastRecordedAtMs",
+    ]),
+
+  /** Durable fixed-cutoff progress for interruption-safe diagnostic cleanup. */
+  providerDiagnosticCleanupRuns: defineTable({
+    key: v.literal("provider-diagnostics"),
+    generation: v.number(),
+    cutoffMs: v.number(),
+    status: v.union(v.literal("running"), v.literal("complete")),
+    deletedCount: v.number(),
+    batchesCompleted: v.number(),
+    startedAtMs: v.number(),
+    updatedAtMs: v.number(),
+    completedAtMs: v.optional(v.number()),
+  }).index("by_key", ["key"]),
 
   /** Per-game idempotency and successful-slate absence state for live sync. */
   liveGameIngestionState: defineTable({
@@ -1039,8 +1236,10 @@ export default defineSchema({
       ),
     ),
     workItemId: v.optional(v.id("syncWorkItems")),
+    expiresAtMs: v.optional(v.number()),
   })
     .index("by_claimedAtMs", ["claimedAtMs"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
     .index("by_status_and_claimedAtMs", ["status", "claimedAtMs"]),
 
   /**
@@ -1136,8 +1335,10 @@ export default defineSchema({
     message: v.string(),
     createdAtMs: v.number(),
     resolvedAtMs: v.optional(v.number()),
+    expiresAtMs: v.optional(v.number()),
   })
     .index("by_createdAtMs", ["createdAtMs"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
     .index("by_scopeKey_and_createdAtMs", ["scopeKey", "createdAtMs"])
     .index("by_gameId", ["gameId"]),
 

@@ -28,4 +28,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "cleanup-provider-diagnostics",
+  { hours: 6 },
+  internal.providerEvidence.cleanupExpiredDiagnostics,
+  {},
+);
+
 export default crons;

@@ -35,12 +35,34 @@ export type ApiSportsFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type ApiSportsRequestMetadata = Readonly<{
+  endpoint: string;
+  parameters: Readonly<Record<string, string | number>>;
+}>;
+
 export type ApiSportsRequestFence = Readonly<{
-  beforeRequest: () => Effect.Effect<unknown, unknown>;
+  beforeRequest: (
+    request: ApiSportsRequestMetadata,
+  ) => Effect.Effect<unknown, unknown>;
   afterResponse: (
     admission: unknown,
     response: Response,
+    request: ApiSportsRequestMetadata,
   ) => Effect.Effect<void, unknown>;
+  afterError?: (
+    admission: unknown,
+    request: ApiSportsRequestMetadata,
+  ) => Effect.Effect<void, never>;
+  afterOutcome?: (
+    admission: unknown,
+    response: Response,
+    request: ApiSportsRequestMetadata,
+    outcome:
+      | "success"
+      | "http_error"
+      | "rate_limited"
+      | "malformed",
+  ) => Effect.Effect<void, never>;
 }>;
 
 export type ApiSportsClientError =
@@ -114,8 +136,12 @@ function requestEffect<A, I>(input: {
   schema: Schema.Schema<A, I>;
 }): Effect.Effect<ApiSportsResponse<A>, ApiSportsClientError> {
   return Effect.gen(function* () {
+    const requestMetadata = {
+      endpoint: input.endpoint,
+      parameters: input.parameters,
+    };
     const admission = input.requestFence
-      ? yield* input.requestFence.beforeRequest().pipe(
+      ? yield* input.requestFence.beforeRequest(requestMetadata).pipe(
           Effect.mapError(
             () =>
               new ApiSportsTransportError({
@@ -132,10 +158,19 @@ function requestEffect<A, I>(input: {
         }),
       catch: () =>
         new ApiSportsTransportError({ endpoint: input.endpoint }),
-    });
+    }).pipe(
+      Effect.tapError(() =>
+        input.requestFence?.afterError
+          ? input.requestFence.afterError(
+              admission,
+              requestMetadata,
+            )
+          : Effect.void,
+      ),
+    );
     if (input.requestFence) {
       yield* input.requestFence
-        .afterResponse(admission, response)
+        .afterResponse(admission, response, requestMetadata)
         .pipe(
           Effect.mapError(
             () =>
@@ -145,9 +180,25 @@ function requestEffect<A, I>(input: {
           ),
         );
     }
+    const recordOutcome = (
+      outcome:
+        | "success"
+        | "http_error"
+        | "rate_limited"
+        | "malformed",
+    ) =>
+      input.requestFence?.afterOutcome
+        ? input.requestFence.afterOutcome(
+            admission,
+            response,
+            requestMetadata,
+            outcome,
+          )
+        : Effect.void;
     const quota = quotaFromHeaders(response.headers);
 
     if (response.status === 429) {
+      yield* recordOutcome("rate_limited");
       return yield* new ApiSportsRateLimitError({
         endpoint: input.endpoint,
         status: response.status,
@@ -155,6 +206,7 @@ function requestEffect<A, I>(input: {
       });
     }
     if (!response.ok) {
+      yield* recordOutcome("http_error");
       return yield* new ApiSportsHttpError({
         endpoint: input.endpoint,
         status: response.status,
@@ -169,7 +221,9 @@ function requestEffect<A, I>(input: {
           endpoint: input.endpoint,
           detail: "response was not valid JSON",
         }),
-    });
+    }).pipe(
+      Effect.tapError(() => recordOutcome("malformed")),
+    );
     const decoded = yield* Schema.decodeUnknown(input.schema)(json).pipe(
       Effect.mapError(
         () =>
@@ -178,6 +232,7 @@ function requestEffect<A, I>(input: {
             detail: "response did not match the expected schema",
           }),
       ),
+      Effect.tapError(() => recordOutcome("malformed")),
     );
 
     if (
@@ -189,6 +244,7 @@ function requestEffect<A, I>(input: {
         | readonly string[]
         | Readonly<Record<string, string>>;
       if (!hasProviderErrors(providerErrors)) {
+        yield* recordOutcome("success");
         return {
           data: decoded,
           observedAtMs: input.nowMs(),
@@ -196,12 +252,14 @@ function requestEffect<A, I>(input: {
         };
       }
       if (isProviderRateLimitError(providerErrors)) {
+        yield* recordOutcome("rate_limited");
         return yield* new ApiSportsRateLimitError({
           endpoint: input.endpoint,
           status: response.status,
           quota,
         });
       }
+      yield* recordOutcome("http_error");
       return yield* new ApiSportsHttpError({
         endpoint: input.endpoint,
         status: response.status,
@@ -209,6 +267,7 @@ function requestEffect<A, I>(input: {
       });
     }
 
+    yield* recordOutcome("success");
     return {
       data: decoded,
       observedAtMs: input.nowMs(),

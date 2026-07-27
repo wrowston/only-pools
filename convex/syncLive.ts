@@ -39,6 +39,7 @@ import {
   type BudgetUsage,
 } from "./lib/providerBudget";
 import { API_SPORTS_RECOVERY_SCOPE_KEY } from "./lib/providerReliabilityPolicy";
+import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
 import { createLogger, errorMessage } from "./lib/log";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
@@ -672,19 +673,21 @@ export const recordSyncSurfaceHealth = internalMutation({
         surface: args.surface,
         scopeKey: args.scopeKey,
         gameId: args.gameId ?? null,
-        message: args.exceptionMessage ?? "Provider Exception",
+        failureCode: "provider_sync_failed",
         consecutiveFailures: fields.consecutiveFailures,
       });
       await ctx.db.insert("providerExceptions", {
         kind: "sync_failure",
         gameId: args.gameId,
         scopeKey: args.scopeKey,
-        message: args.exceptionMessage ?? "Provider Exception",
+        message:
+          "Provider synchronization failed; inspect sanitized request diagnostics.",
         createdAtMs: args.nowMs,
+        expiresAtMs: providerDiagnosticExpiry(args.nowMs),
       });
       await enqueueSentryDelivery(
         ctx,
-        captureException(args.exceptionMessage ?? "Provider Exception", {
+        captureException("Provider synchronization failed", {
           tags: { channel: "sync", surface: args.surface },
           extra: { scopeKey: args.scopeKey },
         }),
@@ -1148,6 +1151,7 @@ export const dispatchSyncWork = internalMutation({
         claimedAtMs: nowMs,
         priority: protectedLivePriority,
         workItemId: item._id,
+        expiresAtMs: providerDiagnosticExpiry(nowMs),
       });
       void claimId;
 
@@ -1791,14 +1795,13 @@ export const claimProviderFetchWithBudget = mutation({
         v.literal("operator"),
       ),
     ),
-    nowMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new Error("Unauthenticated");
     }
-    const nowMs = args.nowMs ?? Date.now();
+    const nowMs = Date.now();
     const gateEnabled = await loadSyncGateEnabled(ctx);
     const priority: BudgetPriority =
       args.priority ??
@@ -1819,6 +1822,7 @@ export const claimProviderFetchWithBudget = mutation({
         reason: gateDecision.reason,
         claimedAtMs: nowMs,
         priority,
+        expiresAtMs: providerDiagnosticExpiry(nowMs),
       });
       return { ok: false as const, reason: gateDecision.reason };
     }
@@ -1832,6 +1836,7 @@ export const claimProviderFetchWithBudget = mutation({
         reason: budgetDecision.reason,
         claimedAtMs: nowMs,
         priority,
+        expiresAtMs: providerDiagnosticExpiry(nowMs),
       });
       return { ok: false as const, reason: budgetDecision.reason };
     }
@@ -1841,6 +1846,7 @@ export const claimProviderFetchWithBudget = mutation({
       status: "claimed",
       claimedAtMs: nowMs,
       priority,
+      expiresAtMs: providerDiagnosticExpiry(nowMs),
     });
     return { ok: true as const, surface: args.surface, priority };
   },

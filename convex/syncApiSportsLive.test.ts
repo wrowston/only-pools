@@ -417,7 +417,7 @@ describe("API-Sports live slate ingestion", () => {
     }
   });
 
-  it("records unchanged reconciliation evidence without another scoring revision", async () => {
+  it("compacts unchanged and stale reconciliation polls without another scoring revision", async () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
@@ -472,13 +472,24 @@ describe("API-Sports live slate ingestion", () => {
           .query("nflGameResultReconciliationObservations")
           .withIndex("by_nflGameId", (q) => q.eq("nflGameId", gameId))
           .collect(),
+        diagnostics: await ctx.db
+          .query("providerRequestDiagnostics")
+          .withIndex(
+            "by_nflGameId_and_lastRecordedAtMs",
+            (q) => q.eq("nflGameId", gameId),
+          )
+          .collect(),
       }));
       expect(state.game?.verifiedResult?.verifiedAtMs).toBe(
         terminal.observedAtMs,
       );
-      expect(state.observations.map((row) => row.disposition)).toEqual([
-        "unchanged",
-        "stale",
+      expect(state.observations).toEqual([]);
+      expect(state.diagnostics).toEqual([
+        expect.objectContaining({
+          outcome: "no_change",
+          observationCount: 2,
+          retentionClass: "diagnostic_30d",
+        }),
       ]);
       expect(state.game?.correctionCandidate).toBeUndefined();
       expect(state.revisions).toHaveLength(1);
@@ -487,7 +498,7 @@ describe("API-Sports live slate ingestion", () => {
     }
   });
 
-  it("retains every coherent reconciliation observation beyond the former document bound", async () => {
+  it("compacts repeated coherent reconciliation polls into expiring diagnostics", async () => {
     const t = convexTest(schema, modules);
     const { gameId } = await seed(t);
     const terminal = terminalObservation();
@@ -509,13 +520,26 @@ describe("API-Sports live slate ingestion", () => {
       expect(result.result).toBe("unchanged");
     }
 
-    const observations = await t.run(async (ctx) =>
-      ctx.db
+    const state = await t.run(async (ctx) => ({
+      observations: await ctx.db
         .query("nflGameResultReconciliationObservations")
         .withIndex("by_nflGameId", (q) => q.eq("nflGameId", gameId))
         .collect(),
-    );
-    expect(observations).toHaveLength(20);
+      diagnostics: await ctx.db
+        .query("providerRequestDiagnostics")
+        .withIndex(
+          "by_nflGameId_and_lastRecordedAtMs",
+          (q) => q.eq("nflGameId", gameId),
+        )
+        .collect(),
+    }));
+    expect(state.observations).toEqual([]);
+    expect(state.diagnostics).toEqual([
+      expect.objectContaining({
+        outcome: "no_change",
+        observationCount: 20,
+      }),
+    ]);
   });
 
   it("auto-applies a safe changed terminal result and preserves the prior audit timestamps", async () => {
@@ -2173,6 +2197,9 @@ describe("API-Sports live slate ingestion", () => {
     const state = await t.run(async (ctx) => ({
       game: await ctx.db.get(gameId),
       incidents: await ctx.db.query("operatorIncidents").collect(),
+      diagnostics: await ctx.db
+        .query("providerRequestDiagnostics")
+        .collect(),
     }));
     expect(state.game).toMatchObject({
       lifecycle: "in_progress",
@@ -2183,9 +2210,16 @@ describe("API-Sports live slate ingestion", () => {
     expect(state.game?.verifiedResult).toBeUndefined();
     expect(state.incidents).toHaveLength(1);
     expect(state.incidents[0]).toMatchObject({
-      scopeKey: "terminal:77779",
+      scopeKey: `game:${gameId}:terminal`,
       status: "open",
     });
+    expect(state.diagnostics).toEqual([
+      expect.objectContaining({
+        incidentId: state.incidents[0]!._id,
+        nflGameId: gameId,
+        outcome: "quarantined",
+      }),
+    ]);
   });
 
   it("preserves Survivor tie elimination and winner rules through immediate verification", async () => {
@@ -2723,6 +2757,13 @@ describe("API-Sports live slate ingestion", () => {
     const state = await t.run(async (ctx) => ({
       game: await ctx.db.get(gameId),
       evidence: await ctx.db.query("sportsDataStatusEvidence").collect(),
+      diagnostics: await ctx.db
+        .query("providerRequestDiagnostics")
+        .withIndex(
+          "by_nflGameId_and_lastRecordedAtMs",
+          (q) => q.eq("nflGameId", gameId),
+        )
+        .collect(),
       incidents: await ctx.db.query("operatorIncidents").collect(),
     }));
     expect(state.game).toMatchObject({
@@ -2730,7 +2771,13 @@ describe("API-Sports live slate ingestion", () => {
       homeScore: null,
       awayScore: null,
     });
-    expect(state.evidence).toHaveLength(1);
+    expect(state.evidence).toHaveLength(0);
+    expect(state.diagnostics).toEqual([
+      expect.objectContaining({
+        outcome: "quarantined",
+        retentionClass: "diagnostic_30d",
+      }),
+    ]);
     expect(state.incidents).toHaveLength(1);
     expect(state.incidents[0]).toMatchObject({
       status: "open",
