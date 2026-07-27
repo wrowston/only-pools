@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import type { Auth } from "convex/server";
 import {
   action,
   env,
@@ -8,12 +7,32 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type {
+  Doc,
+  Id,
+  TableNames,
+} from "./_generated/dataModel";
 import { runEffect } from "./effect/run";
-import { AuthError } from "./lib/auth";
 import { evaluateBootstrapAvailability } from "./lib/bootstrapAvailability";
-import { isProductionOperator } from "./lib/operator";
+import {
+  requireProductionOperatorIdentity,
+  requireProductionOperatorWithStepUp,
+} from "./lib/operatorAuth";
+import {
+  buildActivationPlan,
+  cleanActivationConfirmationText,
+  CLEAN_ACTIVATION_DELETE_ORDER,
+  CLEAN_ACTIVATION_LIMITS,
+  CLEAN_ACTIVATION_POLICY,
+  CLEAN_ACTIVATION_PRESERVED_CATEGORIES,
+  legacySportsDbGameSentinel,
+  legacySportsDbTeamSentinel,
+  resolveCleanActivationDeployment,
+  type CleanActivationPlan,
+  type CleanActivationRebuiltCounts,
+} from "./lib/cleanActivationPolicy";
 import {
   defaultSyncGateEnabled,
   resolveDeploymentKind,
@@ -159,38 +178,39 @@ type OperatorActor = {
   clerkUserId: string;
 };
 
-async function requireProductionOperator(
-  auth: Auth,
-): Promise<OperatorActor> {
-  const identity = await auth.getUserIdentity();
-  if (identity === null) {
-    throw new AuthError("Unauthenticated");
-  }
-  const allowed = isProductionOperator(
-    {
-      tokenIdentifier: identity.tokenIdentifier,
-      clerkUserId: identity.subject,
-    },
-    process.env as Record<string, string | undefined>,
-  );
-  if (!allowed) {
-    log.warn("operator_denied", {
-      reason: "not_production_operator",
-      clerkUserId: identity.subject,
-    });
-    throw new AuthError("Production Operator required");
-  }
-  log.info("operator_asserted", { clerkUserId: identity.subject });
+function productionOperatorEnvironment(): Record<
+  string,
+  string | undefined
+> {
   return {
-    tokenIdentifier: identity.tokenIdentifier,
-    clerkUserId: identity.subject,
+    PRODUCTION_OPERATOR_CLERK_USER_ID:
+      env.PRODUCTION_OPERATOR_CLERK_USER_ID,
+    PRODUCTION_OPERATOR_TOKEN_IDENTIFIER:
+      env.PRODUCTION_OPERATOR_TOKEN_IDENTIFIER,
+  };
+}
+
+function cleanActivationEnvironment(): Record<
+  string,
+  string | undefined
+> {
+  return {
+    ...productionOperatorEnvironment(),
+    DEPLOYMENT_KIND: env.DEPLOYMENT_KIND,
+    CLEAN_ACTIVATION_DEPLOYMENT_ID:
+      env.CLEAN_ACTIVATION_DEPLOYMENT_ID,
   };
 }
 
 export const assertProductionOperator = internalMutation({
   args: {},
   handler: async (ctx) => {
-    return await requireProductionOperator(ctx.auth);
+    const actor = await requireProductionOperatorIdentity(
+      ctx,
+      productionOperatorEnvironment(),
+    );
+    log.info("operator_asserted", { clerkUserId: actor.clerkUserId });
+    return actor;
   },
 });
 
@@ -570,7 +590,10 @@ export const getSeasonBootstrapStageReport = query({
     stageId: v.id("seasonBootstrapStages"),
   },
   handler: async (ctx, args) => {
-    await requireProductionOperator(ctx.auth);
+    await requireProductionOperatorIdentity(
+      ctx,
+      productionOperatorEnvironment(),
+    );
     const stage = await ctx.db.get(args.stageId);
     if (stage === null) return null;
 
@@ -606,6 +629,729 @@ export const getSeasonBootstrapStageReport = query({
         entityKey: failure.entityKey,
         message: failure.message,
       })),
+    };
+  },
+});
+
+class CleanActivationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CleanActivationError";
+  }
+}
+
+type CleanActivationSnapshot = Readonly<{
+  stage: Doc<"seasonBootstrapStages">;
+  stagedTeams: readonly Doc<"seasonBootstrapStagedTeams">[];
+  stagedGames: readonly Doc<"seasonBootstrapStagedGames">[];
+  stagedAliases: readonly Doc<"seasonBootstrapStagedAliases">[];
+  teams: readonly SportsDataTeam[];
+  games: readonly SportsDataGame[];
+  availability: Readonly<{
+    status: "available";
+    usableStartWeek: number;
+  }>;
+}>;
+
+function hasContiguousOrdinals(
+  rows: readonly Readonly<{ ordinal: number }>[],
+): boolean {
+  return [...rows]
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .every((row, index) => row.ordinal === index);
+}
+
+async function loadCurrentlyValidActivationSnapshot(
+  ctx: MutationCtx,
+  input: {
+    stageId: Id<"seasonBootstrapStages">;
+    seasonYear: number;
+    nowMs: number;
+  },
+): Promise<CleanActivationSnapshot> {
+  const fail = (reason: string): never => {
+    throw new CleanActivationError(
+      `Activation requires the currently valid staged snapshot: ${reason}`,
+    );
+  };
+  const latest = await ctx.db
+    .query("seasonBootstrapStages")
+    .withIndex("by_seasonYear_and_stagedAtMs", (q) =>
+      q.eq("seasonYear", input.seasonYear),
+    )
+    .order("desc")
+    .first();
+  if (latest === null || latest._id !== input.stageId) {
+    return fail("the selected stage is not the latest stage for the Pool Season");
+  }
+  if (
+    latest.seasonYear !== input.seasonYear ||
+    latest.sourceProvider !== "api-sports" ||
+    latest.validationStatus !== "valid" ||
+    !latest.activationEligible ||
+    latest.invariantsVersion !== SEASON_BOOTSTRAP_INVARIANTS.version ||
+    latest.failureCount !== 0 ||
+    latest.storedFailureCount !== 0 ||
+    latest.failuresTruncated
+  ) {
+    return fail("the stage report is no longer activation eligible");
+  }
+  if (
+    latest.teamCount !== SEASON_BOOTSTRAP_INVARIANTS.teamCount ||
+    latest.gameCount !==
+      SEASON_BOOTSTRAP_INVARIANTS.regularSeasonGameCount ||
+    latest.weekCount !== SEASON_BOOTSTRAP_INVARIANTS.weeks.length
+  ) {
+    return fail("the persisted stage counts do not match current invariants");
+  }
+
+  const [stagedTeams, stagedGames, stagedAliases, failures] =
+    await Promise.all([
+      ctx.db
+        .query("seasonBootstrapStagedTeams")
+        .withIndex("by_stageId_and_ordinal", (q) =>
+          q.eq("stageId", input.stageId),
+        )
+        .take(SEASON_BOOTSTRAP_INVARIANTS.teamCount + 1),
+      ctx.db
+        .query("seasonBootstrapStagedGames")
+        .withIndex("by_stageId_and_ordinal", (q) =>
+          q.eq("stageId", input.stageId),
+        )
+        .take(SEASON_BOOTSTRAP_INVARIANTS.regularSeasonGameCount + 1),
+      ctx.db
+        .query("seasonBootstrapStagedAliases")
+        .withIndex("by_stageId_and_ordinal", (q) =>
+          q.eq("stageId", input.stageId),
+        )
+        .take(SEASON_BOOTSTRAP_STAGE_LIMITS.aliases + 1),
+      ctx.db
+        .query("seasonBootstrapValidationFailures")
+        .withIndex("by_stageId_and_ordinal", (q) =>
+          q.eq("stageId", input.stageId),
+        )
+        .take(1),
+    ]);
+  if (
+    stagedTeams.length !== latest.teamCount ||
+    stagedGames.length !== latest.gameCount ||
+    stagedAliases.length !==
+      latest.teamAliasCount + latest.gameAliasCount ||
+    failures.length !== 0 ||
+    !hasContiguousOrdinals(stagedTeams) ||
+    !hasContiguousOrdinals(stagedGames) ||
+    !hasContiguousOrdinals(stagedAliases)
+  ) {
+    return fail("the immutable staged child rows do not match the valid report");
+  }
+
+  const teamKeys = new Set(stagedTeams.map((team) => team.stableKey));
+  const gameKeys = new Set(stagedGames.map((game) => game.stableKey));
+  const aliasesByEntity = new Map<
+    string,
+    { provider: "api-sports"; id: string }[]
+  >();
+  for (const alias of stagedAliases) {
+    if (alias.provider !== "api-sports") {
+      return fail("a staged alias names an unapproved provider");
+    }
+    const ownerExists =
+      alias.entityType === "team"
+        ? teamKeys.has(alias.entityStableKey)
+        : gameKeys.has(alias.entityStableKey);
+    if (!ownerExists) {
+      return fail("a staged alias has no staged entity owner");
+    }
+    const key = `${alias.entityType}:${alias.entityStableKey}`;
+    const aliases = aliasesByEntity.get(key) ?? [];
+    aliases.push({ provider: "api-sports", id: alias.externalId });
+    aliasesByEntity.set(key, aliases);
+  }
+
+  const teams: SportsDataTeam[] = stagedTeams.map((team) => {
+    const canonical = canonicalNflTeam(team.abbreviation);
+    if (canonical === null || canonical.stableKey !== team.stableKey) {
+      return fail("a staged NFL Team conflicts with the checked-in catalog");
+    }
+    return {
+      ...canonical,
+      providerAliases:
+        aliasesByEntity.get(`team:${team.stableKey}`) ?? [],
+    };
+  });
+  const games: SportsDataGame[] = stagedGames.map((game) => {
+    const homeTeam = canonicalNflTeam(game.homeTeamAbbreviation);
+    const awayTeam = canonicalNflTeam(game.awayTeamAbbreviation);
+    if (homeTeam === null || awayTeam === null) {
+      return fail("a staged NFL Game references an unknown canonical NFL Team");
+    }
+    const stableKey = nflGameStableKey({
+      seasonYear: game.seasonYear,
+      week: game.week,
+      homeTeamAbbreviation: homeTeam.abbreviation,
+      awayTeamAbbreviation: awayTeam.abbreviation,
+    });
+    if (stableKey !== game.stableKey) {
+      return fail("a staged NFL Game conflicts with canonical game identity");
+    }
+    return {
+      stableKey,
+      seasonYear: game.seasonYear,
+      week: game.week,
+      homeTeamAbbreviation: homeTeam.abbreviation,
+      awayTeamAbbreviation: awayTeam.abbreviation,
+      homeTeamProviderAlias: game.homeTeamProviderAliasId
+        ? {
+            provider: "api-sports",
+            id: game.homeTeamProviderAliasId,
+          }
+        : undefined,
+      awayTeamProviderAlias: game.awayTeamProviderAliasId
+        ? {
+            provider: "api-sports",
+            id: game.awayTeamProviderAliasId,
+          }
+        : undefined,
+      scheduledKickoffMs: game.scheduledKickoffMs,
+      lifecycle: game.lifecycle,
+      homeScore: game.homeScore,
+      awayScore: game.awayScore,
+      observedAtMs: game.observedAtMs,
+      providerAliases:
+        aliasesByEntity.get(`game:${game.stableKey}`) ?? [],
+    };
+  });
+  const report = validateSeasonBootstrap({
+    seasonYear: input.seasonYear,
+    sourceProvider: "api-sports",
+    teams,
+    games,
+  });
+  if (
+    !report.valid ||
+    !report.activationEligible ||
+    report.failures.length !== 0 ||
+    report.counts.teams !== latest.teamCount ||
+    report.counts.games !== latest.gameCount ||
+    report.counts.weeks !== latest.weekCount ||
+    report.counts.teamAliases !== latest.teamAliasCount ||
+    report.counts.gameAliases !== latest.gameAliasCount
+  ) {
+    return fail("the staged child rows no longer pass current validation");
+  }
+
+  const availability = evaluateBootstrapAvailability(games, input.nowMs);
+  if (
+    availability.status !== "available" ||
+    availability.usableStartWeek === null
+  ) {
+    return fail("the stage has no usable future Start Week");
+  }
+
+  return {
+    stage: latest,
+    stagedTeams,
+    stagedGames,
+    stagedAliases,
+    teams,
+    games,
+    availability: {
+      status: "available",
+      usableStartWeek: availability.usableStartWeek,
+    },
+  };
+}
+
+type CollectedCleanActivationRows = Readonly<{
+  idsByTable: Partial<Record<TableNames, readonly Id<TableNames>[]>>;
+  plan: CleanActivationPlan;
+}>;
+
+async function collectCleanActivationRows(
+  ctx: MutationCtx,
+  rebuiltCounts: CleanActivationRebuiltCounts,
+): Promise<CollectedCleanActivationRows> {
+  const currentCounts = Object.fromEntries(
+    (Object.keys(CLEAN_ACTIVATION_POLICY) as TableNames[]).map(
+      (tableName) => [tableName, 0],
+    ),
+  ) as Record<TableNames, number>;
+  const idsByTable: Partial<
+    Record<TableNames, readonly Id<TableNames>[]>
+  > = {};
+  let totalRows = 0;
+  let totalBytes = 0;
+
+  for (const tableName of CLEAN_ACTIVATION_DELETE_ORDER) {
+    const remaining =
+      CLEAN_ACTIVATION_LIMITS.maxDeletedRows - totalRows;
+    const rows = await ctx.db.query(tableName).take(remaining + 1);
+    if (rows.length > remaining) {
+      throw new CleanActivationError(
+        `Clean activation exceeds the transaction-safe deletion limit while reading ${tableName}`,
+      );
+    }
+    currentCounts[tableName] = rows.length;
+    idsByTable[tableName] = rows.map(
+      (row) => row._id as Id<TableNames>,
+    );
+    totalRows += rows.length;
+    for (const row of rows) {
+      totalBytes += new TextEncoder().encode(JSON.stringify(row)).byteLength;
+      if (totalBytes > CLEAN_ACTIVATION_LIMITS.maxDeletedBytes) {
+        throw new CleanActivationError(
+          `Clean activation exceeds the transaction-safe deletion byte limit while reading ${tableName}`,
+        );
+      }
+    }
+  }
+
+  return {
+    idsByTable,
+    plan: buildActivationPlan({ currentCounts, rebuiltCounts }),
+  };
+}
+
+function rebuiltCountsForSnapshot(
+  snapshot: CleanActivationSnapshot,
+): CleanActivationRebuiltCounts {
+  const teamAliases = snapshot.stagedAliases.filter(
+    (alias) => alias.entityType === "team",
+  ).length;
+  const gameAliases = snapshot.stagedAliases.length - teamAliases;
+  return {
+    poolSeasons: 1,
+    nflTeams: snapshot.stagedTeams.length,
+    nflGames: snapshot.stagedGames.length,
+    nflTeamAliases: teamAliases,
+    nflGameAliases: gameAliases,
+    nflGameScheduleHistory: snapshot.stagedGames.length,
+  };
+}
+
+async function assertStageNotActivatedInDeployment(
+  ctx: MutationCtx,
+  input: {
+    stageId: Id<"seasonBootstrapStages">;
+    deploymentKind: "development" | "production";
+    deploymentId: string;
+  },
+): Promise<void> {
+  const prior = await ctx.db
+    .query("seasonBootstrapActivationRequests")
+    .withIndex(
+      "by_stageId_and_deploymentKind_and_deploymentId_and_status",
+      (q) =>
+        q
+          .eq("stageId", input.stageId)
+          .eq("deploymentKind", input.deploymentKind)
+          .eq("deploymentId", input.deploymentId)
+          .eq("status", "activated"),
+    )
+    .first();
+  if (prior !== null) {
+    throw new CleanActivationError(
+      "This staged snapshot was already activated in the current deployment; stage a new snapshot before another clean activation",
+    );
+  }
+}
+
+type CleanActivationRequestResult = Readonly<{
+  requestId: Id<"seasonBootstrapActivationRequests">;
+  confirmationText: string;
+  expiresAtMs: number;
+  deployment: Readonly<{
+    kind: "development" | "production";
+    id: string;
+  }>;
+  seasonYear: number;
+  stageId: Id<"seasonBootstrapStages">;
+  deletedCounts: CleanActivationPlan["deletedCounts"];
+  rebuiltCounts: CleanActivationRebuiltCounts;
+  preservedCategories: typeof CLEAN_ACTIVATION_PRESERVED_CATEGORIES;
+}>;
+
+/**
+ * Explicit destructive-operation request. It is authenticated, step-up
+ * protected, deployment-bound, and never called by deployment or cron code.
+ */
+export const requestCleanSeasonActivation = mutation({
+  args: {
+    stageId: v.id("seasonBootstrapStages"),
+    seasonYear: v.number(),
+  },
+  handler: async (ctx, args): Promise<CleanActivationRequestResult> => {
+    const nowMs = Date.now();
+    const activationEnv = cleanActivationEnvironment();
+    const actor = await requireProductionOperatorWithStepUp(
+      ctx,
+      nowMs,
+      activationEnv,
+    );
+    const deployment = resolveCleanActivationDeployment(activationEnv);
+    const snapshot = await loadCurrentlyValidActivationSnapshot(ctx, {
+      ...args,
+      nowMs,
+    });
+    await assertStageNotActivatedInDeployment(ctx, {
+      stageId: args.stageId,
+      deploymentKind: deployment.kind,
+      deploymentId: deployment.id,
+    });
+    const { plan } = await collectCleanActivationRows(
+      ctx,
+      rebuiltCountsForSnapshot(snapshot),
+    );
+    const confirmationText = cleanActivationConfirmationText({
+      deployment,
+      seasonYear: args.seasonYear,
+      stageId: args.stageId,
+    });
+    const expiresAtMs =
+      nowMs + CLEAN_ACTIVATION_LIMITS.confirmationTtlMs;
+    const requestId = await ctx.db.insert(
+      "seasonBootstrapActivationRequests",
+      {
+        stageId: args.stageId,
+        seasonYear: args.seasonYear,
+        deploymentKind: deployment.kind,
+        deploymentId: deployment.id,
+        confirmationText,
+        status: "pending",
+        actorTokenIdentifier: actor.tokenIdentifier,
+        actorClerkUserId: actor.clerkUserId,
+        requestedAtMs: nowMs,
+        expiresAtMs,
+        deletedCountsJson: JSON.stringify(plan.deletedCounts),
+        rebuiltCountsJson: JSON.stringify(plan.rebuiltCounts),
+        preservedCategories: [...plan.preservedCategories],
+      },
+    );
+    await ctx.db.insert("operatorAuditEvents", {
+      action: "season_bootstrap_activation_requested",
+      actorTokenIdentifier: actor.tokenIdentifier,
+      actorClerkUserId: actor.clerkUserId,
+      atMs: nowMs,
+      detailsJson: JSON.stringify({
+        requestId,
+        stageId: args.stageId,
+        seasonYear: args.seasonYear,
+        deployment,
+        deletedCounts: plan.deletedCounts,
+        rebuiltCounts: plan.rebuiltCounts,
+        preservedCategories: plan.preservedCategories,
+        expiresAtMs,
+      }),
+    });
+    return {
+      requestId,
+      confirmationText,
+      expiresAtMs,
+      deployment,
+      seasonYear: args.seasonYear,
+      stageId: args.stageId,
+      deletedCounts: plan.deletedCounts,
+      rebuiltCounts: plan.rebuiltCounts,
+      preservedCategories: plan.preservedCategories,
+    };
+  },
+});
+
+type CleanActivationResult = Readonly<{
+  requestId: Id<"seasonBootstrapActivationRequests">;
+  seasonId: Id<"poolSeasons">;
+  seasonYear: number;
+  stageId: Id<"seasonBootstrapStages">;
+  status: "available";
+  usableStartWeek: number;
+  deletedCounts: CleanActivationPlan["deletedCounts"];
+  rebuiltCounts: CleanActivationRebuiltCounts;
+  preservedCategories: typeof CLEAN_ACTIVATION_PRESERVED_CATEGORIES;
+}>;
+
+export const activateCleanSeasonBootstrap = mutation({
+  args: {
+    requestId: v.id("seasonBootstrapActivationRequests"),
+    confirmationText: v.string(),
+  },
+  handler: async (ctx, args): Promise<CleanActivationResult> => {
+    const nowMs = Date.now();
+    const activationEnv = cleanActivationEnvironment();
+    const actor = await requireProductionOperatorWithStepUp(
+      ctx,
+      nowMs,
+      activationEnv,
+    );
+    const deployment = resolveCleanActivationDeployment(activationEnv);
+    const request = await ctx.db.get(args.requestId);
+    if (request === null || request.status !== "pending") {
+      throw new CleanActivationError(
+        "A pending clean activation request is required",
+      );
+    }
+    if (
+      request.actorTokenIdentifier !== actor.tokenIdentifier ||
+      request.actorClerkUserId !== actor.clerkUserId
+    ) {
+      throw new CleanActivationError(
+        "The confirming Production Operator must match the requester",
+      );
+    }
+    if (
+      request.deploymentKind !== deployment.kind ||
+      request.deploymentId !== deployment.id
+    ) {
+      throw new CleanActivationError(
+        "Clean activation confirmation belongs to a different deployment",
+      );
+    }
+    if (request.expiresAtMs < nowMs) {
+      throw new CleanActivationError(
+        "Clean activation confirmation has expired",
+      );
+    }
+    const expectedConfirmation = cleanActivationConfirmationText({
+      deployment,
+      seasonYear: request.seasonYear,
+      stageId: request.stageId,
+    });
+    if (
+      args.confirmationText !== expectedConfirmation ||
+      request.confirmationText !== expectedConfirmation
+    ) {
+      throw new CleanActivationError(
+        "Clean activation confirmation text does not match",
+      );
+    }
+    await assertStageNotActivatedInDeployment(ctx, {
+      stageId: request.stageId,
+      deploymentKind: deployment.kind,
+      deploymentId: deployment.id,
+    });
+
+    const snapshot = await loadCurrentlyValidActivationSnapshot(ctx, {
+      stageId: request.stageId,
+      seasonYear: request.seasonYear,
+      nowMs,
+    });
+    const { idsByTable, plan } = await collectCleanActivationRows(
+      ctx,
+      rebuiltCountsForSnapshot(snapshot),
+    );
+    if (
+      request.deletedCountsJson !== JSON.stringify(plan.deletedCounts) ||
+      request.rebuiltCountsJson !== JSON.stringify(plan.rebuiltCounts)
+    ) {
+      throw new CleanActivationError(
+        "Clean activation deletion or rebuild scope changed; request a new confirmation",
+      );
+    }
+
+    for (const tableName of CLEAN_ACTIVATION_DELETE_ORDER) {
+      for (const id of idsByTable[tableName] ?? []) {
+        await ctx.db.delete(id);
+      }
+    }
+
+    const seasonId = await ctx.db.insert("poolSeasons", {
+      label: String(request.seasonYear),
+      year: request.seasonYear,
+      status: "bootstrapping",
+    });
+    const teamIds = new Map<string, Id<"nflTeams">>();
+    for (const team of snapshot.teams) {
+      const teamId = await ctx.db.insert("nflTeams", {
+        stableKey: team.stableKey,
+        name: team.name,
+        abbreviation: team.abbreviation,
+        logoUrl: team.logoUrl,
+        // Temporary expand/contract field. Generic aliases below are authority.
+        sportsDbTeamId: legacySportsDbTeamSentinel(team.stableKey),
+      });
+      teamIds.set(team.stableKey, teamId);
+    }
+    for (const alias of snapshot.stagedAliases) {
+      if (alias.entityType !== "team") continue;
+      const nflTeamId = teamIds.get(alias.entityStableKey);
+      if (!nflTeamId) {
+        throw new CleanActivationError(
+          `Validated staged NFL Team missing during rebuild: ${alias.entityStableKey}`,
+        );
+      }
+      await ctx.db.insert("nflTeamAliases", {
+        nflTeamId,
+        provider: alias.provider,
+        externalId: alias.externalId,
+        isCurrent: true,
+        firstObservedAtMs: snapshot.stage.stagedAtMs,
+        lastObservedAtMs: snapshot.stage.stagedAtMs,
+      });
+    }
+
+    const gameIds = new Map<string, Id<"nflGames">>();
+    for (const game of snapshot.stagedGames) {
+      const homeTeam = snapshot.teams.find(
+        (team) => team.abbreviation === game.homeTeamAbbreviation,
+      );
+      const awayTeam = snapshot.teams.find(
+        (team) => team.abbreviation === game.awayTeamAbbreviation,
+      );
+      const homeTeamId = homeTeam
+        ? teamIds.get(homeTeam.stableKey)
+        : undefined;
+      const awayTeamId = awayTeam
+        ? teamIds.get(awayTeam.stableKey)
+        : undefined;
+      if (!homeTeamId || !awayTeamId) {
+        throw new CleanActivationError(
+          `Validated staged NFL Game missing team during rebuild: ${game.stableKey}`,
+        );
+      }
+      const gameId = await ctx.db.insert("nflGames", {
+        stableKey: game.stableKey,
+        seasonId,
+        seasonLabel: String(request.seasonYear),
+        week: game.week,
+        homeTeamId,
+        awayTeamId,
+        scheduledKickoffMs: game.scheduledKickoffMs,
+        lifecycle: game.lifecycle,
+        homeScore: game.homeScore,
+        awayScore: game.awayScore,
+        // Temporary expand/contract field. Generic aliases below are authority.
+        sportsDbEventId: legacySportsDbGameSentinel(game.stableKey),
+      });
+      gameIds.set(game.stableKey, gameId);
+      await ctx.db.insert("nflGameScheduleHistory", {
+        nflGameId: gameId,
+        seasonId,
+        week: game.week,
+        homeTeamId,
+        awayTeamId,
+        scheduledKickoffMs: game.scheduledKickoffMs,
+        firstObservedAtMs: game.observedAtMs,
+        lastObservedAtMs: game.observedAtMs,
+      });
+    }
+    for (const alias of snapshot.stagedAliases) {
+      if (alias.entityType !== "game") continue;
+      const nflGameId = gameIds.get(alias.entityStableKey);
+      if (!nflGameId) {
+        throw new CleanActivationError(
+          `Validated staged NFL Game missing during rebuild: ${alias.entityStableKey}`,
+        );
+      }
+      const stagedGame = snapshot.stagedGames.find(
+        (game) => game.stableKey === alias.entityStableKey,
+      );
+      if (!stagedGame) {
+        throw new CleanActivationError(
+          `Validated staged NFL Game observation missing during rebuild: ${alias.entityStableKey}`,
+        );
+      }
+      await ctx.db.insert("nflGameAliases", {
+        nflGameId,
+        provider: alias.provider,
+        externalId: alias.externalId,
+        isCurrent: true,
+        firstObservedAtMs: stagedGame.observedAtMs,
+        lastObservedAtMs: stagedGame.observedAtMs,
+      });
+    }
+
+    // This is deliberately the last dataset write. Convex commits the entire
+    // mutation atomically, so no observer can see a partially Available season.
+    await ctx.db.patch(seasonId, {
+      status: "available",
+      usableStartWeek: snapshot.availability.usableStartWeek,
+      bootstrappedAtMs: nowMs,
+    });
+    await ctx.db.patch(request._id, {
+      status: "activated",
+      activatedAtMs: nowMs,
+      deletedCountsJson: JSON.stringify(plan.deletedCounts),
+      rebuiltCountsJson: JSON.stringify(plan.rebuiltCounts),
+      preservedCategories: [...plan.preservedCategories],
+    });
+    await ctx.db.insert("operatorAuditEvents", {
+      action: "season_bootstrap_clean_activated",
+      actorTokenIdentifier: actor.tokenIdentifier,
+      actorClerkUserId: actor.clerkUserId,
+      atMs: nowMs,
+      detailsJson: JSON.stringify({
+        requestId: request._id,
+        stageId: request.stageId,
+        seasonId,
+        seasonYear: request.seasonYear,
+        deployment,
+        deletedCounts: plan.deletedCounts,
+        rebuiltCounts: plan.rebuiltCounts,
+        preservedCategories: plan.preservedCategories,
+        usableStartWeek: snapshot.availability.usableStartWeek,
+      }),
+    });
+
+    return {
+      requestId: request._id,
+      seasonId,
+      seasonYear: request.seasonYear,
+      stageId: request.stageId,
+      status: "available",
+      usableStartWeek: snapshot.availability.usableStartWeek,
+      deletedCounts: plan.deletedCounts,
+      rebuiltCounts: plan.rebuiltCounts,
+      preservedCategories: plan.preservedCategories,
+    };
+  },
+});
+
+function parsedCounts(value: string | undefined): Record<string, number> {
+  if (!value) return {};
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== "object" || parsed === null) return {};
+  return Object.fromEntries(
+    Object.entries(parsed).filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isSafeInteger(entry[1]),
+    ),
+  );
+}
+
+/** Production Operator report for pending or completed clean activation. */
+export const getCleanSeasonActivationReport = query({
+  args: {
+    requestId: v.id("seasonBootstrapActivationRequests"),
+  },
+  handler: async (ctx, args) => {
+    await requireProductionOperatorIdentity(
+      ctx,
+      productionOperatorEnvironment(),
+    );
+    const request = await ctx.db.get(args.requestId);
+    if (request === null) return null;
+    const status =
+      request.status === "pending" && request.expiresAtMs < Date.now()
+        ? "expired"
+        : request.status;
+    return {
+      requestId: request._id,
+      stageId: request.stageId,
+      seasonYear: request.seasonYear,
+      deployment: {
+        kind: request.deploymentKind,
+        id: request.deploymentId,
+      },
+      actor: {
+        tokenIdentifier: request.actorTokenIdentifier,
+        clerkUserId: request.actorClerkUserId,
+      },
+      status,
+      requestedAtMs: request.requestedAtMs,
+      expiresAtMs: request.expiresAtMs,
+      activatedAtMs: request.activatedAtMs ?? null,
+      deletedCounts: parsedCounts(request.deletedCountsJson),
+      rebuiltCounts: parsedCounts(request.rebuiltCountsJson),
+      preservedCategories: request.preservedCategories,
     };
   },
 });

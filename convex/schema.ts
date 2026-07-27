@@ -322,6 +322,46 @@ export default defineSchema({
   }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
 
   /**
+   * One explicit, deployment-bound confirmation request for a clean Season
+   * Bootstrap activation. These rows are operational audit support and are
+   * preserved by clean activation.
+   */
+  seasonBootstrapActivationRequests: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    seasonYear: v.number(),
+    deploymentKind: v.union(
+      v.literal("development"),
+      v.literal("production"),
+    ),
+    deploymentId: v.string(),
+    confirmationText: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("activated"),
+      v.literal("expired"),
+    ),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    requestedAtMs: v.number(),
+    expiresAtMs: v.number(),
+    activatedAtMs: v.optional(v.number()),
+    deletedCountsJson: v.optional(v.string()),
+    rebuiltCountsJson: v.optional(v.string()),
+    preservedCategories: v.array(v.string()),
+  })
+    .index("by_stageId_and_requestedAtMs", ["stageId", "requestedAtMs"])
+    .index("by_stageId_and_deploymentKind_and_deploymentId_and_status", [
+      "stageId",
+      "deploymentKind",
+      "deploymentId",
+      "status",
+    ])
+    .index("by_deploymentKind_and_requestedAtMs", [
+      "deploymentKind",
+      "requestedAtMs",
+    ]),
+
+  /**
    * Active Pool competitive container. Pool Type and Pool Season are immutable
    * after create; Start Week / Pick Lock mode freeze via rulesFrozen.
    * `archived` is a reversible read-only overlay — does not pause lifecycle,

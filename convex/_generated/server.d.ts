@@ -26,6 +26,10 @@ import type { DataModel } from "./dataModel.js";
  */
 type Env = {
   readonly API_SPORTS_KEY: string | undefined;
+  readonly CLEAN_ACTIVATION_DEPLOYMENT_ID: string | undefined;
+  readonly DEPLOYMENT_KIND: string | undefined;
+  readonly PRODUCTION_OPERATOR_CLERK_USER_ID: string | undefined;
+  readonly PRODUCTION_OPERATOR_TOKEN_IDENTIFIER: string | undefined;
   readonly SPORTS_DATA_PROVIDER: string | undefined;
 };
 
