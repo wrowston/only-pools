@@ -10,6 +10,7 @@ import {
   SEASON_BOOTSTRAP_FIXTURE_YEAR,
 } from "./providers/sportsData/testing/seasonBootstrapFixture";
 import { CLEAN_ACTIVATION_POLICY } from "./lib/cleanActivationPolicy";
+import { operatorAuditInventory } from "./lib/operatorAuditInventory";
 
 const modules = import.meta.glob("./**/*.ts");
 const seasonYear = SEASON_BOOTSTRAP_FIXTURE_YEAR;
@@ -162,6 +163,13 @@ async function seedVerifiedDevelopmentCutover(
         ],
       },
     );
+    await ctx.db.insert("operatorAuditEvents", {
+      action: "pre_existing_operator_audit",
+      actorTokenIdentifier: "https://auth.example.test|operator",
+      actorClerkUserId: "operator",
+      atMs: nowMs - 20_000,
+      detailsJson: JSON.stringify({ retained: true }),
+    });
     for (const action of [
       "season_bootstrap_staged",
       "season_bootstrap_activation_requested",
@@ -201,6 +209,41 @@ async function seedVerifiedDevelopmentCutover(
           gameId: firstGameId,
           ...activationPlan,
           ...workflowIdentity,
+        }),
+      });
+    }
+    const protectedOperatorAudits = await operatorAuditInventory(
+      ctx,
+      nowMs - 6_000,
+    );
+    if (protectedOperatorAudits === null) {
+      throw new Error("Fixture audit inventory unexpectedly exceeded bound");
+    }
+    await ctx.db.patch(requestId, {
+      protectedOperatorAuditBoundaryAtMs:
+        protectedOperatorAudits.boundaryAtMs,
+      protectedOperatorAuditCount: protectedOperatorAudits.count,
+      protectedOperatorAuditFingerprint:
+        protectedOperatorAudits.fingerprint,
+    });
+    const cutoverAudits = await ctx.db
+      .query("operatorAuditEvents")
+      .collect();
+    for (const audit of cutoverAudits) {
+      if (
+        audit.action !== "season_bootstrap_activation_requested" &&
+        audit.action !== "season_bootstrap_clean_activated"
+      ) {
+        continue;
+      }
+      const details = JSON.parse(audit.detailsJson ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      await ctx.db.patch(audit._id, {
+        detailsJson: JSON.stringify({
+          ...details,
+          protectedOperatorAudits,
         }),
       });
     }
@@ -573,17 +616,17 @@ describe("read-only API-Sports cutover verification", () => {
     });
   });
 
-  it("requires pre-activation Production Operator audits to survive with their original timestamps", async () => {
+  it("requires the complete bounded pre-activation Production Operator audit inventory to survive", async () => {
     const t = convexTest(schema, modules);
     await seedVerifiedDevelopmentCutover(t);
     await t.run(async (ctx) => {
-      const requestAudit = (
+      const unrelatedPriorAudit = (
         await ctx.db.query("operatorAuditEvents").collect()
       ).find(
         (row) =>
-          row.action === "season_bootstrap_activation_requested",
+          row.action === "pre_existing_operator_audit",
       );
-      await ctx.db.patch(requestAudit!._id, { atMs: nowMs });
+      await ctx.db.delete(unrelatedPriorAudit!._id);
     });
 
     const report = await t
@@ -594,9 +637,10 @@ describe("read-only API-Sports cutover verification", () => {
       );
 
     expect(report.status).toBe("fail");
-    expect(report.protectedState.preActivationAuditHistoryPreserved).toBe(
-      false,
-    );
+    expect(
+      report.protectedState
+        .protectedOperatorAuditInventoryPreserved,
+    ).toBe(false);
     expect(report.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

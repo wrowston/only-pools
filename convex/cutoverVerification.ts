@@ -5,6 +5,7 @@ import {
   CLEAN_ACTIVATION_POLICY,
   CLEAN_ACTIVATION_PRESERVED_CATEGORIES,
 } from "./lib/cleanActivationPolicy";
+import { operatorAuditInventory } from "./lib/operatorAuditInventory";
 import { requireProductionOperatorIdentity } from "./lib/operatorAuth";
 import { SEASON_BOOTSTRAP_INVARIANTS } from "./providers/sportsData/seasonBootstrapValidation";
 
@@ -328,6 +329,41 @@ export const getOperatorCutoverVerification = query({
       "season_bootstrap_clean_activated",
       { requestId, stageId },
     );
+    const protectedOperatorAudits =
+      activation?.protectedOperatorAuditBoundaryAtMs !== undefined
+        ? await operatorAuditInventory(
+            ctx,
+            activation.protectedOperatorAuditBoundaryAtMs,
+          )
+        : null;
+    const requestAuditInventory = detailsRecord(
+      JSON.stringify(
+        requestAuditDetails?.protectedOperatorAudits ?? null,
+      ),
+    );
+    const activationAuditInventory = detailsRecord(
+      JSON.stringify(
+        activationAuditDetails?.protectedOperatorAudits ?? null,
+      ),
+    );
+    const protectedOperatorAuditInventoryPreserved =
+      protectedOperatorAudits !== null &&
+      activation?.protectedOperatorAuditBoundaryAtMs ===
+        protectedOperatorAudits.boundaryAtMs &&
+      activation.protectedOperatorAuditCount ===
+        protectedOperatorAudits.count &&
+      activation.protectedOperatorAuditFingerprint ===
+        protectedOperatorAudits.fingerprint &&
+      requestAuditInventory?.boundaryAtMs ===
+        protectedOperatorAudits.boundaryAtMs &&
+      requestAuditInventory.count === protectedOperatorAudits.count &&
+      requestAuditInventory.fingerprint ===
+        protectedOperatorAudits.fingerprint &&
+      activationAuditInventory?.boundaryAtMs ===
+        protectedOperatorAudits.boundaryAtMs &&
+      activationAuditInventory.count === protectedOperatorAudits.count &&
+      activationAuditInventory.fingerprint ===
+        protectedOperatorAudits.fingerprint;
     const requestDeletedCounts = countRecord(
       activation?.deletedCountsJson,
     );
@@ -600,6 +636,7 @@ export const getOperatorCutoverVerification = query({
       stageAudited &&
       activationAudited &&
       preActivationAuditHistoryPreserved &&
+      protectedOperatorAuditInventoryPreserved &&
       audits.length <= 500;
 
     const checks: VerificationCheck[] = [
@@ -653,7 +690,7 @@ export const getOperatorCutoverVerification = query({
       check(
         "protected_state_preserved",
         protectedStatePresent,
-        "Activation declaration, the original pre-activation stage/request audit markers, the activation audit, Sync Gate row, and provider reliability state must remain present.",
+        "Activation declaration, the complete bounded pre-activation Production Operator audit fingerprint, stage/request/activation audit chain, Sync Gate row, and provider reliability state must remain present.",
       ),
       check(
         "incompatible_operational_residue",
@@ -712,6 +749,7 @@ export const getOperatorCutoverVerification = query({
         stageAuditPresent: stageAudited,
         activationRequestAuditPresent: activationAudited,
         preActivationAuditHistoryPreserved,
+        protectedOperatorAuditInventoryPreserved,
       },
       incompatibleOperationalResidue,
       smokeEvidence: smoke,

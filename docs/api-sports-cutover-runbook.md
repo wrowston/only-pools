@@ -51,9 +51,6 @@ export DEV_DEPLOYMENT='<reviewed-development-deployment>'
 export SEASON_YEAR='2026'
 export TICKET_48_RELEASE_SHA='<approved-pr-head-sha>'
 export CUTOVER_OPERATOR_IDENTITY_JSON='<authenticated-operator-identity-json>'
-export CUTOVER_OPERATOR_CLERK_USER_ID='<allowlisted-clerk-user-id>'
-export CUTOVER_OPERATOR_TOKEN_IDENTIFIER='<identity-token-identifier>'
-export CUTOVER_OPERATOR_SESSION_ID='<current-clerk-session-id>'
 ```
 
 The identity JSON is used only for authenticated CLI reads and bounded
@@ -170,19 +167,19 @@ bunx convex dev \
   --env-file '<development-deployment-env-file>'
 ```
 
-Establish the authenticated Participant and record the human-observed Clerk
-reverification for the same session. `STEP_UP_MS` must be the actual
-reverification time, not a fabricated future timestamp:
+Establish the authenticated Participant, then invoke the public Step-up action
+for the same real Clerk session. The action verifies session ownership,
+activity, expiry, and fresh MFA with Clerk before its private mutation records
+the result:
 
 ```sh
 bunx convex run participants:ensureMyParticipant '{}' \
   --deployment "$DEV_DEPLOYMENT" \
   --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
 
-export STEP_UP_MS="$(node -p 'Date.now()')"
-bunx convex run operatorStepUpInternal:recordVerifiedOperatorStepUp \
-  "{\"tokenIdentifier\":\"$CUTOVER_OPERATOR_TOKEN_IDENTIFIER\",\"clerkUserId\":\"$CUTOVER_OPERATOR_CLERK_USER_ID\",\"sessionId\":\"$CUTOVER_OPERATOR_SESSION_ID\",\"verifiedAtMs\":$STEP_UP_MS}" \
-  --deployment "$DEV_DEPLOYMENT"
+bunx convex run operatorStepUp:verifyProductionOperatorStepUp '{}' \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
 ```
 
 The compatibility release does not contain the ticket-48 cutover panel. Run
@@ -295,6 +292,10 @@ refresh Step-up Verification, and enable only the development gate:
 
 ```sh
 export SEASON_ID='<sole-available-development-season-id>'
+bunx convex run operatorStepUp:verifyProductionOperatorStepUp '{}' \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+
 bunx convex run providerQualification:setProductionCompetitiveSyncEnabled \
   "{\"enabled\":true,\"seasonId\":\"$SEASON_ID\",\"provider\":\"api-sports\"}" \
   --deployment "$DEV_DEPLOYMENT" \
@@ -320,6 +321,10 @@ Disable development sync immediately after the smoke window. Refresh Step-up
 Verification if needed; the final gate must be OFF:
 
 ```sh
+bunx convex run operatorStepUp:verifyProductionOperatorStepUp '{}' \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+
 bunx convex run providerQualification:setProductionCompetitiveSyncEnabled \
   "{\"enabled\":false,\"seasonId\":\"$SEASON_ID\",\"provider\":\"api-sports\"}" \
   --deployment "$DEV_DEPLOYMENT" \
