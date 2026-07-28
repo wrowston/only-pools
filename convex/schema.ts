@@ -735,6 +735,9 @@ export default defineSchema({
     deletedCountsJson: v.optional(v.string()),
     rebuiltCountsJson: v.optional(v.string()),
     preservedCategories: v.array(v.string()),
+    protectedOperatorAuditBoundaryAtMs: v.optional(v.number()),
+    protectedOperatorAuditCount: v.optional(v.number()),
+    protectedOperatorAuditFingerprint: v.optional(v.string()),
   })
     .index("by_stageId_and_requestedAtMs", ["stageId", "requestedAtMs"])
     .index("by_stageId_and_deploymentKind_and_deploymentId_and_status", [

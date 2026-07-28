@@ -20,6 +20,7 @@ import {
   requireProductionOperatorIdentity,
   requireProductionOperatorWithStepUp,
 } from "./lib/operatorAuth";
+import { operatorAuditInventory } from "./lib/operatorAuditInventory";
 import {
   assertLegacyContractionActionUnlocked,
   assertLegacyContractionUnlocked,
@@ -1057,6 +1058,15 @@ export const requestCleanSeasonActivation = mutation({
     });
     const expiresAtMs =
       nowMs + CLEAN_ACTIVATION_LIMITS.confirmationTtlMs;
+    const protectedOperatorAudits = await operatorAuditInventory(
+      ctx,
+      nowMs,
+    );
+    if (protectedOperatorAudits === null) {
+      throw new CleanActivationError(
+        "Production Operator audit inventory exceeds the protected verification bound",
+      );
+    }
     const requestId = await ctx.db.insert(
       "seasonBootstrapActivationRequests",
       {
@@ -1073,6 +1083,11 @@ export const requestCleanSeasonActivation = mutation({
         deletedCountsJson: JSON.stringify(plan.deletedCounts),
         rebuiltCountsJson: JSON.stringify(plan.rebuiltCounts),
         preservedCategories: [...plan.preservedCategories],
+        protectedOperatorAuditBoundaryAtMs:
+          protectedOperatorAudits.boundaryAtMs,
+        protectedOperatorAuditCount: protectedOperatorAudits.count,
+        protectedOperatorAuditFingerprint:
+          protectedOperatorAudits.fingerprint,
       },
     );
     await ctx.db.insert("operatorAuditEvents", {
@@ -1089,6 +1104,7 @@ export const requestCleanSeasonActivation = mutation({
         rebuiltCounts: plan.rebuiltCounts,
         preservedCategories: plan.preservedCategories,
         expiresAtMs,
+        protectedOperatorAudits,
       }),
     });
     return {
@@ -1204,6 +1220,30 @@ export const activateCleanSeasonBootstrap = mutation({
     ) {
       throw new CleanActivationError(
         "Clean activation deletion or rebuild scope changed; request a new confirmation",
+      );
+    }
+    if (
+      request.protectedOperatorAuditBoundaryAtMs === undefined ||
+      request.protectedOperatorAuditCount === undefined ||
+      request.protectedOperatorAuditFingerprint === undefined
+    ) {
+      throw new CleanActivationError(
+        "Protected Production Operator audit inventory is missing; request a new confirmation",
+      );
+    }
+    const protectedOperatorAudits = await operatorAuditInventory(
+      ctx,
+      request.protectedOperatorAuditBoundaryAtMs,
+    );
+    if (
+      protectedOperatorAudits === null ||
+      protectedOperatorAudits.count !==
+        request.protectedOperatorAuditCount ||
+      protectedOperatorAudits.fingerprint !==
+        request.protectedOperatorAuditFingerprint
+    ) {
+      throw new CleanActivationError(
+        "Protected Production Operator audit history changed; request a new confirmation",
       );
     }
 
@@ -1365,6 +1405,7 @@ export const activateCleanSeasonBootstrap = mutation({
         rebuiltCounts: plan.rebuiltCounts,
         preservedCategories: plan.preservedCategories,
         usableStartWeek: snapshot.availability.usableStartWeek,
+        protectedOperatorAudits,
       }),
     });
 

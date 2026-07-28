@@ -43,6 +43,7 @@ import type * as lib_membershipCutoff from "../lib/membershipCutoff.js";
 import type * as lib_mintOrdinaryInvite from "../lib/mintOrdinaryInvite.js";
 import type * as lib_myPoolsStatus from "../lib/myPoolsStatus.js";
 import type * as lib_operator from "../lib/operator.js";
+import type * as lib_operatorAuditInventory from "../lib/operatorAuditInventory.js";
 import type * as lib_operatorAuth from "../lib/operatorAuth.js";
 import type * as lib_pickLock from "../lib/pickLock.js";
 import type * as lib_pinnedResultEvidence from "../lib/pinnedResultEvidence.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "lib/mintOrdinaryInvite": typeof lib_mintOrdinaryInvite;
   "lib/myPoolsStatus": typeof lib_myPoolsStatus;
   "lib/operator": typeof lib_operator;
+  "lib/operatorAuditInventory": typeof lib_operatorAuditInventory;
   "lib/operatorAuth": typeof lib_operatorAuth;
   "lib/pickLock": typeof lib_pickLock;
   "lib/pinnedResultEvidence": typeof lib_pinnedResultEvidence;

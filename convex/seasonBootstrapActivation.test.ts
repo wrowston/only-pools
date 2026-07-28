@@ -889,6 +889,39 @@ describe("audited clean Season Bootstrap activation", () => {
     ).rejects.toThrow(/already activated.*current deployment/i);
   });
 
+  it("refuses activation when a protected pre-request operator audit changes", async () => {
+    const t = convexTest(schema, modules);
+    const stage = await persistValidStage(t);
+    const protectedAuditId = await t.run(async (ctx) => {
+      return await ctx.db.insert("operatorAuditEvents", {
+        action: "pre_existing_operator_audit",
+        actorTokenIdentifier:
+          "https://auth.example.test|operator",
+        actorClerkUserId: "operator",
+        atMs: Date.now() - 1_000,
+        detailsJson: JSON.stringify({ retained: true }),
+      });
+    });
+    const asOperator = await establishSteppedUpOperator(t);
+    const request = await asOperator.mutation(
+      api.bootstrap.requestCleanSeasonActivation,
+      { stageId: stage.stageId, seasonYear },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.delete(protectedAuditId);
+    });
+
+    await expect(
+      asOperator.mutation(api.bootstrap.activateCleanSeasonBootstrap, {
+        requestId: request.requestId,
+        confirmationText: request.confirmationText,
+      }),
+    ).rejects.toThrow(/operator audit history changed/i);
+    expect(
+      await t.run(async (ctx) => await ctx.db.get(request.requestId)),
+    ).toMatchObject({ status: "pending" });
+  });
+
   it("rejects a stale confirmation before deletion when a newer stage is invalid", async () => {
     const t = convexTest(schema, modules);
     const stage = await persistValidStage(t, Date.now() - 10);
