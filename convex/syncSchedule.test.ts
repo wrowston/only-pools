@@ -415,6 +415,12 @@ describe("API-Sports schedule synchronization", () => {
     });
     expect(state.game?.kickoffLockReachedAtMs).toBeUndefined();
     expect(state.incidents).toHaveLength(1);
+    expect(state.incidents[0]).toMatchObject({
+      status: "open",
+      surface: "schedule",
+      participantVisible: false,
+      maintenanceLock: false,
+    });
     expect(state.diagnostics).toEqual([
       expect.objectContaining({
         nflGameId: seeded.gameId,
@@ -435,6 +441,7 @@ describe("API-Sports schedule synchronization", () => {
         scopeKey: `game:${seeded.gameId}:outside-live-window`,
         status: "resolved",
         resolvedAutomatically: true,
+        participantVisible: false,
       }),
     ]);
   });

@@ -160,8 +160,47 @@ async function openScheduleIncident(
     scopeKey: string;
     summary: string;
     nowMs: number;
+    /**
+     * Outside-window quarantine matches the live seam: operator-visible only.
+     * Omit for participant-safe identity/review incidents.
+     */
+    participantVisible?: boolean;
   },
 ): Promise<IncidentOpenResult> {
+  if (input.participantVisible === false) {
+    const dedupeKey = `provider_exception:schedule:${input.scopeKey}`;
+    for (const status of ["open", "acknowledged", "in_progress"] as const) {
+      const existing = await ctx.db
+        .query("operatorIncidents")
+        .withIndex("by_dedupeKey_and_status", (q) =>
+          q.eq("dedupeKey", dedupeKey).eq("status", status),
+        )
+        .unique();
+      if (existing) {
+        return {
+          opened: false as const,
+          incidentId: existing._id,
+          deduped: true as const,
+        };
+      }
+    }
+    const incidentId = await ctx.db.insert("operatorIncidents", {
+      type: "provider_exception",
+      status: "open",
+      surface: "schedule",
+      scopeKey: input.scopeKey,
+      dedupeKey,
+      participantVisible: false,
+      summary: input.summary,
+      openedAtMs: input.nowMs,
+      maintenanceLock: false,
+    });
+    return {
+      opened: true as const,
+      incidentId,
+      deduped: false as const,
+    };
+  }
   return await ctx.runMutation(
     internal.incidents.evaluateAndOpenIncident,
     {
@@ -330,6 +369,7 @@ export const applyScheduleGameObservation = internalMutation({
         summary:
           "Schedule information reported started or completed play before the NFL Game live window; the last trusted state was preserved.",
         nowMs: observation.observedAtMs,
+        participantVisible: false,
       });
       await recordQuarantinedScheduleEvidence(ctx, {
         observation,
