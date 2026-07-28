@@ -17,6 +17,65 @@ describe("ApiSportsProvider", () => {
       }),
   );
 
+  it("skips future schedule placeholders with nullable team names without losing usable games", async () => {
+    const validRow = {
+      game: {
+        id: 77_770,
+        stage: "Regular Season",
+        week: "Week 1",
+        date: { timestamp: 1_788_998_400 },
+        status: { short: "NS", long: "Not Started" },
+      },
+      league: { id: 1, season: "2026" },
+      teams: {
+        home: { id: 12, name: "Green Bay Packers" },
+        away: { id: 11, name: "Detroit Lions" },
+      },
+      scores: {
+        home: { total: null },
+        away: { total: null },
+      },
+    };
+    const fetch: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          errors: [],
+          response: [
+            validRow,
+            {
+              ...validRow,
+              game: {
+                ...validRow.game,
+                id: 77_771,
+                week: "Week 18",
+              },
+              teams: {
+                home: { id: 12, name: null },
+                away: { id: 11, name: null },
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    const provider = new ApiSportsProvider({
+      apiKey: "sanitized-fixture-key",
+      fetch,
+      nowMs: () => Date.parse("2026-09-14T01:30:30Z"),
+    });
+
+    const games = await Effect.runPromise(
+      provider.listSeasonGames(2026),
+    );
+
+    expect(games).toHaveLength(1);
+    expect(games[0]).toMatchObject({
+      providerAliases: [{ provider: "api-sports", id: "77770" }],
+      homeTeamAbbreviation: "GB",
+      awayTeamAbbreviation: "DET",
+    });
+  });
+
   it("preserves an unknown raw status without trusting it as lifecycle evidence", async () => {
     const fetch: typeof globalThis.fetch = async () =>
       new Response(

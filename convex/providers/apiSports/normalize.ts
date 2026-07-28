@@ -68,7 +68,8 @@ function teamCodeAbbreviation(
 function gameTeamAbbreviation(
   team: ApiSportsGameWire["teams"]["home"],
 ): CanonicalNflTeamAbbreviation | null {
-  return abbreviationsByName.get(team.name.trim().toLowerCase()) ?? null;
+  const name = team.name?.trim().toLowerCase();
+  return name ? abbreviationsByName.get(name) ?? null : null;
 }
 
 function poolWeek(rawWeek: string): number | null {
@@ -289,8 +290,15 @@ export function normalizeApiSportsGames(
   rows: readonly ApiSportsGameWire[],
   observedAtMs: number,
 ): Effect.Effect<readonly ApiSportsGame[], ApiSportsDecodeError> {
+  const usableRows = rows.filter(
+    (row) =>
+      row.teams.home.name !== null &&
+      row.teams.away.name !== null,
+  );
   return Effect.all(
-    rows.map((row) => normalizeApiSportsGame(row, observedAtMs)),
+    usableRows.map((row) =>
+      normalizeApiSportsGame(row, observedAtMs),
+    ),
     { concurrency: "unbounded" },
   );
 }

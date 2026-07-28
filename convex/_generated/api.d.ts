@@ -35,6 +35,7 @@ import type * as lib_incidents from "../lib/incidents.js";
 import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
 import type * as lib_inviteDisclosure from "../lib/inviteDisclosure.js";
 import type * as lib_inviteThrottle from "../lib/inviteThrottle.js";
+import type * as lib_legacyContractionLock from "../lib/legacyContractionLock.js";
 import type * as lib_liveIngestionOperatorDetails from "../lib/liveIngestionOperatorDetails.js";
 import type * as lib_liveIngestionWatchdog from "../lib/liveIngestionWatchdog.js";
 import type * as lib_log from "../lib/log.js";
@@ -141,6 +142,7 @@ declare const fullApi: ApiFromModules<{
   "lib/inviteCrypto": typeof lib_inviteCrypto;
   "lib/inviteDisclosure": typeof lib_inviteDisclosure;
   "lib/inviteThrottle": typeof lib_inviteThrottle;
+  "lib/legacyContractionLock": typeof lib_legacyContractionLock;
   "lib/liveIngestionOperatorDetails": typeof lib_liveIngestionOperatorDetails;
   "lib/liveIngestionWatchdog": typeof lib_liveIngestionWatchdog;
   "lib/log": typeof lib_log;

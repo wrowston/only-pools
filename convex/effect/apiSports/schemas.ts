@@ -31,11 +31,11 @@ export const ApiSportsGameSchema = Schema.Struct({
   teams: Schema.Struct({
     home: Schema.Struct({
       id: Schema.Number,
-      name: Schema.String,
+      name: NullableString,
     }),
     away: Schema.Struct({
       id: Schema.Number,
-      name: Schema.String,
+      name: NullableString,
     }),
   }),
   scores: Schema.Struct({
