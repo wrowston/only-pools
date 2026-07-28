@@ -13,6 +13,7 @@ import {
   pickOutcomeLabel,
   pickOutcomeMark,
   resolvePickOutcome,
+  resolveSurvivorGamePickOutcome,
   teamPickAccessibleName,
 } from "@/lib/pickPresentation";
 import { SURVIVOR_ONE_USE_MESSAGE } from "@/convex/lib/survivorMessages";
@@ -801,9 +802,11 @@ export function WeekBoardView({
                 awayTeamId: game.awayTeam?.id,
               });
               const survivorOutcome = isSurvivor
-                ? resolvePickOutcome({
+                ? resolveSurvivorGamePickOutcome({
                     pickedTeamId: selectedTeamId,
                     winnerTeamId: winnerId,
+                    homeTeamId: game.homeTeam?.id,
+                    awayTeamId: game.awayTeam?.id,
                   })
                 : null;
               const confidenceOutcome = isConfidence

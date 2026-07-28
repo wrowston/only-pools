@@ -6,6 +6,7 @@ import {
   SCHEDULED_LIVE_GRACE_MS,
   advanceSuccessfulSlateMiss,
   classifyLiveObservation,
+  isBeforeLiveWindowStart,
   isExpectedInSuccessfulLiveSlate,
   isLivePollingActive,
   liveObservationFingerprint,
@@ -14,6 +15,32 @@ import {
 const KICKOFF_MS = Date.UTC(2026, 8, 13, 17);
 
 describe("API-Sports live sync policy", () => {
+  it("quarantines started play before the lead window while allowing scheduled and canceled states", () => {
+    expect(
+      isBeforeLiveWindowStart({
+        lifecycle: "terminal",
+        scheduledKickoffMs: KICKOFF_MS,
+        observedAtMs: KICKOFF_MS - LIVE_LEAD_MS - 1,
+      }),
+    ).toBe(true);
+    expect(
+      isBeforeLiveWindowStart({
+        lifecycle: "in_progress",
+        scheduledKickoffMs: KICKOFF_MS,
+        observedAtMs: KICKOFF_MS - LIVE_LEAD_MS,
+      }),
+    ).toBe(false);
+    for (const lifecycle of ["scheduled", "canceled"] as const) {
+      expect(
+        isBeforeLiveWindowStart({
+          lifecycle,
+          scheduledKickoffMs: KICKOFF_MS,
+          observedAtMs: KICKOFF_MS - 45 * 24 * 60 * 60_000,
+        }),
+      ).toBe(false);
+    }
+  });
+
   it("uses a 60 second cadence only during the grounded live window", () => {
     expect(LIVE_REFRESH_CADENCE_MS).toBe(60_000);
     expect(LIVE_LEAD_MS).toBe(15 * 60_000);

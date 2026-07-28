@@ -40,6 +40,22 @@ export type LiveObservationDecision =
   | "apply_verified"
   | "trusted_state";
 
+export function isBeforeLiveWindowStart(input: {
+  lifecycle: LiveLifecycle;
+  scheduledKickoffMs: number;
+  observedAtMs: number;
+}): boolean {
+  const reportsStartedPlay =
+    input.lifecycle === "in_progress" ||
+    input.lifecycle === "interrupted" ||
+    input.lifecycle === "terminal";
+  return (
+    reportsStartedPlay &&
+    input.observedAtMs <
+      input.scheduledKickoffMs - LIVE_LEAD_MS
+  );
+}
+
 export function isLivePollingActive(
   game: LiveWindowGame,
   nowMs: number,

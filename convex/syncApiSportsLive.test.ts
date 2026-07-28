@@ -30,7 +30,11 @@ function identity() {
   };
 }
 
-async function seed(t: ReturnType<typeof convexTest>) {
+async function seed(
+  t: ReturnType<typeof convexTest>,
+  options: { scheduledKickoffMs?: number } = {},
+) {
+  const scheduledKickoffMs = options.scheduledKickoffMs ?? NOW_MS;
   const seeded = await t.run(async (ctx) => {
     const seasonId = await ctx.db.insert("poolSeasons", {
       label: "2026",
@@ -56,7 +60,7 @@ async function seed(t: ReturnType<typeof convexTest>) {
       week: 1,
       homeTeamId,
       awayTeamId,
-      scheduledKickoffMs: NOW_MS,
+      scheduledKickoffMs,
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
@@ -426,6 +430,96 @@ describe("API-Sports live slate ingestion", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("quarantines started and terminal observations weeks before kickoff and keeps the future pick unresolved", async () => {
+    const t = convexTest(schema, modules);
+    const futureKickoffMs = NOW_MS + 45 * 24 * 60 * 60_000;
+    const { asOwner, poolId, gameId, awayTeamId } = await seed(t, {
+      scheduledKickoffMs: futureKickoffMs,
+    });
+    await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: awayTeamId,
+    });
+
+    const liveResult = await t.action(
+      internal.syncApiSportsLive.applySuccessfulSlateBatch,
+      {
+        observations: [observation()],
+        nowMs: NOW_MS + 30_000,
+      },
+    );
+    const terminalResult = await t.action(
+      internal.syncApiSportsLive.applySuccessfulSlateBatch,
+      {
+        observations: [terminalObservation()],
+        nowMs: NOW_MS + 30_000,
+      },
+    );
+
+    expect(liveResult.results[0]?.status).toBe("outside_live_window");
+    expect(terminalResult.results[0]?.status).toBe(
+      "outside_live_window",
+    );
+    const state = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      outcomes: await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_week", (q) =>
+          q.eq("poolId", poolId).eq("week", 1),
+        )
+        .collect(),
+    }));
+    expect(state.game).toMatchObject({
+      lifecycle: "scheduled",
+      homeScore: null,
+      awayScore: null,
+      resultAuthority: "none",
+    });
+    expect(state.game?.verifiedResult).toBeUndefined();
+    expect(state.game?.kickoffLockReachedAtMs).toBeUndefined();
+    expect(state.outcomes).toEqual([]);
+
+    const board = await asOwner.query(api.pools.getWeekBoard, {
+      poolId,
+      week: 1,
+    });
+    expect(board.slate[0]).toMatchObject({
+      gameId,
+      lifecycle: "scheduled",
+      projectedHomeScore: null,
+      projectedAwayScore: null,
+      resultAuthority: "none",
+      isOfficial: false,
+      verifiedResult: null,
+    });
+
+    const recovery = await t.action(
+      internal.syncApiSportsLive.applySuccessfulSlateBatch,
+      {
+        observations: [
+          observation({
+            observedAtMs: futureKickoffMs - 15 * 60_000,
+            homeScore: 0,
+            awayScore: 0,
+          }),
+        ],
+        nowMs: futureKickoffMs - 15 * 60_000,
+      },
+    );
+    expect(recovery.results[0]?.status).toBe("applied");
+    const incidents = await t.run(async (ctx) =>
+      ctx.db.query("operatorIncidents").take(10),
+    );
+    expect(incidents).toEqual([
+      expect.objectContaining({
+        scopeKey: `game:${gameId}:outside-live-window`,
+        status: "resolved",
+        resolvedAutomatically: true,
+      }),
+    ]);
   });
 
   it("compacts unchanged and stale reconciliation polls without another scoring revision", async () => {

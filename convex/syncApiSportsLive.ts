@@ -56,6 +56,7 @@ import {
   LIVE_REFRESH_CADENCE_MS,
   advanceSuccessfulSlateMiss,
   classifyLiveObservation,
+  isBeforeLiveWindowStart,
   isExpectedInSuccessfulLiveSlate,
   isLivePollingActive,
   liveObservationFingerprint,
@@ -112,6 +113,7 @@ type ApplyResult = {
     | "trusted_state"
     | "pinned"
     | "wrong_target"
+    | "outside_live_window"
     | "applied"
     | "failed";
   gameId: Id<"nflGames"> | null;
@@ -1365,6 +1367,39 @@ export const applyObservation = internalMutation({
       args.productionFence as ProductionQualificationFence | undefined,
       game.seasonId,
     );
+    if (
+      isBeforeLiveWindowStart({
+        lifecycle: observation.lifecycle,
+        scheduledKickoffMs: game.scheduledKickoffMs,
+        observedAtMs: observation.observedAtMs,
+      })
+    ) {
+      const incidentId = await openLiveIncident(ctx, {
+        scopeKey: `game:${gameId}:outside-live-window`,
+        summary:
+          "API-Sports reported started or completed play before the NFL Game live window; the last trusted state was preserved.",
+        nowMs: observation.observedAtMs,
+      });
+      await recordGamePollDiagnostic(ctx, {
+        game,
+        externalId: observation.externalId,
+        surface: "live",
+        outcome: "quarantined",
+        providerStatus: observation.providerStatus,
+        incidentId,
+      });
+      return {
+        status: "outside_live_window" as const,
+        gameId,
+        incidentId,
+      };
+    }
+    await ctx.runMutation(internal.incidents.autoResolveIncident, {
+      type: "provider_exception",
+      surface: "live",
+      scopeKey: `game:${gameId}:outside-live-window`,
+      nowMs: observation.observedAtMs,
+    });
     const state = await ingestionState(ctx, gameId);
     const normalized = {
       provider: "api-sports",

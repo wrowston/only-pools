@@ -4,6 +4,7 @@ import {
   pickOutcomeLabel,
   pickOutcomeMark,
   resolvePickOutcome,
+  resolveSurvivorGamePickOutcome,
   teamPickAccessibleName,
 } from "./pickPresentation";
 
@@ -65,6 +66,25 @@ describe("pick presentation — won/lost not color-only", () => {
     expect(resolvePickOutcome({ pickedTeamId: "a", winnerTeamId: "b" })).toBe(
       "lost",
     );
+  });
+
+  it("shows a Survivor outcome only on the selected team's game", () => {
+    expect(
+      resolveSurvivorGamePickOutcome({
+        pickedTeamId: "SF",
+        winnerTeamId: "SEA",
+        homeTeamId: "SEA",
+        awayTeamId: "NE",
+      }),
+    ).toBeNull();
+    expect(
+      resolveSurvivorGamePickOutcome({
+        pickedTeamId: "NE",
+        winnerTeamId: "SEA",
+        homeTeamId: "SEA",
+        awayTeamId: "NE",
+      }),
+    ).toBe("lost");
   });
 
   it("includes outcome in accessible pick names", () => {

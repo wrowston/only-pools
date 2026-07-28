@@ -361,6 +361,84 @@ describe("API-Sports schedule synchronization", () => {
     expect(state.incidents).toHaveLength(1);
   });
 
+  it("quarantines a started schedule lifecycle weeks before kickoff without latching the Pick Lock", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSchedule(t);
+    const futureKickoffMs =
+      observedAtMs + 45 * 24 * 60 * 60 * 1_000;
+
+    const result = await t.mutation(
+      internal.syncSchedule.applyScheduleGameObservation,
+      scheduleObservation(seeded, {
+        scheduledKickoffMs: futureKickoffMs,
+        lifecycle: "terminal",
+        providerStatus: {
+          rawShort: "FT",
+          rawLong: "Finished",
+          recognized: true,
+        },
+      }),
+    );
+
+    expect(result.status).toBe("outside_live_window");
+    const mismatchedKickoffResult = await t.mutation(
+      internal.syncSchedule.applyScheduleGameObservation,
+      scheduleObservation(seeded, {
+        scheduledKickoffMs: observedAtMs - 1,
+        lifecycle: "terminal",
+        providerStatus: {
+          rawShort: "FT",
+          rawLong: "Finished",
+          recognized: true,
+        },
+      }),
+    );
+    expect(mismatchedKickoffResult.status).toBe(
+      "outside_live_window",
+    );
+    const state = await t.run(async (ctx) => ({
+      game: await ctx.db.get(seeded.gameId),
+      incidents: await ctx.db.query("operatorIncidents").take(10),
+      diagnostics: await ctx.db
+        .query("providerRequestDiagnostics")
+        .withIndex(
+          "by_nflGameId_and_lastRecordedAtMs",
+          (q) => q.eq("nflGameId", seeded.gameId),
+        )
+        .take(10),
+    }));
+    expect(state.game).toMatchObject({
+      scheduledKickoffMs: seeded.kickoffMs,
+      lifecycle: "scheduled",
+      homeScore: null,
+      awayScore: null,
+    });
+    expect(state.game?.kickoffLockReachedAtMs).toBeUndefined();
+    expect(state.incidents).toHaveLength(1);
+    expect(state.diagnostics).toEqual([
+      expect.objectContaining({
+        nflGameId: seeded.gameId,
+        outcome: "quarantined",
+      }),
+    ]);
+
+    const recovery = await t.mutation(
+      internal.syncSchedule.applyScheduleGameObservation,
+      scheduleObservation(seeded),
+    );
+    expect(recovery.status).toBe("applied");
+    const incidentsAfterRecovery = await t.run(async (ctx) =>
+      ctx.db.query("operatorIncidents").take(10),
+    );
+    expect(incidentsAfterRecovery).toEqual([
+      expect.objectContaining({
+        scopeKey: `game:${seeded.gameId}:outside-live-window`,
+        status: "resolved",
+        resolvedAutomatically: true,
+      }),
+    ]);
+  });
+
   it("latches a newly discovered earlier kickoff without rewriting accepted picks", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSchedule(t);

@@ -58,6 +58,7 @@ import {
   reduceScheduleObservation,
   scheduleRefreshCadence,
 } from "./providers/sportsData/scheduleSync";
+import { isBeforeLiveWindowStart } from "./providers/sportsData/liveSyncPolicy";
 
 const providerAliasValidator = v.object({
   provider: v.literal("api-sports"),
@@ -119,6 +120,11 @@ type ScheduleApplyResult =
       incidentId: Id<"operatorIncidents"> | null;
       lifecyclePreserved: boolean;
       kickoffLockReachedAtMs: number | null;
+    }
+  | {
+      status: "outside_live_window";
+      gameId: Id<"nflGames">;
+      incidentId: Id<"operatorIncidents"> | null;
     };
 
 type IncidentOpenResult =
@@ -168,7 +174,7 @@ async function openScheduleIncident(
   );
 }
 
-async function recordUnknownStatusEvidence(
+async function recordQuarantinedScheduleEvidence(
   ctx: MutationCtx,
   input: {
     observation: ScheduleGameInput;
@@ -234,7 +240,7 @@ export const applyScheduleGameObservation = internalMutation({
         nowMs: observation.observedAtMs,
       });
       if (!observation.providerStatus.recognized) {
-        await recordUnknownStatusEvidence(ctx, {
+        await recordQuarantinedScheduleEvidence(ctx, {
           observation,
           incidentId: incident.incidentId ?? undefined,
         });
@@ -273,7 +279,7 @@ export const applyScheduleGameObservation = internalMutation({
         nowMs: observation.observedAtMs,
       });
       if (!observation.providerStatus.recognized) {
-        await recordUnknownStatusEvidence(ctx, {
+        await recordQuarantinedScheduleEvidence(ctx, {
           observation,
           incidentId: incident.incidentId ?? undefined,
         });
@@ -292,7 +298,7 @@ export const applyScheduleGameObservation = internalMutation({
         nowMs: observation.observedAtMs,
       });
       if (!observation.providerStatus.recognized) {
-        await recordUnknownStatusEvidence(ctx, {
+        await recordQuarantinedScheduleEvidence(ctx, {
           observation,
           incidentId: incident.incidentId ?? undefined,
         });
@@ -308,6 +314,40 @@ export const applyScheduleGameObservation = internalMutation({
     if (!game) {
       throw new Error("Reconciled NFL Game no longer exists");
     }
+    if (
+      observation.providerStatus.recognized &&
+      isBeforeLiveWindowStart({
+        lifecycle: observation.lifecycle,
+        scheduledKickoffMs: Math.max(
+          game.scheduledKickoffMs,
+          observation.scheduledKickoffMs,
+        ),
+        observedAtMs: observation.observedAtMs,
+      })
+    ) {
+      const incident = await openScheduleIncident(ctx, {
+        scopeKey: `game:${game._id}:outside-live-window`,
+        summary:
+          "Schedule information reported started or completed play before the NFL Game live window; the last trusted state was preserved.",
+        nowMs: observation.observedAtMs,
+      });
+      await recordQuarantinedScheduleEvidence(ctx, {
+        observation,
+        nflGameId: game._id,
+        incidentId: incident.incidentId ?? undefined,
+      });
+      return {
+        status: "outside_live_window" as const,
+        gameId: game._id,
+        incidentId: incident.incidentId,
+      };
+    }
+    await ctx.runMutation(internal.incidents.autoResolveIncident, {
+      type: "provider_exception",
+      surface: "schedule",
+      scopeKey: `game:${game._id}:outside-live-window`,
+      nowMs: observation.observedAtMs,
+    });
     const reduced = reduceScheduleObservation({
       prior: {
         scheduledKickoffMs: game.scheduledKickoffMs,
@@ -384,7 +424,7 @@ export const applyScheduleGameObservation = internalMutation({
         nowMs: observation.observedAtMs,
       });
       incidentId = incident.incidentId;
-      await recordUnknownStatusEvidence(ctx, {
+      await recordQuarantinedScheduleEvidence(ctx, {
         observation,
         nflGameId: game._id,
         incidentId: incident.incidentId ?? undefined,
