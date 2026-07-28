@@ -150,7 +150,7 @@ describe("Season Bootstrap (acceptance scenarios 7, 28, 50)", () => {
     expect(home.createPoolEnabled).toBe(false);
   });
 
-  it("sets Sync Gate ON after bootstrap when DEPLOYMENT_KIND=production", async () => {
+  it("keeps Sync Gate OFF after production bootstrap pending qualification", async () => {
     process.env.DEPLOYMENT_KIND = "production";
     const t = convexTest(schema, modules);
     const asOps = t.withIdentity(operatorIdentity());
@@ -166,7 +166,7 @@ describe("Season Bootstrap (acceptance scenarios 7, 28, 50)", () => {
       api.bootstrap.runSeasonBootstrapNormalized,
       { seasonLabel: "2025", teams, games },
     );
-    expect(result.syncGateEnabled).toBe(true);
+    expect(result.syncGateEnabled).toBe(false);
   });
 });
 

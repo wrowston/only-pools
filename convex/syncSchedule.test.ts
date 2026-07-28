@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { internal, api } from "./_generated/api";
 import schema from "./schema";
@@ -164,6 +164,20 @@ function scheduleObservation(
 }
 
 describe("API-Sports schedule synchronization", () => {
+  const previousDeploymentKind = process.env.DEPLOYMENT_KIND;
+
+  beforeAll(() => {
+    process.env.DEPLOYMENT_KIND = "development";
+  });
+
+  afterAll(() => {
+    if (previousDeploymentKind === undefined) {
+      delete process.env.DEPLOYMENT_KIND;
+    } else {
+      process.env.DEPLOYMENT_KIND = previousDeploymentKind;
+    }
+  });
+
   beforeEach(() => {
     delete process.env.SENTRY_DSN;
     delete process.env.NEXT_PUBLIC_SENTRY_DSN;

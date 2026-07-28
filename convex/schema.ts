@@ -863,7 +863,7 @@ export default defineSchema({
 
   /**
    * Deployment Sync Gate singleton (key = "deployment").
-   * Dev defaults OFF; Production defaults ON after Season Bootstrap.
+   * Defaults OFF; production requires a current explicit qualification pass.
    */
   syncGate: defineTable({
     key: v.literal("deployment"),

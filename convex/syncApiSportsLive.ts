@@ -60,6 +60,11 @@ import {
   providerEvidenceState,
   recordProviderGameTransition,
 } from "./providerEvidence";
+import {
+  productionQualificationFenceValidator,
+  requireCurrentProductionQualificationFence,
+  type ProductionQualificationFence,
+} from "./providerQualification";
 
 const providerStatusValidator = v.object({
   rawShort: v.string(),
@@ -145,6 +150,7 @@ async function recordGamePollDiagnostic(
 type SuccessfulSlateBatchInput = {
   observations: LiveObservation[];
   nowMs: number;
+  productionFence?: ProductionQualificationFence;
 };
 
 type SuccessfulSlateBatchResult = {
@@ -1183,9 +1189,11 @@ export const hasActiveWindow = internalQuery({
   },
 });
 
-export const getApiSportsAlias = internalQuery({
+export const getApiSportsRequestTarget = internalQuery({
   args: { gameId: v.id("nflGames") },
   handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    if (!game) return null;
     const aliases = await ctx.db
       .query("nflGameAliases")
       .withIndex("by_nflGameId_and_provider_and_isCurrent", (q) =>
@@ -1195,7 +1203,12 @@ export const getApiSportsAlias = internalQuery({
           .eq("isCurrent", true),
       )
       .take(2);
-    return aliases.length === 1 ? aliases[0]!.externalId : null;
+    return aliases.length === 1
+      ? {
+          externalId: aliases[0]!.externalId,
+          seasonId: game.seasonId,
+        }
+      : null;
   },
 });
 
@@ -1267,8 +1280,13 @@ export const applyObservation = internalMutation({
   args: {
     observation: liveObservationValidator,
     expectedGameId: v.optional(v.id("nflGames")),
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    await requireCurrentProductionQualificationFence(
+      ctx,
+      args.productionFence as ProductionQualificationFence | undefined,
+    );
     const observation: LiveObservation = args.observation;
     const ownership = await resolveNflGameAlias(ctx, {
       provider: "api-sports",
@@ -1337,6 +1355,11 @@ export const applyObservation = internalMutation({
     if (!game) {
       return { status: "unresolved" as const, gameId: null, incidentId: null };
     }
+    await requireCurrentProductionQualificationFence(
+      ctx,
+      args.productionFence as ProductionQualificationFence | undefined,
+      game.seasonId,
+    );
     const state = await ingestionState(ctx, gameId);
     const normalized = {
       provider: "api-sports",
@@ -1647,9 +1670,21 @@ export const applyReconciliationObservation = internalMutation({
       v.id("nflGameResultOverrides"),
     ),
     observation: liveObservationValidator,
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    await requireCurrentProductionQualificationFence(
+      ctx,
+      args.productionFence as ProductionQualificationFence | undefined,
+    );
     const game = await ctx.db.get(args.gameId);
+    if (game) {
+      await requireCurrentProductionQualificationFence(
+        ctx,
+        args.productionFence as ProductionQualificationFence | undefined,
+        game.seasonId,
+      );
+    }
     if (
       args.expectedPinnedOverrideId !== undefined &&
       game?.pinnedResultOverrideId !== args.expectedPinnedOverrideId
@@ -1943,14 +1978,28 @@ export const reconcileSuccessfulSlate = internalMutation({
   args: {
     nowMs: v.number(),
     seenGameIds: v.array(v.id("nflGames")),
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    const productionFence = args.productionFence as
+      | ProductionQualificationFence
+      | undefined;
+    await requireCurrentProductionQualificationFence(
+      ctx,
+      productionFence,
+      productionFence?.seasonId,
+    );
     const seen = new Set(args.seenGameIds);
-    const seasons = await ctx.db
-      .query("poolSeasons")
-      .withIndex("by_status", (q) => q.eq("status", "available"))
-      .order("desc")
-      .take(4);
+    const seasons = productionFence
+      ? [await ctx.db.get(productionFence.seasonId)].filter(
+          (season): season is Doc<"poolSeasons"> =>
+            season?.status === "available",
+        )
+      : await ctx.db
+          .query("poolSeasons")
+          .withIndex("by_status", (q) => q.eq("status", "available"))
+          .order("desc")
+          .take(4);
     const recoveryGameIds: Id<"nflGames">[] = [];
 
     for (const season of seasons) {
@@ -2023,7 +2072,10 @@ async function applySuccessfulSlateBatchForCtx(
     try {
       const result: ApplyResult = await ctx.runMutation(
         internal.syncApiSportsLive.applyObservation,
-        { observation },
+        {
+          observation,
+          productionFence: args.productionFence,
+        },
       );
       results.push(result);
       if (result.gameId) seenGameIds.push(result.gameId);
@@ -2038,7 +2090,11 @@ async function applySuccessfulSlateBatchForCtx(
   const recovery: { recoveryGameIds: Id<"nflGames">[] } =
     await ctx.runMutation(
       internal.syncApiSportsLive.reconcileSuccessfulSlate,
-      { nowMs: args.nowMs, seenGameIds },
+      {
+        nowMs: args.nowMs,
+        seenGameIds,
+        productionFence: args.productionFence,
+      },
     );
   return { results, ...recovery };
 }
@@ -2051,6 +2107,7 @@ export const applySuccessfulSlateBatch = internalAction({
   args: {
     observations: v.array(liveObservationValidator),
     nowMs: v.number(),
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: (ctx, args) => applySuccessfulSlateBatchForCtx(ctx, args),
 });
@@ -2141,6 +2198,7 @@ export const runClaimedLiveFetch = internalAction({
       const batch = await applySuccessfulSlateBatchForCtx(ctx, {
         observations,
         nowMs,
+        productionFence: reliable.productionFence() ?? undefined,
       });
       const completedAtMs = Date.now();
       await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
@@ -2195,6 +2253,7 @@ async function failTargetedLookupForCtx(
     workItemId: Id<"syncWorkItems">;
     gameId: Id<"nflGames">;
     nowMs: number;
+    productionFence?: ProductionQualificationFence;
     reason: string;
     retryAtMs?: number;
     deferredReason?: string;
@@ -2226,6 +2285,7 @@ async function applyTargetedLookupForCtx(
     requestedExternalId: string;
     observation: LiveObservation | null;
     nowMs: number;
+    productionFence?: ProductionQualificationFence;
   },
 ): Promise<{ ok: boolean; reason?: string }> {
   if (input.observation === null) {
@@ -2246,6 +2306,7 @@ async function applyTargetedLookupForCtx(
     {
       observation: input.observation,
       expectedGameId: input.gameId,
+      productionFence: input.productionFence,
     },
   );
   if (result.gameId !== input.gameId) {
@@ -2272,6 +2333,7 @@ export const applyTargetedLookupResult = internalAction({
     requestedExternalId: v.string(),
     observation: v.union(liveObservationValidator, v.null()),
     nowMs: v.number(),
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: (ctx, args) => applyTargetedLookupForCtx(ctx, args),
 });
@@ -2283,6 +2345,7 @@ async function failReconciliationForCtx(
     gameId: Id<"nflGames">;
     expectedPinnedOverrideId?: Id<"nflGameResultOverrides">;
     nowMs: number;
+    productionFence?: ProductionQualificationFence;
     reason: string;
     retryAtMs?: number;
     deferredReason?: string;
@@ -2317,6 +2380,7 @@ async function applyReconciliationLookupForCtx(
     requestedExternalId: string;
     observation: LiveObservation | null;
     nowMs: number;
+    productionFence?: ProductionQualificationFence;
   },
 ): Promise<{
   ok: boolean;
@@ -2349,6 +2413,7 @@ async function applyReconciliationLookupForCtx(
       gameId: input.gameId,
       expectedPinnedOverrideId: input.expectedPinnedOverrideId,
       observation: input.observation,
+      productionFence: input.productionFence,
     },
   );
   if (applied.result === "rejected") {
@@ -2387,6 +2452,7 @@ export const applyReconciliationLookupResult = internalAction({
     requestedExternalId: v.string(),
     observation: v.union(liveObservationValidator, v.null()),
     nowMs: v.number(),
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: (ctx, args) => applyReconciliationLookupForCtx(ctx, args),
 });
@@ -2406,20 +2472,15 @@ export const runClaimedTargetedRecovery = internalAction({
       internal.providerReliability.getWorkAttemptCount,
       { workItemId: args.workItemId },
     );
-    const reliable = createReliableApiSportsFetch({
-      ctx,
-      surface: "live",
-      traffic: "protected",
-      jitterKey: String(args.workItemId),
-      scopeKey: `game:${args.gameId}`,
-      gameId: args.gameId,
-    });
     let providerSucceeded = false;
-    const externalId: string | null = await ctx.runQuery(
-      internal.syncApiSportsLive.getApiSportsAlias,
+    const target: {
+      externalId: string;
+      seasonId: Id<"poolSeasons">;
+    } | null = await ctx.runQuery(
+      internal.syncApiSportsLive.getApiSportsRequestTarget,
       { gameId: args.gameId },
     );
-    if (!externalId) {
+    if (!target) {
       return await failTargetedLookupForCtx(ctx, {
         workItemId: args.workItemId,
         gameId: args.gameId,
@@ -2427,6 +2488,16 @@ export const runClaimedTargetedRecovery = internalAction({
         reason: "alias_missing",
       });
     }
+    const externalId = target.externalId;
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "live",
+      traffic: "protected",
+      jitterKey: String(args.workItemId),
+      scopeKey: `game:${args.gameId}`,
+      gameId: args.gameId,
+      expectedSeasonId: target.seasonId,
+    });
     try {
       const game = (await runEffect(
         configuredProvider(reliable.fence).getGame({
@@ -2447,6 +2518,7 @@ export const runClaimedTargetedRecovery = internalAction({
         requestedExternalId: externalId,
         observation,
         nowMs,
+        productionFence: reliable.productionFence() ?? undefined,
       });
     } catch (error) {
       const outcome = providerSucceeded
@@ -2503,14 +2575,6 @@ export const runClaimedResultReconciliation = internalAction({
       internal.providerReliability.getWorkAttemptCount,
       { workItemId: args.workItemId },
     );
-    const reliable = createReliableApiSportsFetch({
-      ctx,
-      surface: "correction",
-      traffic: "protected",
-      jitterKey: String(args.workItemId),
-      scopeKey: `game:${args.gameId}`,
-      gameId: args.gameId,
-    });
     let providerSucceeded = false;
     if (args.expectedPinnedOverrideId !== undefined) {
       const current = await ctx.runQuery(
@@ -2530,17 +2594,30 @@ export const runClaimedResultReconciliation = internalAction({
         };
       }
     }
-    const externalId: string | null = await ctx.runQuery(
-      internal.syncApiSportsLive.getApiSportsAlias,
+    const target: {
+      externalId: string;
+      seasonId: Id<"poolSeasons">;
+    } | null = await ctx.runQuery(
+      internal.syncApiSportsLive.getApiSportsRequestTarget,
       { gameId: args.gameId },
     );
-    if (!externalId) {
+    if (!target) {
       return await failReconciliationForCtx(ctx, {
         ...args,
         nowMs,
         reason: "alias_missing",
       });
     }
+    const externalId = target.externalId;
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "correction",
+      traffic: "protected",
+      jitterKey: String(args.workItemId),
+      scopeKey: `game:${args.gameId}`,
+      gameId: args.gameId,
+      expectedSeasonId: target.seasonId,
+    });
     try {
       const game = (await runEffect(
         configuredProvider(reliable.fence).getGame({
@@ -2559,6 +2636,7 @@ export const runClaimedResultReconciliation = internalAction({
         requestedExternalId: externalId,
         observation: game ? liveInput(game) : null,
         nowMs,
+        productionFence: reliable.productionFence() ?? undefined,
       });
     } catch (error) {
       const outcome = providerSucceeded

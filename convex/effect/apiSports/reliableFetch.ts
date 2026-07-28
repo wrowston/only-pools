@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
+import type { ProductionQualificationFence } from "../../providerQualification";
 import {
   deterministicRetryJitterUnit,
   type ProviderAdmissionReceipt,
@@ -63,6 +64,9 @@ export function createReliableApiSportsFetch(input: {
   jitterKey?: string;
   scopeKey?: string;
   gameId?: Id<"nflGames">;
+  intent?: "competitive" | "qualification" | "bootstrap" | "health";
+  qualificationRunId?: Id<"operatorAuditEvents">;
+  expectedSeasonId?: Id<"poolSeasons">;
 }) {
   const nowMs = input.nowMs ?? Date.now;
   let lastReceipt: ProviderAdmissionReceipt | null = null;
@@ -70,6 +74,7 @@ export function createReliableApiSportsFetch(input: {
   let sawRateLimit = false;
   let quotaRetryAtMs: number | null = null;
   let boundaryFailure = false;
+  let productionFence: ProductionQualificationFence | null = null;
   const responseDetails = new WeakMap<
     Response,
     Readonly<{
@@ -144,6 +149,39 @@ export function createReliableApiSportsFetch(input: {
   const fence: ApiSportsRequestFence = {
     beforeRequest: () =>
       Effect.gen(function* () {
+        const intent =
+          input.intent ??
+          (input.surface === "bootstrap"
+            ? "bootstrap"
+            : input.surface === "operator"
+              ? "health"
+              : "competitive");
+        const explicitDevelopment =
+          process.env.DEPLOYMENT_KIND?.trim().toLowerCase() ===
+            "development" ||
+          process.env.DEPLOYMENT_KIND?.trim().toLowerCase() === "dev";
+        const authorization = explicitDevelopment
+          ? { allowed: true as const, fence: null }
+          : yield* Effect.promise(() =>
+              input.ctx.runMutation(
+                internal.providerQualification
+                  .authorizeProductionProviderRequest,
+                {
+                  intent,
+                  qualificationRunId: input.qualificationRunId,
+                  expectedSeasonId: input.expectedSeasonId,
+                },
+              ),
+            );
+        if (!authorization.allowed) {
+          lastDenial = {
+            reason: authorization.reason,
+            retryAtMs: nowMs() + 60_000,
+          };
+          return yield* new ApiSportsAdmissionDenied(lastDenial);
+        }
+        productionFence =
+          authorization.fence as ProductionQualificationFence | null;
         const admission = yield* Effect.promise(() =>
           input.ctx.runMutation(
             internal.providerReliability.admitApiSportsRequest,
@@ -250,6 +288,7 @@ export function createReliableApiSportsFetch(input: {
   return {
     fence,
     latestReceipt: () => lastReceipt,
+    productionFence: () => productionFence,
     denial: () => lastDenial,
     sawRateLimit: () => sawRateLimit,
     recordOutcome: async (outcome: {

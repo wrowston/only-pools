@@ -43,6 +43,7 @@ import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
 import { createLogger, errorMessage } from "./lib/log";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
+import { isCompetitiveProviderSyncAuthorized } from "./providerQualification";
 import { enqueueSentryDelivery } from "./sentry";
 import {
   CONFIRMATION_15_MS,
@@ -965,9 +966,14 @@ export const dispatchSyncWork = internalMutation({
     const nowMs = args.nowMs ?? Date.now();
     const maxClaims = args.maxClaims ?? 20;
     const gateEnabled = await loadSyncGateEnabled(ctx);
+    const effectiveAuthorized =
+      gateEnabled && (await isCompetitiveProviderSyncAuthorized(ctx));
 
-    if (!gateEnabled) {
-      log.info("dispatch_skipped", { reason: "sync_gate_off", nowMs });
+    if (!effectiveAuthorized) {
+      const reason = gateEnabled
+        ? "qualification_required"
+        : "sync_gate_off";
+      log.info("dispatch_skipped", { reason, nowMs });
       return {
         gateEnabled: false,
         claimed: [] as Array<{
@@ -978,7 +984,7 @@ export const dispatchSyncWork = internalMutation({
           gameId?: Id<"nflGames">;
           purpose?: string;
         }>,
-        denied: "sync_gate_off" as const,
+        denied: reason,
       };
     }
 
@@ -1251,6 +1257,26 @@ export const runClaimedFetch = internalAction({
     purpose: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const kind =
+      process.env.DEPLOYMENT_KIND?.trim().toLowerCase() ?? "";
+    if (kind !== "development" && kind !== "dev") {
+      await ctx.runMutation(internal.syncLive.requeueFailedWork, {
+        workItemId: args.workItemId,
+        dueAtMs: Date.now() + 24 * 60 * 60 * 1_000,
+        gameId: args.gameId,
+        deferredReason:
+          kind === "production"
+            ? "production_provider_not_allowed"
+            : "deployment_not_allowed",
+      });
+      return {
+        ok: false as const,
+        reason:
+          kind === "production"
+            ? "production_provider_not_allowed"
+            : "deployment_not_allowed",
+      };
+    }
     // Production path: fetch via TheSportsDB adapter, then apply mutations.
     // Intentionally no HTTP in the default test path — fixture tests call
     // applyLiveObservation / applyConfirmationObservationMutation directly.
@@ -1803,6 +1829,8 @@ export const claimProviderFetchWithBudget = mutation({
     }
     const nowMs = Date.now();
     const gateEnabled = await loadSyncGateEnabled(ctx);
+    const effectiveAuthorized =
+      gateEnabled && (await isCompetitiveProviderSyncAuthorized(ctx));
     const priority: BudgetPriority =
       args.priority ??
       (args.surface === "confirmation"
@@ -1812,7 +1840,7 @@ export const claimProviderFetchWithBudget = mutation({
           : "routine");
 
     const gateDecision = canClaimProviderFetch(
-      { enabled: gateEnabled },
+      { enabled: effectiveAuthorized },
       args.surface,
     );
     if (!gateDecision.ok) {

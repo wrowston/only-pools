@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canClaimProviderFetch,
   defaultSyncGateEnabled,
+  resolveDeploymentKind,
   type SyncGateState,
 } from "./syncGate";
 
@@ -11,8 +12,16 @@ describe("Sync Gate claim helper (acceptance scenario 50)", () => {
     expect(defaultSyncGateEnabled("dev")).toBe(false);
   });
 
-  it("defaults ON for production deployments", () => {
-    expect(defaultSyncGateEnabled("production")).toBe(true);
+  it("defaults OFF for production until qualification explicitly enables it", () => {
+    expect(defaultSyncGateEnabled("production")).toBe(false);
+  });
+
+  it("preserves missing, blank, and unknown deployment kinds for fail-closed callers", () => {
+    expect(resolveDeploymentKind({})).toBe("");
+    expect(resolveDeploymentKind({ DEPLOYMENT_KIND: "   " })).toBe("");
+    expect(resolveDeploymentKind({ DEPLOYMENT_KIND: "Staging" })).toBe(
+      "staging",
+    );
   });
 
   it("refuses new provider fetch claims when Sync Gate is OFF", () => {

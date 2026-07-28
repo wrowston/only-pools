@@ -73,6 +73,14 @@ export const ensureSyncGate = internalMutation({
     actorTokenIdentifier: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (
+      args.enabled &&
+      process.env.DEPLOYMENT_KIND?.trim().toLowerCase() === "production"
+    ) {
+      throw new Error(
+        "Production Sync Gate enablement requires current provider qualification",
+      );
+    }
     const nowMs = Date.now();
     const existing = await ctx.db
       .query("syncGate")

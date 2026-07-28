@@ -27,6 +27,12 @@ export type ApiSportsStatusObservation = Readonly<{
 export type ApiSportsGame = SportsDataGame &
   Readonly<{
     providerStatus: ApiSportsStatusObservation;
+    providerStage: string;
+    seasonPhase:
+      | "preseason"
+      | "regular_season"
+      | "postseason"
+      | "unknown";
   }>;
 
 const abbreviationsByName = new Map(
@@ -78,6 +84,20 @@ function seasonYear(rawSeason: string | number): number | null {
   return Number.isInteger(season) && season >= 2000 && season <= 3000
     ? season
     : null;
+}
+
+function seasonPhase(
+  rawStage: string,
+): ApiSportsGame["seasonPhase"] {
+  const normalized = rawStage.trim().toLowerCase();
+  if (normalized === "pre season" || normalized === "preseason") {
+    return "preseason";
+  }
+  if (normalized === "regular season") return "regular_season";
+  if (normalized === "post season" || normalized === "postseason") {
+    return "postseason";
+  }
+  return "unknown";
 }
 
 function statusObservation(
@@ -258,6 +278,8 @@ export function normalizeApiSportsGame(
       providerAliases: [
         { provider: "api-sports", id: String(row.game.id) },
       ],
+      providerStage: row.game.stage.trim(),
+      seasonPhase: seasonPhase(row.game.stage),
       providerStatus,
     };
   });

@@ -164,11 +164,13 @@ describe("staged API-Sports Season Bootstrap", () => {
     process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
   const previousProvider = process.env.SPORTS_DATA_PROVIDER;
   const previousApiKey = process.env.API_SPORTS_KEY;
+  const previousDeploymentKind = process.env.DEPLOYMENT_KIND;
 
   beforeEach(() => {
     process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = "operator";
     process.env.SPORTS_DATA_PROVIDER = "api-sports";
     process.env.API_SPORTS_KEY = "sanitized-test-key";
+    process.env.DEPLOYMENT_KIND = "development";
   });
 
   afterEach(() => {
@@ -188,6 +190,11 @@ describe("staged API-Sports Season Bootstrap", () => {
       delete process.env.API_SPORTS_KEY;
     } else {
       process.env.API_SPORTS_KEY = previousApiKey;
+    }
+    if (previousDeploymentKind === undefined) {
+      delete process.env.DEPLOYMENT_KIND;
+    } else {
+      process.env.DEPLOYMENT_KIND = previousDeploymentKind;
     }
   });
 

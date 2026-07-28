@@ -4,7 +4,7 @@
  */
 
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { CONFIRMATION_MIN_ELAPSED_MS } from "./lib/confirmationPolicy";
@@ -73,10 +73,7 @@ async function seedGame(t: ReturnType<typeof convexTest>) {
   });
 }
 
-async function seedPoolWithBoard(
-  t: ReturnType<typeof convexTest>,
-  _gameSeed: Awaited<ReturnType<typeof seedGame>>,
-) {
+async function seedPoolWithBoard(t: ReturnType<typeof convexTest>) {
   const asOwner = t.withIdentity(fullyVerifiedIdentity());
   await asOwner.mutation(api.participants.ensureMyParticipant, {});
   const created = await asOwner.mutation(api.pools.createPool, {
@@ -89,6 +86,20 @@ async function seedPoolWithBoard(
 }
 
 describe("sync live → Verified Results (scenarios 24, 28–31)", () => {
+  const previousDeploymentKind = process.env.DEPLOYMENT_KIND;
+
+  beforeAll(() => {
+    process.env.DEPLOYMENT_KIND = "development";
+  });
+
+  afterAll(() => {
+    if (previousDeploymentKind === undefined) {
+      delete process.env.DEPLOYMENT_KIND;
+    } else {
+      process.env.DEPLOYMENT_KIND = previousDeploymentKind;
+    }
+  });
+
   it("records kickoff movement without changing NFL Game identity", async () => {
     const t = convexTest(schema, modules);
     const { gameId } = await seedGame(t);
@@ -496,7 +507,7 @@ describe("sync live → Verified Results (scenarios 24, 28–31)", () => {
   it("Week Board exposes projected results labeled non-official until verified", async () => {
     const t = convexTest(schema, modules);
     const seed = await seedGame(t);
-    const { asOwner, poolId } = await seedPoolWithBoard(t, seed);
+    const { asOwner, poolId } = await seedPoolWithBoard(t);
     const T0 = Date.now();
 
     await t.mutation(internal.syncLive.applyLiveObservation, {

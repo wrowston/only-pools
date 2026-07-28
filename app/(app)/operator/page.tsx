@@ -9,6 +9,7 @@ import { OperatorScoringHoldsPanel } from "@/components/OperatorScoringHoldsPane
 import { OperatorResultOverridesPanel } from "@/components/OperatorResultOverridesPanel";
 import { OperatorProviderReliabilityPanel } from "@/components/OperatorProviderReliabilityPanel";
 import { OperatorProviderEvidencePanel } from "@/components/OperatorProviderEvidencePanel";
+import { OperatorQualificationPanel } from "@/components/OperatorQualificationPanel";
 import { OperatorPageSkeleton } from "@/components/OperatorSkeleton";
 import { api } from "@/convex/_generated/api";
 
@@ -59,6 +60,7 @@ export default function OperatorPage() {
 
   return (
     <div>
+      <OperatorQualificationPanel />
       <OperatorProviderReliabilityPanel />
       <OperatorProviderEvidencePanel />
       <OperatorResultOverridesPanel />

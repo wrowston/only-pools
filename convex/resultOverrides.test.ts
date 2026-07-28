@@ -110,11 +110,13 @@ async function steppedUpOperator(t: ReturnType<typeof convexTest>) {
 describe("pinned Production Operator NFL Game result overrides", () => {
   const previousOperator =
     process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
+  const previousDeploymentKind = process.env.DEPLOYMENT_KIND;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW_MS);
     process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = "operator";
+    process.env.DEPLOYMENT_KIND = "development";
   });
 
   afterEach(() => {
@@ -123,6 +125,11 @@ describe("pinned Production Operator NFL Game result overrides", () => {
       delete process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
     } else {
       process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = previousOperator;
+    }
+    if (previousDeploymentKind === undefined) {
+      delete process.env.DEPLOYMENT_KIND;
+    } else {
+      process.env.DEPLOYMENT_KIND = previousDeploymentKind;
     }
   });
 

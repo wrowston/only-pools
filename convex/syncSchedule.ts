@@ -36,6 +36,11 @@ import {
   recordProviderGameTransition,
 } from "./providerEvidence";
 import {
+  productionQualificationFenceValidator,
+  requireCurrentProductionQualificationFence,
+  type ProductionQualificationFence,
+} from "./providerQualification";
+import {
   CANONICAL_NFL_TEAM_ABBREVIATIONS,
   CANONICAL_NFL_TEAMS,
   type CanonicalNflTeamAbbreviation,
@@ -198,8 +203,14 @@ export const applyScheduleGameObservation = internalMutation({
   args: {
     seasonId: v.id("poolSeasons"),
     observation: scheduleGameValidator,
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args): Promise<ScheduleApplyResult> => {
+    await requireCurrentProductionQualificationFence(
+      ctx,
+      args.productionFence as ProductionQualificationFence | undefined,
+      args.seasonId,
+    );
     const observation = args.observation as ScheduleGameInput;
     const incidentBase =
       `season:${args.seasonId}:provider:api-sports`;
@@ -396,7 +407,14 @@ type BatchObservation = {
 async function applyBatch(
   ctx: ActionCtx,
   observations: readonly BatchObservation[],
+  productionFence?: ProductionQualificationFence,
 ) {
+  const expectedSeasonId =
+    observations[0]?.seasonId ?? productionFence?.seasonId;
+  await ctx.runMutation(
+    internal.providerQualification.assertCurrentProductionQualificationFence,
+    { productionFence, expectedSeasonId },
+  );
   const summary = {
     observed: observations.length,
     applied: 0,
@@ -407,7 +425,7 @@ async function applyBatch(
     try {
       const result: ScheduleApplyResult = await ctx.runMutation(
         internal.syncSchedule.applyScheduleGameObservation,
-        item,
+        { ...item, productionFence },
       );
       if (result.status === "applied") summary.applied += 1;
       else summary.unresolved += 1;
@@ -430,6 +448,10 @@ async function applyBatch(
       }
     }
   }
+  await ctx.runMutation(
+    internal.providerQualification.assertCurrentProductionQualificationFence,
+    { productionFence, expectedSeasonId },
+  );
   return summary;
 }
 
@@ -442,6 +464,7 @@ export const applyScheduleObservationBatch = internalAction({
         observation: scheduleGameValidator,
       }),
     ),
+    productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
     if (args.observations.length > 300) {
@@ -450,6 +473,7 @@ export const applyScheduleObservationBatch = internalAction({
     return await applyBatch(
       ctx,
       args.observations as BatchObservation[],
+      args.productionFence as ProductionQualificationFence | undefined,
     );
   },
 });
@@ -535,13 +559,6 @@ export const runClaimedScheduleFetch = internalAction({
       internal.providerReliability.getWorkAttemptCount,
       { workItemId: args.workItemId },
     );
-    const reliable = createReliableApiSportsFetch({
-      ctx,
-      surface: "schedule",
-      traffic: "routine",
-      jitterKey: String(args.workItemId),
-      scopeKey: `schedule:${args.seasonId}`,
-    });
     let providerSucceeded = false;
     const season = await ctx.runQuery(
       internal.syncSchedule.getScheduleSeason,
@@ -557,6 +574,14 @@ export const runClaimedScheduleFetch = internalAction({
       );
       return { ok: false as const, reason: "season_missing" };
     }
+    const reliable = createReliableApiSportsFetch({
+      ctx,
+      surface: "schedule",
+      traffic: "routine",
+      jitterKey: String(args.workItemId),
+      scopeKey: `schedule:${args.seasonId}`,
+      expectedSeasonId: args.seasonId,
+    });
 
     try {
       const provider = selectSportsDataProvider({
@@ -586,7 +611,11 @@ export const runClaimedScheduleFetch = internalAction({
         .filter(
           (item): item is BatchObservation => item !== null,
         );
-      const summary = await applyBatch(ctx, observations);
+      const summary = await applyBatch(
+        ctx,
+        observations,
+        reliable.productionFence() ?? undefined,
+      );
       const nowMs = Date.now();
       const cadence = scheduleRefreshCadence({
         nowMs,

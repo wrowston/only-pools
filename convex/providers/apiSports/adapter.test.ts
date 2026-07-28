@@ -69,6 +69,51 @@ describe("ApiSportsProvider", () => {
     });
   });
 
+  it("preserves the returned preseason stage for qualification validation", async () => {
+    const fetch: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          errors: [],
+          response: [
+            {
+              game: {
+                id: 77_776,
+                stage: "Pre Season",
+                week: "Preseason 1",
+                date: { timestamp: 1_788_998_400 },
+                status: { short: "NS", long: "Not Started" },
+              },
+              league: { id: 1, season: "2026" },
+              teams: {
+                home: { id: 12, name: "Green Bay Packers" },
+                away: { id: 11, name: "Detroit Lions" },
+              },
+              scores: {
+                home: { total: null },
+                away: { total: null },
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    const provider = new ApiSportsProvider({
+      apiKey: "sanitized-fixture-key",
+      fetch,
+      nowMs: () => Date.parse("2026-09-14T01:30:30Z"),
+    });
+
+    const game = await Effect.runPromise(
+      provider.getGame({ provider: "api-sports", id: "77776" }),
+    );
+
+    expect(game).toMatchObject({
+      providerAliases: [{ provider: "api-sports", id: "77776" }],
+      providerStage: "Pre Season",
+      seasonPhase: "preseason",
+    });
+  });
+
   it("keeps unknown statuses in a provider-scoped date slate for downstream trust policy", async () => {
     const fetch: typeof globalThis.fetch = async () =>
       new Response(

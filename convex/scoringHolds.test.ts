@@ -190,10 +190,12 @@ async function seedHeldPools(t: ReturnType<typeof convexTest>) {
 
 describe("Scoring Holds", () => {
   const previousOperator = process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
+  const previousDeploymentKind = process.env.DEPLOYMENT_KIND;
 
   beforeEach(() => {
     process.env.PRODUCTION_OPERATOR_CLERK_USER_ID =
       "clerk_scoring_operator";
+    process.env.DEPLOYMENT_KIND = "development";
   });
 
   afterEach(() => {
@@ -202,6 +204,11 @@ describe("Scoring Holds", () => {
       delete process.env.PRODUCTION_OPERATOR_CLERK_USER_ID;
     } else {
       process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = previousOperator;
+    }
+    if (previousDeploymentKind === undefined) {
+      delete process.env.DEPLOYMENT_KIND;
+    } else {
+      process.env.DEPLOYMENT_KIND = previousDeploymentKind;
     }
   });
 

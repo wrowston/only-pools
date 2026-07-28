@@ -6,7 +6,7 @@ import { convexTest } from "convex-test";
 import * as Effect from "effect/Effect";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { computeWeeklyCutoffMs } from "./lib/pickLock";
@@ -233,6 +233,20 @@ async function seedTargetedWork(
 }
 
 describe("API-Sports live slate ingestion", () => {
+  const previousDeploymentKind = process.env.DEPLOYMENT_KIND;
+
+  beforeAll(() => {
+    process.env.DEPLOYMENT_KIND = "development";
+  });
+
+  afterAll(() => {
+    if (previousDeploymentKind === undefined) {
+      delete process.env.DEPLOYMENT_KIND;
+    } else {
+      process.env.DEPLOYMENT_KIND = previousDeploymentKind;
+    }
+  });
+
   it("keeps batch fan-out in one action runtime", () => {
     const source = readFileSync(
       join(import.meta.dirname, "syncApiSportsLive.ts"),

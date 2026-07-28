@@ -1,4 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createReliableApiSportsFetch } from "../../effect/apiSports/reliableFetch";
 import { createApiSportsClient } from "../../effect/apiSports/client";
@@ -17,6 +24,14 @@ function statusResponse(
 }
 
 describe("reliable API-Sports fetch boundary", () => {
+  const previousKind = process.env.DEPLOYMENT_KIND;
+  beforeAll(() => {
+    process.env.DEPLOYMENT_KIND = "development";
+  });
+  afterAll(() => {
+    if (previousKind === undefined) delete process.env.DEPLOYMENT_KIND;
+    else process.env.DEPLOYMENT_KIND = previousKind;
+  });
   it("admits and reconciles every physical request independently", async () => {
     const runMutation = vi
       .fn()
@@ -80,6 +95,41 @@ describe("reliable API-Sports fetch boundary", () => {
     expect(controller.latestReceipt()).toMatchObject({
       circuitGeneration: 3,
     });
+  });
+
+  it("checks the expected season before admission or a physical request", async () => {
+    process.env.DEPLOYMENT_KIND = "production";
+    try {
+      const runMutation = vi.fn().mockResolvedValue({
+        allowed: false,
+        reason: "qualification_season_mismatch",
+      });
+      const fetch = vi.fn();
+      const expectedSeasonId = "expected-season-id";
+      const controller = createReliableApiSportsFetch({
+        ctx: { runMutation } as never,
+        surface: "live",
+        traffic: "protected",
+        expectedSeasonId: expectedSeasonId as never,
+        nowMs: () => 10,
+      });
+      const client = createApiSportsClient({
+        apiKey: "test-key",
+        fetch,
+        requestFence: controller.fence,
+        nowMs: () => 10,
+      });
+
+      await expect(runEffect(client.fetchStatus())).rejects.toThrow();
+      expect(runMutation).toHaveBeenCalledTimes(1);
+      expect(runMutation.mock.calls[0]?.[1]).toMatchObject({
+        intent: "competitive",
+        expectedSeasonId,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      process.env.DEPLOYMENT_KIND = "development";
+    }
   });
 
   it("records a sanitized transport diagnostic when a physical fetch rejects", async () => {
