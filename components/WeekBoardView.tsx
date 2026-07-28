@@ -4,7 +4,7 @@ import posthog from "posthog-js";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
@@ -54,9 +54,22 @@ export function WeekBoardView({
   const [selectedWeek, setSelectedWeek] = useState<number | undefined>(
     weekProp,
   );
-  const [activeEntryId, setActiveEntryId] = useState<Id<"poolEntries"> | null>(
-    null,
+  const [selectedEntryId, setSelectedEntryId] =
+    useState<Id<"poolEntries"> | null>(null);
+  const [entriesNowMs] = useState(() => Date.now());
+  const myEntries = useQuery(
+    api.pools.listMyPoolEntries,
+    isAuthenticated ? { poolId, nowMs: entriesNowMs } : "skip",
   );
+  const activeEntryId =
+    myEntries === undefined
+      ? selectedEntryId
+      : selectedEntryId &&
+          myEntries.entries.some(
+            (entry) => entry.entryId === selectedEntryId,
+          )
+        ? selectedEntryId
+        : (myEntries.entries[0]?.entryId ?? null);
   const boardResult = useQuery(
     api.pools.getWeekBoard,
     isAuthenticated
@@ -66,11 +79,6 @@ export function WeekBoardView({
           ...(activeEntryId ? { entryId: activeEntryId } : {}),
         }
       : "skip",
-  );
-  const [entriesNowMs] = useState(() => Date.now());
-  const myEntries = useQuery(
-    api.pools.listMyPoolEntries,
-    isAuthenticated ? { poolId, nowMs: entriesNowMs } : "skip",
   );
   const dropPoolEntry = useMutation(api.pools.dropPoolEntry);
   // Keep last successful board so week switches don't tear down the shell.
@@ -133,30 +141,21 @@ export function WeekBoardView({
   const [pendingTeamId, setPendingTeamId] = useState<Id<"nflTeams"> | null>(
     null,
   );
-  const [materializedWeek, setMaterializedWeek] = useState<number | null>(null);
-  const [sheetEnsuredKey, setSheetEnsuredKey] = useState<string | null>(null);
-  const [localConfidence, setLocalConfidence] = useState<
-    Record<string, number>
-  >({});
-  const [tiebreakerDraft, setTiebreakerDraft] = useState<string>("");
+  const materializedWeekRef = useRef<number | null>(null);
+  const sheetEnsuredKeyRef = useRef<string | null>(null);
+  const [localConfidenceDraft, setLocalConfidenceDraft] = useState<{
+    sourceKey: string;
+    values: Record<string, number>;
+  } | null>(null);
+  const [localTiebreakerDraft, setLocalTiebreakerDraft] = useState<{
+    sourceKey: string;
+    value: string;
+  } | null>(null);
   const [confidenceConflict, setConfidenceConflict] = useState<string | null>(
     null,
   );
   const [addingEntry, setAddingEntry] = useState(false);
   const [droppingEntry, setDroppingEntry] = useState(false);
-
-  useEffect(() => {
-    if (!myEntries?.entries.length) return;
-    setActiveEntryId((current) => {
-      if (
-        current &&
-        myEntries.entries.some((entry) => entry.entryId === current)
-      ) {
-        return current;
-      }
-      return myEntries.entries[0]!.entryId;
-    });
-  }, [myEntries]);
 
   const { setContextRail } = usePoolChrome();
   usePoolChromeName(shellBoard?.pool.name);
@@ -182,19 +181,19 @@ export function WeekBoardView({
     setTrust({ status: "idle" });
     setToast(null);
     setPendingTeamId(null);
-    setLocalConfidence({});
-    setTiebreakerDraft("");
+    setLocalConfidenceDraft(null);
+    setLocalTiebreakerDraft(null);
     setConfidenceConflict(null);
   }
 
   function selectEntry(nextEntryId: Id<"poolEntries">) {
     if (nextEntryId === activeEntryId) return;
-    setActiveEntryId(nextEntryId);
+    setSelectedEntryId(nextEntryId);
     setTrust({ status: "idle" });
     setToast(null);
     setPendingTeamId(null);
-    setLocalConfidence({});
-    setTiebreakerDraft("");
+    setLocalConfidenceDraft(null);
+    setLocalTiebreakerDraft(null);
     setConfidenceConflict(null);
   }
 
@@ -219,7 +218,7 @@ export function WeekBoardView({
     setDroppingEntry(true);
     try {
       await dropPoolEntry({ poolId, entryId: activeEntryId });
-      setActiveEntryId(null);
+      setSelectedEntryId(null);
     } catch (err) {
       setToast({
         title: "Couldn't drop entry",
@@ -235,59 +234,65 @@ export function WeekBoardView({
     if (!board || board.pool.type !== "confidence") return;
     if (!activeEntryId) return;
     const key = `${board.week}:${activeEntryId}`;
-    if (sheetEnsuredKey === key) return;
-    setSheetEnsuredKey(key);
+    if (sheetEnsuredKeyRef.current === key) return;
+    sheetEnsuredKeyRef.current = key;
     void ensurePickSheet({
       poolId,
       week: board.week,
       entryId: activeEntryId,
     }).catch(() => {
-      setSheetEnsuredKey(null);
+      sheetEnsuredKeyRef.current = null;
     });
-  }, [activeEntryId, board, ensurePickSheet, poolId, sheetEnsuredKey]);
+  }, [activeEntryId, board, ensurePickSheet, poolId]);
 
   // Materialize locks once when any slate game has reached kickoff/cutoff.
   useEffect(() => {
     if (!board) return;
     if (!board.slate.some((g) => g.locked)) return;
-    if (materializedWeek === board.week) return;
-    setMaterializedWeek(board.week);
+    if (materializedWeekRef.current === board.week) return;
+    materializedWeekRef.current = board.week;
     const run =
       board.pool.type === "survivor"
         ? materializeSurvivor({ poolId, week: board.week })
         : materializeConfidence({ poolId, week: board.week });
     void run.catch(() => {
-      setMaterializedWeek(null);
+      materializedWeekRef.current = null;
     });
-  }, [
-    board,
-    materializeConfidence,
-    materializeSurvivor,
-    materializedWeek,
-    poolId,
-  ]);
+  }, [board, materializeConfidence, materializeSurvivor, poolId]);
 
-  // Sync local confidence map from server set (entry-scoped when available).
-  useEffect(() => {
-    const source =
-      activeEntryId && entryConfidencePickSet !== undefined
-        ? entryConfidencePickSet
-        : board?.myConfidencePickSet;
-    if (!source) return;
-    const next: Record<string, number> = {};
-    for (const p of source.picks) {
-      next[p.gameId] = p.confidenceValue;
+  // Layer unsaved edits over the entry-scoped server set. A changed server
+  // fingerprint invalidates only the corresponding local draft.
+  const confidenceSource =
+    activeEntryId && entryConfidencePickSet !== undefined
+      ? entryConfidencePickSet
+      : board?.myConfidencePickSet;
+  const confidenceValuesSourceKey = confidenceSource
+    ? `${activeEntryId ?? "participant"}:${confidenceSource.picks
+        .map((pick) => `${pick.gameId}:${pick.confidenceValue}`)
+        .join(",")}`
+    : null;
+  const serverConfidence: Record<string, number> = {};
+  if (confidenceSource) {
+    for (const p of confidenceSource.picks) {
+      serverConfidence[p.gameId] = p.confidenceValue;
     }
-    setLocalConfidence(next);
-    if (source.tiebreakerPrediction !== null && tiebreakerDraft === "") {
-      setTiebreakerDraft(String(source.tiebreakerPrediction));
-    }
-  }, [
-    activeEntryId,
-    board?.myConfidencePickSet,
-    entryConfidencePickSet,
-    tiebreakerDraft,
-  ]);
+  }
+  const localConfidence =
+    localConfidenceDraft?.sourceKey === confidenceValuesSourceKey
+      ? localConfidenceDraft.values
+      : serverConfidence;
+  const tiebreakerSourceKey = confidenceSource
+    ? `${activeEntryId ?? "participant"}:${confidenceSource.tiebreakerPrediction ?? ""}`
+    : null;
+  const serverTiebreakerDraft =
+    confidenceSource?.tiebreakerPrediction === null ||
+    confidenceSource?.tiebreakerPrediction === undefined
+      ? ""
+      : String(confidenceSource.tiebreakerPrediction);
+  const tiebreakerDraft =
+    localTiebreakerDraft?.sourceKey === tiebreakerSourceKey
+      ? localTiebreakerDraft.value
+      : serverTiebreakerDraft;
 
   if (!isAuthenticated && !isLoading) {
     return (
@@ -533,7 +538,11 @@ export function WeekBoardView({
       nextLocal[swapTarget.gameId] = currentValue;
     }
     nextLocal[gameId] = nextValue;
-    setLocalConfidence(nextLocal);
+    if (!confidenceValuesSourceKey) return;
+    setLocalConfidenceDraft({
+      sourceKey: confidenceValuesSourceKey,
+      values: nextLocal,
+    });
 
     const reorder = unlocked.map((p) => ({
       gameId: p.gameId,
@@ -550,7 +559,10 @@ export function WeekBoardView({
       for (const p of mySet.picks) {
         revert[p.gameId] = p.confidenceValue;
       }
-      setLocalConfidence(revert);
+      setLocalConfidenceDraft({
+        sourceKey: confidenceValuesSourceKey,
+        values: revert,
+      });
       return;
     }
 
@@ -571,7 +583,10 @@ export function WeekBoardView({
         for (const p of mySet.picks) {
           revert[p.gameId] = p.confidenceValue;
         }
-        setLocalConfidence(revert);
+        setLocalConfidenceDraft({
+          sourceKey: confidenceValuesSourceKey,
+          values: revert,
+        });
       } else if (result.saveTrust.status === "error") {
         setTrust({
           status: "error",
@@ -1031,7 +1046,13 @@ export function WeekBoardView({
             inputMode="numeric"
             disabled={mySet.tiebreakerLocked}
             value={tiebreakerDraft}
-            onChange={(e) => setTiebreakerDraft(e.target.value)}
+            onChange={(e) => {
+              if (!tiebreakerSourceKey) return;
+              setLocalTiebreakerDraft({
+                sourceKey: tiebreakerSourceKey,
+                value: e.target.value,
+              });
+            }}
             onBlur={() => void onTiebreakerBlur()}
             className="min-h-11 w-full max-w-xs rounded-[10px] border border-op-border bg-op-surface px-3 text-sm"
             aria-label="Weekly Tiebreaker Prediction"

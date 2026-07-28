@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
+import { OperatorCutoverPanel } from "@/components/OperatorCutoverPanel";
 import { OperatorIncidentsPanel } from "@/components/OperatorIncidentsPanel";
 import { OperatorScoringHoldsPanel } from "@/components/OperatorScoringHoldsPanel";
 import { OperatorResultOverridesPanel } from "@/components/OperatorResultOverridesPanel";
@@ -60,6 +61,7 @@ export default function OperatorPage() {
 
   return (
     <div>
+      <OperatorCutoverPanel />
       <OperatorQualificationPanel />
       <OperatorProviderReliabilityPanel />
       <OperatorProviderEvidencePanel />

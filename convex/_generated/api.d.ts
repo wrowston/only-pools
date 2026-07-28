@@ -12,6 +12,7 @@ import type * as bootstrap from "../bootstrap.js";
 import type * as confidencePicks from "../confidencePicks.js";
 import type * as confidenceScoring from "../confidenceScoring.js";
 import type * as crons from "../crons.js";
+import type * as cutoverVerification from "../cutoverVerification.js";
 import type * as effect_apiSports_client from "../effect/apiSports/client.js";
 import type * as effect_apiSports_reliableFetch from "../effect/apiSports/reliableFetch.js";
 import type * as effect_apiSports_schemas from "../effect/apiSports/schemas.js";
@@ -112,6 +113,7 @@ declare const fullApi: ApiFromModules<{
   confidencePicks: typeof confidencePicks;
   confidenceScoring: typeof confidenceScoring;
   crons: typeof crons;
+  cutoverVerification: typeof cutoverVerification;
   "effect/apiSports/client": typeof effect_apiSports_client;
   "effect/apiSports/reliableFetch": typeof effect_apiSports_reliableFetch;
   "effect/apiSports/schemas": typeof effect_apiSports_schemas;

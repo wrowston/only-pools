@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { StatusBannerMessage } from "./StatusBannerMessage";
 
@@ -10,7 +10,11 @@ import { StatusBannerMessage } from "./StatusBannerMessage";
  * Polite aria-live only here and SaveTrust (scenario 47).
  */
 export function StatusBanner() {
-  const banner = useQuery(api.incidents.getParticipantStatusBanner);
+  const { isAuthenticated } = useConvexAuth();
+  const banner = useQuery(
+    api.incidents.getParticipantStatusBanner,
+    isAuthenticated ? {} : "skip",
+  );
 
   if (banner === undefined || banner === null) {
     return null;
