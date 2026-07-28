@@ -596,7 +596,14 @@ export const getScheduleSeason = internalQuery({
   handler: async (ctx, args) => {
     const season = await ctx.db.get(args.seasonId);
     if (!season) return null;
-    return { seasonId: season._id, year: season.year };
+    return {
+      seasonId: season._id,
+      year: season.year,
+      competitionPhase:
+        season.competitionPhase === "preseason"
+          ? ("preseason" as const)
+          : ("regular_season" as const),
+    };
   },
 });
 
@@ -677,7 +684,12 @@ export const runClaimedScheduleFetch = internalAction({
           }),
         },
       });
-      const games = await runEffect(provider.listSeasonGames(season.year));
+      const games = await runEffect(
+        provider.listSeasonGames(
+          season.year,
+          season.competitionPhase,
+        ),
+      );
       providerSucceeded = true;
       await reliable.recordOutcome({
         success: true,

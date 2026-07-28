@@ -55,6 +55,8 @@ export type SportsDataSeasonPhase =
   | "postseason"
   | "unknown";
 
+export type SportsDataSchedulePhase = "preseason" | "regular_season";
+
 /** Raw provider status retained as evidence behind a neutral shape. */
 export type SportsDataStatusObservation = Readonly<{
   rawShort: string;
@@ -111,6 +113,7 @@ export interface SportsDataProvider<Error = unknown> {
   listTeams(): Effect.Effect<readonly SportsDataTeam[], Error>;
   listSeasonGames(
     seasonYear: number,
+    phase?: SportsDataSchedulePhase,
   ): Effect.Effect<readonly SportsDataGameObservation[], Error>;
   listLiveGames(): Effect.Effect<
     readonly SportsDataGameObservation[],

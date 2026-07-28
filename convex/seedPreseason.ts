@@ -18,6 +18,7 @@ import {
   env,
   internalAction,
   internalMutation,
+  internalQuery,
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { createApiSportsClient } from "./effect/apiSports/client";
@@ -95,6 +96,18 @@ type SeedResult = PersistResult & {
   skippedPreseasonRowCount: number;
 };
 
+type PreseasonRefreshTarget = {
+  poolId: Id<"pools">;
+  seasonId: Id<"poolSeasons">;
+};
+
+type PreseasonRefreshResult = PreseasonRefreshTarget & {
+  observedAtMs: number;
+  gameCount: number;
+  scheduleStatuses: Record<string, number>;
+  liveStatuses: Record<string, number>;
+};
+
 function assertDevelopmentDeployment(): void {
   const kind = resolveDeploymentKind(
     process.env as Record<string, string | undefined>,
@@ -108,11 +121,15 @@ function assertDevelopmentDeployment(): void {
 
 function apiSportsAlias(
   aliases: readonly SportsDataProviderAlias[],
-): SportsDataProviderAlias | null {
+): (SportsDataProviderAlias & { provider: "api-sports" }) | null {
   const matches = aliases.filter(
     (alias) => alias.provider === "api-sports",
   );
-  return matches.length === 1 ? matches[0]! : null;
+  return matches.length === 1
+    ? (matches[0]! as SportsDataProviderAlias & {
+        provider: "api-sports";
+      })
+    : null;
 }
 
 function isPreseasonStage(stage: string): boolean {
@@ -265,9 +282,12 @@ export function validatePreseasonSeedGames(
   );
 }
 
-export function assertCompletePreseasonSlate(
-  games: readonly PreseasonSeedGame[],
-): PreseasonSeedGame[] {
+export function assertCompletePreseasonSlate<
+  Game extends Pick<
+    PreseasonSeedGame,
+    "week" | "homeTeamAbbreviation" | "awayTeamAbbreviation"
+  >,
+>(games: readonly Game[]): Game[] {
   if (games.length !== 48) {
     throw new Error(
       `Expected the complete three-week preseason slate (48 games), received ${games.length}`,
@@ -296,6 +316,30 @@ export function assertCompletePreseasonSlate(
   }
   return [...games];
 }
+
+export const getPreseasonRefreshTarget = internalQuery({
+  args: { poolId: v.id("pools") },
+  handler: async (ctx, args): Promise<PreseasonRefreshTarget | null> => {
+    const pool = await ctx.db.get(args.poolId);
+    if (
+      !pool ||
+      pool.type !== "survivor" ||
+      pool.startWeek !== 1 ||
+      pool.finalWeek !== PRESEASON_FINAL_WEEK
+    ) {
+      return null;
+    }
+    const season = await ctx.db.get(pool.seasonId);
+    if (
+      !season ||
+      season.year !== PRESEASON_YEAR ||
+      season.competitionPhase !== "preseason"
+    ) {
+      return null;
+    }
+    return { poolId: pool._id, seasonId: season._id };
+  },
+});
 
 async function upsertTeam(
   ctx: MutationCtx,
@@ -679,6 +723,117 @@ export const seedApiSportsPreseasonPool = internalAction({
       providerRowCount: response.data.length,
       normalizedPreseasonRowCount: games.length,
       skippedPreseasonRowCount: preseasonRows.length - games.length,
+    };
+  },
+});
+
+/**
+ * Development-only targeted refresh for this preseason Pool. This deliberately
+ * does not enable the deployment-wide qualified Sync Gate.
+ */
+export const refreshApiSportsPreseasonPool = internalAction({
+  args: { poolId: v.id("pools") },
+  handler: async (ctx, args): Promise<PreseasonRefreshResult> => {
+    assertDevelopmentDeployment();
+    const target: PreseasonRefreshTarget | null = await ctx.runQuery(
+      internal.seedPreseason.getPreseasonRefreshTarget,
+      args,
+    );
+    if (!target) {
+      throw new Error("The selected Pool is not the 2026 preseason test pool");
+    }
+    const apiKey = env.API_SPORTS_KEY?.trim();
+    if (!apiKey) {
+      throw new Error(
+        "API-Sports is not configured for this development deployment",
+      );
+    }
+
+    const client = createApiSportsClient({ apiKey });
+    const response = await runEffect(
+      client.fetchSeasonGames(PRESEASON_YEAR),
+    );
+    const inScopeRows = response.data.filter(
+      (row) =>
+        isPreseasonStage(row.game.stage) &&
+        rawSeedWeek(row.game.week) !== null,
+    );
+    const games = assertCompletePreseasonSlate(
+      await runEffect(
+        Effect.all(
+          inScopeRows.map((row) =>
+            normalizeApiSportsGame(row, response.observedAtMs),
+          ),
+          { concurrency: "unbounded" },
+        ),
+      ),
+    );
+
+    const scheduleStatuses = new Map<string, number>();
+    const liveStatuses = new Map<string, number>();
+    for (const game of games) {
+      if (
+        game.seasonYear !== PRESEASON_YEAR ||
+        game.seasonPhase !== "preseason"
+      ) {
+        throw new Error("API-Sports returned an out-of-scope preseason game");
+      }
+      const alias = apiSportsAlias(game.providerAliases);
+      if (!alias) {
+        throw new Error("A preseason game is missing its API-Sports alias");
+      }
+      const schedule = await ctx.runMutation(
+        internal.syncSchedule.applyScheduleGameObservation,
+        {
+          seasonId: target.seasonId,
+          observation: {
+            seasonYear: game.seasonYear,
+            week: game.week,
+            homeTeamAbbreviation: game.homeTeamAbbreviation,
+            awayTeamAbbreviation: game.awayTeamAbbreviation,
+            scheduledKickoffMs: game.scheduledKickoffMs,
+            lifecycle: game.lifecycle,
+            observedAtMs: game.observedAtMs,
+            providerAlias: alias,
+            providerStatus: {
+              rawShort: game.providerStatus.rawShort,
+              rawLong: game.providerStatus.rawLong,
+              recognized: game.providerStatus.recognized,
+            },
+          },
+        },
+      );
+      scheduleStatuses.set(
+        schedule.status,
+        (scheduleStatuses.get(schedule.status) ?? 0) + 1,
+      );
+
+      const live = await ctx.runMutation(
+        internal.syncApiSportsLive.applyObservation,
+        {
+          observation: {
+            externalId: alias.id,
+            observedAtMs: game.observedAtMs,
+            lifecycle: game.lifecycle,
+            homeScore: game.homeScore,
+            awayScore: game.awayScore,
+            providerStatus: game.providerStatus,
+          },
+        },
+      );
+      liveStatuses.set(
+        live.status,
+        (liveStatuses.get(live.status) ?? 0) + 1,
+      );
+    }
+
+    return {
+      poolId: target.poolId,
+      seasonId: target.seasonId,
+      observedAtMs: response.observedAtMs,
+      gameCount: games.length,
+      scheduleStatuses: Object.fromEntries(scheduleStatuses),
+      liveStatuses: Object.fromEntries(liveStatuses),
     };
   },
 });

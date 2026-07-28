@@ -526,7 +526,7 @@ describe("API-Sports schedule synchronization", () => {
     expect(rowsAfterFirst[0]?.status).toBe("claimed");
   });
 
-  it("polls an Available preseason slate live without routine schedule sync", async () => {
+  it("queues phase-aware schedule and live work for an Available preseason slate", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSchedule(t);
     await t.run(async (ctx) => {
@@ -547,7 +547,13 @@ describe("API-Sports schedule synchronization", () => {
       await ctx.db.query("syncWorkItems").take(10),
     );
 
-    expect(work.some((item) => item.surface === "schedule")).toBe(false);
+    expect(
+      work.some(
+        (item) =>
+          item.surface === "schedule" &&
+          item.seasonId === seeded.seasonId,
+      ),
+    ).toBe(true);
     expect(work.some((item) => item.surface === "live")).toBe(true);
   });
 

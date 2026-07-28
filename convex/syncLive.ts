@@ -364,36 +364,32 @@ async function enqueuePhaseAwareWork(
       .withIndex("by_seasonId", (q) => q.eq("seasonId", season._id))
       .take(MAX_NFL_GAMES_PER_SEASON);
 
-    // Preseason schedules are imported by the guarded dev seeder. Routine
-    // schedule sync is regular-season-only and must not overwrite that slate.
-    if (season.competitionPhase !== "preseason") {
-      const scheduleKey = `schedule:${season._id}`;
-      const scheduleWork = await ctx.db
-        .query("syncWorkItems")
-        .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scheduleKey))
-        .unique();
-      if (!scheduleWork) {
-        await ctx.db.insert("syncWorkItems", {
-          surface: "schedule",
-          scopeKey: scheduleKey,
-          priority: "routine",
-          status: "due",
-          dueAtMs: nowMs,
-          attemptCount: 0,
-          seasonId: season._id,
-          purpose: "season_schedule",
-        });
-      } else if (
-        scheduleWork.status === "done" ||
-        scheduleWork.status === "failed"
-      ) {
-        await ctx.db.patch(scheduleWork._id, {
-          status: "due",
-          dueAtMs: nowMs,
-          claimedAtMs: undefined,
-          leaseExpiresAtMs: undefined,
-        });
-      }
+    const scheduleKey = `schedule:${season._id}`;
+    const scheduleWork = await ctx.db
+      .query("syncWorkItems")
+      .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scheduleKey))
+      .unique();
+    if (!scheduleWork) {
+      await ctx.db.insert("syncWorkItems", {
+        surface: "schedule",
+        scopeKey: scheduleKey,
+        priority: "routine",
+        status: "due",
+        dueAtMs: nowMs,
+        attemptCount: 0,
+        seasonId: season._id,
+        purpose: "season_schedule",
+      });
+    } else if (
+      scheduleWork.status === "done" ||
+      scheduleWork.status === "failed"
+    ) {
+      await ctx.db.patch(scheduleWork._id, {
+        status: "due",
+        dueAtMs: nowMs,
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      });
     }
 
     needsLeagueLive ||= games.some((game) =>

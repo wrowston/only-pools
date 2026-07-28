@@ -6,6 +6,7 @@ import type {
   SportsDataProvider,
   SportsDataProviderHealth,
   SportsDataProviderAlias,
+  SportsDataSchedulePhase,
   SportsDataTeam,
 } from "./types";
 
@@ -46,9 +47,14 @@ export class InMemorySportsDataProvider
 
   listSeasonGames(
     seasonYear: number,
+    phase: SportsDataSchedulePhase = "regular_season",
   ): Effect.Effect<readonly SportsDataGameObservation[]> {
     return Effect.succeed(
-      this.#games.filter((game) => game.seasonYear === seasonYear),
+      this.#games.filter(
+        (game) =>
+          game.seasonYear === seasonYear &&
+          game.seasonPhase === phase,
+      ),
     );
   }
 

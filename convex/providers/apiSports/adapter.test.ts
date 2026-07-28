@@ -162,13 +162,23 @@ describe("ApiSportsProvider", () => {
       nowMs: () => Date.parse("2026-09-14T01:30:30Z"),
     });
 
-    const game = await Effect.runPromise(
-      provider.getGame({ provider: "api-sports", id: "77776" }),
-    );
+    const [game, preseasonSchedule] = await Promise.all([
+      Effect.runPromise(
+        provider.getGame({ provider: "api-sports", id: "77776" }),
+      ),
+      Effect.runPromise(
+        provider.listSeasonGames(2026, "preseason"),
+      ),
+    ]);
 
     expect(game).toMatchObject({
       providerAliases: [{ provider: "api-sports", id: "77776" }],
       providerStage: "Pre Season",
+      seasonPhase: "preseason",
+    });
+    expect(preseasonSchedule).toHaveLength(1);
+    expect(preseasonSchedule[0]).toMatchObject({
+      providerAliases: [{ provider: "api-sports", id: "77776" }],
       seasonPhase: "preseason",
     });
   });
