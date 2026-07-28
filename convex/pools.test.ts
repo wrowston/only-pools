@@ -176,6 +176,30 @@ describe("createPool", () => {
     expect(result.inviteUrl).toBe(`/join/${invites[0]!.credentialSecret}`);
   });
 
+  it("ignores an Available preseason test season in ordinary Create Pool", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("poolSeasons", {
+        label: "2026 Preseason",
+        year: 2026,
+        status: "available",
+        competitionPhase: "preseason",
+      });
+    });
+    const { seasonId } = await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Regular Season Only",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    expect(created.seasonId).toBe(seasonId);
+  });
+
   it("rejects Start Week with missing slate", async () => {
     const t = convexTest(schema, modules);
     await seedAvailableSeasonWithSlate(t);

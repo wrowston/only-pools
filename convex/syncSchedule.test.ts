@@ -526,6 +526,31 @@ describe("API-Sports schedule synchronization", () => {
     expect(rowsAfterFirst[0]?.status).toBe("claimed");
   });
 
+  it("polls an Available preseason slate live without routine schedule sync", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSchedule(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.seasonId, {
+        competitionPhase: "preseason",
+      });
+      await ctx.db.patch(seeded.gameId, {
+        scheduledKickoffMs: observedAtMs + 5 * 60 * 1000,
+      });
+    });
+    await t.mutation(internal.sync.ensureSyncGate, { enabled: true });
+
+    await t.mutation(internal.syncLive.dispatchSyncWork, {
+      nowMs: observedAtMs,
+      maxClaims: 0,
+    });
+    const work = await t.run(async (ctx) =>
+      await ctx.db.query("syncWorkItems").take(10),
+    );
+
+    expect(work.some((item) => item.surface === "schedule")).toBe(false);
+    expect(work.some((item) => item.surface === "live")).toBe(true);
+  });
+
   it("bounds phase-aware work to four Available Seasons", async () => {
     const t = convexTest(schema, modules);
     const seasonIds = await t.run(async (ctx) => {

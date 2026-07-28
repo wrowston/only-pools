@@ -96,6 +96,10 @@ export default defineSchema({
     label: v.string(),
     year: v.number(),
     status: v.union(v.literal("bootstrapping"), v.literal("available")),
+    /** Absent on legacy rows and interpreted as regular season. */
+    competitionPhase: v.optional(
+      v.union(v.literal("regular_season"), v.literal("preseason")),
+    ),
     usableStartWeek: v.optional(v.number()),
     bootstrappedAtMs: v.optional(v.number()),
   })
@@ -725,6 +729,11 @@ export default defineSchema({
     type: poolType,
     seasonId: v.id("poolSeasons"),
     startWeek: v.number(),
+    /**
+     * Last included Survivor week. Absent means the regular-season default
+     * (Week 18) for legacy and ordinary pools.
+     */
+    finalWeek: v.optional(v.number()),
     pickLockMode: pickLockMode,
     status: v.union(v.literal("active"), v.literal("completed")),
     /** True after first accepted competitive edit or first Pick Lock. */
