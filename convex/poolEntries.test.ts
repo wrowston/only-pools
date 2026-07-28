@@ -47,14 +47,12 @@ async function seedAvailableSeasonWithSlate(t: ReturnType<typeof convexTest>) {
       name: "Kansas City Chiefs",
       abbreviation: "KC",
       logoUrl: "https://example.com/kc.png",
-      sportsDbTeamId: "134934",
     });
     const awayId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
       logoUrl: "https://example.com/buf.png",
-      sportsDbTeamId: "134918",
     });
     await ctx.db.insert("nflGames", {
       stableKey: "nfl:2025:w1:buf@kc",
@@ -67,7 +65,6 @@ async function seedAvailableSeasonWithSlate(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1",
     });
     return { seasonId, homeId, awayId, week1Kickoff };
   });

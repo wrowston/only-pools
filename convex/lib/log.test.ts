@@ -44,13 +44,13 @@ describe("server log helpers", () => {
     });
   });
 
-  it("redacts TheSportsDB API keys in URLs", () => {
+  it("redacts query-string API keys without provider-specific URL handling", () => {
     expect(
       redactProviderUrl(
-        "https://www.thesportsdb.com/api/v1/json/PAID_KEY/lookupevent.php?id=1",
+        "https://provider.example/api/v1/json/resource?api_key=PAID_KEY&id=1",
       ),
     ).toBe(
-      "https://www.thesportsdb.com/api/v1/json/[redacted]/lookupevent.php?id=1",
+      "https://provider.example/api/v1/json/resource?api_key=[redacted]&id=1",
     );
   });
 

@@ -3,6 +3,14 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import {
+  inspectNflGameIdentityByAlias,
+  inspectNflTeamIdentityByAlias,
+} from "./providers/sportsData/identityStore";
+import {
+  CANONICAL_NFL_TEAMS,
+  type CanonicalNflTeamAbbreviation,
+} from "./providers/sportsData/catalog";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -68,6 +76,7 @@ describe("seedDemoWorld (browse-ready)", () => {
       ownerClerkUserId: OWNER_CLERK,
       poolCount: 4,
       fakeUserCount: 8,
+      includeApiSportsGameAliases: true,
     });
 
     expect(result.teamCount).toBe(32);
@@ -105,6 +114,76 @@ describe("seedDemoWorld (browse-ready)", () => {
     });
     expect(season?.status).toBe("available");
     expect(season?.usableStartWeek).toBe(1);
+
+    const seededTeams = await t.run(async (ctx) =>
+      await ctx.db.query("nflTeams").collect(),
+    );
+    expect(seededTeams).toHaveLength(32);
+    for (const team of seededTeams) {
+      const canonical =
+        CANONICAL_NFL_TEAMS[
+          team.abbreviation as CanonicalNflTeamAbbreviation
+        ];
+      expect(team).toMatchObject({
+        stableKey: canonical.stableKey,
+        abbreviation: canonical.abbreviation,
+        name: canonical.name,
+        logoUrl: canonical.logoUrl,
+      });
+      expect(Object.keys(team).sort()).toEqual(
+        [
+          "_creationTime",
+          "_id",
+          "abbreviation",
+          "logoUrl",
+          "name",
+          "stableKey",
+        ].sort(),
+      );
+    }
+
+    const demoTeamIdentity = await t.run(async (ctx) =>
+      await inspectNflTeamIdentityByAlias(ctx, {
+        provider: "in-memory",
+        externalId: "seed-team-DET",
+      }),
+    );
+    const demoGameIdentity = await t.run(async (ctx) =>
+      await inspectNflGameIdentityByAlias(ctx, {
+        provider: "in-memory",
+        externalId: "seed_evt_w1_BAL_ATL",
+      }),
+    );
+    const demoApiSportsGameIdentity = await t.run(async (ctx) =>
+      await inspectNflGameIdentityByAlias(ctx, {
+        provider: "api-sports",
+        externalId: "e2e_w1_BAL_ATL",
+      }),
+    );
+    expect(demoTeamIdentity.stableKey).toBe(
+      "nfl-team:franchise-11",
+    );
+    expect(demoGameIdentity).toMatchObject({
+      stableKey: "nfl-game:2025:w1:franchise-3@franchise-2",
+      aliases: [
+        {
+          provider: "in-memory",
+          externalId: "seed_evt_w1_BAL_ATL",
+          isCurrent: true,
+        },
+      ],
+    });
+    expect(demoGameIdentity.scheduleHistoryMs).toHaveLength(1);
+    expect(demoApiSportsGameIdentity).toMatchObject({
+      stableKey: "nfl-game:2025:w1:franchise-3@franchise-2",
+      aliases: [
+        {
+          provider: "api-sports",
+          externalId: "e2e_w1_BAL_ATL",
+          isCurrent: true,
+        },
+      ],
+    });
 
     const slate = await t.run(async (ctx) => {
       const games = await ctx.db

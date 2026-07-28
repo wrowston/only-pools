@@ -61,7 +61,7 @@ A participant who belongs to a Pool without ownership or delegated administratio
 _Avoid_: User, player
 
 **Production Operator**:
-The single allowlisted service-level human responsible for Season Bootstrap, the Production Sync Gate, investigating NFL-data and scoring failures, and, when automatic recovery is insufficient, initiating audited resynchronization or deterministic replay; this authority is separate from every Pool role and cannot edit authoritative NFL facts or competitive inputs.
+The single allowlisted service-level human responsible for Season Bootstrap, the Production Sync Gate, investigating NFL-data and scoring failures, resolving Scoring Holds, and setting or releasing Pinned Production Operator Overrides when automatic recovery is insufficient. This authority is separate from every Pool role, requires Step-up Verification for result overrides, and cannot edit participant picks or bypass deterministic scoring and correction policy.
 _Avoid_: Pool Admin, commissioner, support admin
 
 **Sync Gate**:
@@ -69,7 +69,7 @@ An application-level enable or disable for provider synchronization fetch work o
 _Avoid_: Deployment pause, kill switch, cron disable
 
 **Operator Incident**:
-A production-only record that an automatic recovery path needs human attention — such as a Provider Exception, Stale live or confirmation work in an active game window, delayed scoring after a Verified Result, a quarantine blocking verification, or a Convex capacity incident — including its acknowledgment, recovery actions, and resolution.
+A production-only record that an automatic recovery path needs human attention — such as a Provider Exception, delayed live ingestion in an active game window, delayed scoring after a Verified Result, a Scoring Hold requiring review, or a Convex capacity incident — including its acknowledgment, recovery actions, and resolution.
 _Avoid_: Alert, outage ticket, status page event
 
 **Participant**:
@@ -123,7 +123,7 @@ One provider-independent NFL team identity used by NFL Games, Survivor Picks, an
 _Avoid_: Provider team, team name
 
 **NFL Game**:
-One provider-independent NFL matchup in a Pool Season, identified internally and preserved through postponement, rescheduling, or replacement provider records. It may retain multiple TheSportsDB event IDs over its lifetime; a new provider record is reconciled automatically only when season, teams, and schedule history identify exactly one existing NFL Game, while ambiguous matches remain unresolved for operator review.
+One provider-independent NFL matchup in a Pool Season, identified internally and preserved through postponement, rescheduling, or replacement provider records. It may retain multiple provider event aliases over its lifetime; a new provider record is reconciled automatically only when season, teams, and schedule history identify exactly one existing NFL Game, while ambiguous matches remain unresolved for operator review.
 _Avoid_: Provider event, game record
 
 **Pool Week**:
@@ -147,19 +147,27 @@ An earlier Pool Week that still has at least one result required to settle its P
 _Avoid_: Current week, delayed week
 
 **Verified Result**:
-A terminal NFL game outcome that satisfies the selected provider's confirmation policy and has been successfully applied to the Pool's competitive results. Under TheSportsDB, matching terminal status and score observations must meet the required confirmation interval; the first `FT` or `AOT` observation remains provisional. A provisional final cannot determine elimination, standings, or Pool completion, and a later Corrected Result may supersede a Verified Result.
+A terminal NFL game outcome accepted immediately from the selected provider's first well-formed terminal observation with coherent scores. It may determine elimination, standings, and Pool completion as soon as deterministic scoring publishes it, and a later Corrected Result or active Pinned Production Operator Override may supersede it.
 _Avoid_: Final score, provisional result
 
 **Corrected Result**:
-An authoritative replacement for a previously applied Verified Result. It supersedes the prior outcome and re-evaluates every affected Pool result in Pool Week order while preserving the prior result in audit history.
+An authoritative replacement for a previously applied Verified Result after the provider reports a different terminal outcome. It is applied automatically and re-evaluates every affected Pool result in Pool Week order when no later competition depends on the prior outcome; otherwise each affected Pool receives a Scoring Hold until the Production Operator accepts the correction or pins an override. The prior result remains in audit history.
 _Avoid_: Commissioner override, manual score
+
+**Scoring Hold**:
+A Pool-specific pause on publishing new Scoring Revisions and official standings while an outcome-changing Corrected Result needs Production Operator resolution because later competition depends on the prior result. Existing standings remain visible and marked under review; provider synchronization, Pick Locks, Pool viewing, and otherwise-valid unlocked picks continue.
+_Avoid_: Pool pause, scoring freeze, provider outage
+
+**Pinned Production Operator Override**:
+A reasoned, audited NFL Game result set by the Production Operator with Step-up Verification that becomes the authoritative Verified Result until explicitly released. Provider observations continue to be retained but cannot overwrite the pin; release routes the latest provider result through the ordinary correction and Scoring Hold policy.
+_Avoid_: Commissioner score, database edit, permanent override
 
 **Scoring Revision**:
 An immutable official application of a specific set of authoritative competitive inputs to one Pool Week; a newer Scoring Revision may supersede it, while the prior revision remains part of the Pool's audit history.
 _Avoid_: Scoring run, snapshot version
 
 **Projected Result**:
-A clearly provisional competitive outcome derived from live or provisionally final NFL data for participant awareness. It may preview Confidence points or Survivor advancement but never changes official standings, eligibility, winner designations, or Pool completion.
+A clearly provisional competitive outcome derived from live NFL data for participant awareness. It may preview Confidence points or Survivor advancement but never changes official standings, eligibility, winner designations, or Pool completion.
 _Avoid_: Live result, unofficial result
 
 **Pick Window**:

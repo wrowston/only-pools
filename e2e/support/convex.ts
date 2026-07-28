@@ -36,6 +36,7 @@ export type TestGame = {
   gameId: string;
   homeTeamId: string;
   awayTeamId: string;
+  apiSportsExternalId: string;
   homeAbbreviation: string;
   awayAbbreviation: string;
 };
@@ -63,14 +64,27 @@ export async function findPoolGameForTeam(
     for (const game of games) {
       const home = await ctx.db.get(game.homeTeamId);
       const away = await ctx.db.get(game.awayTeamId);
+      const providerAlias = await ctx.db
+        .query("nflGameAliases")
+        .withIndex("by_nflGameId_and_provider_and_isCurrent", (q) =>
+          q
+            .eq("nflGameId", game._id)
+            .eq("provider", "api-sports")
+            .eq("isCurrent", true)
+        )
+        .unique();
       if (
-        home?.abbreviation === "${teamAbbreviation}" ||
-        away?.abbreviation === "${teamAbbreviation}"
+        providerAlias &&
+        (
+          home?.abbreviation === "${teamAbbreviation}" ||
+          away?.abbreviation === "${teamAbbreviation}"
+        )
       ) {
         return {
           gameId: game._id,
           homeTeamId: game.homeTeamId,
           awayTeamId: game.awayTeamId,
+          apiSportsExternalId: providerAlias.externalId,
           homeAbbreviation: home?.abbreviation ?? "",
           awayAbbreviation: away?.abbreviation ?? "",
         };
@@ -108,23 +122,19 @@ export async function verifySelectedTeamWin(
   const awayScore = selectedHome ? 17 : 24;
   const terminalAtMs = Date.now();
 
-  await runConvexFunction("syncLive:applyLiveObservation", {
+  await runConvexFunction("syncApiSportsLive:applyObservation", {
     observation: {
-      gameId: game.gameId,
+      externalId: game.apiSportsExternalId,
       observedAtMs: terminalAtMs,
       lifecycle: "terminal",
       homeScore,
       awayScore,
-      terminalStatus: "FT",
-    },
-  });
-  await runConvexFunction("syncLive:applyConfirmationObservationMutation", {
-    observation: {
-      gameId: game.gameId,
-      observedAtMs: terminalAtMs + 60 * 60 * 1_000 + 1,
-      homeScore,
-      awayScore,
-      status: "FT",
+      providerStatus: {
+        rawShort: "FT",
+        rawLong: "Finished",
+        recognized: true,
+        terminal: true,
+      },
     },
   });
 }

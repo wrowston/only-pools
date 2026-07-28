@@ -12,8 +12,37 @@ type IncidentRow = {
   _id: Id<"operatorIncidents">;
   type: string;
   status: string;
+  severity?: "warning" | "critical";
   summary: string;
+  operatorDetails?: {
+    provider: string;
+    lastSuccessfulIngestionAtMs: number | null;
+    delayedForMs: number | null;
+    thresholds: { warningMs: number; criticalMs: number };
+    quota: {
+      dailyUsed: number;
+      dailyLimit: number;
+      dailyRemaining: number | null;
+      minuteUsed: number;
+      minuteLimit: number;
+    } | null;
+    circuit: {
+      status: string;
+      consecutiveFailures: number;
+      lastFailureReason: string | null;
+    } | null;
+    exception: {
+      message: string;
+      createdAtMs: number;
+    } | null;
+  } | null;
 };
+
+function operatorTime(value: number | null | undefined): string {
+  return value === null || value === undefined
+    ? "No successful live update yet"
+    : new Date(value).toLocaleString();
+}
 
 /**
  * Minimal operator incidents panel for the allowlisted Production Operator.
@@ -30,6 +59,12 @@ export function OperatorIncidentsPanel() {
   const resolve = useMutation(api.incidents.resolveIncident);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [evidenceIncidentId, setEvidenceIncidentId] =
+    useState<Id<"operatorIncidents"> | null>(null);
+  const evidence = useQuery(
+    api.providerEvidence.listOperatorIncidentEvidence,
+    evidenceIncidentId ? { incidentId: evidenceIncidentId, limit: 50 } : "skip",
+  );
 
   if (me === undefined || !me.isOperator) {
     return null;
@@ -93,13 +128,85 @@ export function OperatorIncidentsPanel() {
             >
               <div>
                 <div className="font-medium text-zinc-900 dark:text-zinc-50">
-                  {inc.type} · {inc.status}
+                  {inc.type} · {inc.severity ?? "warning"} · {inc.status}
                 </div>
                 <div className="text-zinc-500 dark:text-zinc-400">
                   {inc.summary}
                 </div>
+                {inc.operatorDetails ? (
+                  <dl className="mt-2 grid gap-x-3 text-xs text-zinc-500 dark:text-zinc-400 sm:grid-cols-2">
+                    <div>
+                      <dt className="inline font-medium">Provider: </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.provider}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium">Last success: </dt>
+                      <dd className="inline">
+                        {operatorTime(
+                          inc.operatorDetails
+                            .lastSuccessfulIngestionAtMs,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium">Quota: </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.quota
+                          ? `${inc.operatorDetails.quota.dailyUsed}/${inc.operatorDetails.quota.dailyLimit} daily · ${inc.operatorDetails.quota.minuteUsed}/${inc.operatorDetails.quota.minuteLimit} minute`
+                          : "not initialized"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline font-medium">Circuit: </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.circuit
+                          ? `${inc.operatorDetails.circuit.status} (${inc.operatorDetails.circuit.consecutiveFailures} failures)`
+                          : "not initialized"}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="inline font-medium">
+                        Freshness thresholds:{" "}
+                      </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.thresholds.warningMs / 1_000}s
+                        warning ·{" "}
+                        {inc.operatorDetails.thresholds.criticalMs /
+                          1_000}
+                        s critical · delayed{" "}
+                        {inc.operatorDetails.delayedForMs === null
+                          ? "unknown"
+                          : `${Math.floor(inc.operatorDetails.delayedForMs / 1_000)}s`}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="inline font-medium">
+                        Latest exception:{" "}
+                      </dt>
+                      <dd className="inline">
+                        {inc.operatorDetails.exception?.message ?? "none"}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : null}
               </div>
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="underline"
+                  aria-expanded={evidenceIncidentId === inc._id}
+                  onClick={() =>
+                    setEvidenceIncidentId((current) =>
+                      current === inc._id ? null : inc._id,
+                    )
+                  }
+                >
+                  {evidenceIncidentId === inc._id
+                    ? "Hide evidence"
+                    : "Inspect evidence"}
+                </button>
                 {inc.status === "open" ? (
                   <button
                     type="button"
@@ -125,6 +232,63 @@ export function OperatorIncidentsPanel() {
           ))}
         </ul>
       )}
+      {evidenceIncidentId ? (
+        <div
+          className="mt-4 border border-zinc-200 p-4 text-sm dark:border-zinc-700"
+          data-provider-incident-evidence
+        >
+          <h2 className="font-semibold text-op-text">
+            Sanitized provider evidence
+          </h2>
+          {evidence === undefined ? (
+            <p className="mt-2 text-op-secondary">Loading evidence…</p>
+          ) : evidence.permanent.length === 0 &&
+            evidence.diagnostics.length === 0 ? (
+            <p className="mt-2 text-op-secondary">
+              No retained evidence is linked to this incident.
+            </p>
+          ) : (
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <h3 className="font-medium text-op-text">
+                  Meaningful transitions ({evidence.permanent.length})
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs text-op-secondary">
+                  {evidence.permanent.map((row) => (
+                    <li key={row._id}>
+                      {row.transitionKind} · {row.gameStableKey} ·{" "}
+                      {row.after.lifecycle} · score{" "}
+                      {row.after.awayScore ?? "—"}–
+                      {row.after.homeScore ?? "—"} ·{" "}
+                      {new Date(row.recordedAtMs).toLocaleString()}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-medium text-op-text">
+                  Recent diagnostics ({evidence.diagnostics.length})
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs text-op-secondary">
+                  {evidence.diagnostics.map((row) => (
+                    <li key={row._id}>
+                      {row.outcome} · {row.endpoint} · seen{" "}
+                      {row.observationCount}× · status{" "}
+                      {row.providerStatus.short ??
+                        (row.providerStatus.redacted
+                          ? "redacted"
+                          : "—")}{" "}
+                      · response{" "}
+                      {row.response.fingerprint?.slice(0, 12) ?? "—"} ·{" "}
+                      {new Date(row.lastRecordedAtMs).toLocaleString()}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

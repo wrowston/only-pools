@@ -3,7 +3,7 @@
  */
 
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
@@ -71,28 +71,24 @@ async function seedSurvivorWorld(
       name: "Kansas City Chiefs",
       abbreviation: "KC",
       logoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
-      sportsDbTeamId: "134934",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
     });
     const buf = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
       logoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
-      sportsDbTeamId: "134918",
+        "https://example.test/images/media/team/badge/6pb37b1515849026.png",
     });
     const phi = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:phi",
       name: "Philadelphia Eagles",
       abbreviation: "PHI",
-      sportsDbTeamId: "134936",
     });
     const dal = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:dal",
       name: "Dallas Cowboys",
       abbreviation: "DAL",
-      sportsDbTeamId: "134925",
     });
 
     const week1GameId = await ctx.db.insert("nflGames", {
@@ -106,7 +102,6 @@ async function seedSurvivorWorld(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1",
       resultAuthority: "none",
     });
 
@@ -123,7 +118,6 @@ async function seedSurvivorWorld(
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w2",
       });
     }
 
@@ -215,7 +209,244 @@ async function createPoolWithMembers(
   return { asAlex, poolId: pool.poolId, memberIds };
 }
 
+describe("scoreSurvivorPoolsForVerifiedGame fan-out", () => {
+  it("schedules bounded per-Pool scoring instead of discovering every Pool in one transaction", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    const { poolId } = await createPoolWithMembers(t);
+    const poolCount = 64;
+    await t.run(async (ctx) => {
+      const basePool = (await ctx.db.get(poolId))!;
+      for (let index = 1; index < poolCount; index++) {
+        await ctx.db.insert("pools", {
+          name: `Fan-out Pool ${index}`,
+          type: "survivor",
+          seasonId: seeded.seasonId,
+          startWeek: 1,
+          pickLockMode: "gameKickoff",
+          status: "active",
+          rulesFrozen: false,
+          ownerParticipantId: basePool.ownerParticipantId,
+          createdAtMs: Date.now(),
+        });
+      }
+    });
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+
+    vi.useFakeTimers();
+    try {
+      const result = await t.mutation(
+        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+        { gameId: seeded.week1GameId },
+      );
+      expect(result).toEqual({ scheduledPools: poolCount });
+      const beforeDrain = await t.run(async (ctx) =>
+        ctx.db.query("scoringRevisions").collect(),
+      );
+      expect(beforeDrain).toHaveLength(0);
+
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+      const afterDrain = await t.run(async (ctx) =>
+        ctx.db.query("scoringRevisions").collect(),
+      );
+      expect(afterDrain).toHaveLength(poolCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("commits multi-week replay through one scheduled week at a time", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    const { asAlex, poolId } = await createPoolWithMembers(t, {
+      members: ["blake"],
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.phi,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.dal,
+    });
+    await moveKickoffPast(t, seeded.week1GameId);
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+
+    vi.useFakeTimers();
+    try {
+      const discovery = await t.mutation(
+        internal.survivorScoring.scoreSurvivorPoolForVerifiedGame,
+        { gameId: seeded.week1GameId, poolId },
+      );
+      expect(discovery).toEqual({ scored: true, scheduledWeeks: 2 });
+      let revisions = await t.run(async (ctx) =>
+        ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect(),
+      );
+      expect(revisions).toHaveLength(0);
+
+      vi.runOnlyPendingTimers();
+      await t.finishInProgressScheduledFunctions();
+      revisions = await t.run(async (ctx) =>
+        ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect(),
+      );
+      expect(revisions.map((revision) => revision.week)).toEqual([1]);
+
+      vi.runOnlyPendingTimers();
+      await t.finishInProgressScheduledFunctions();
+      revisions = await t.run(async (ctx) =>
+        ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect(),
+      );
+      expect(revisions.map((revision) => revision.week)).toEqual([1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a completed Pool closed when duplicate workers see an identical revision", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    const { asAlex, poolId } = await createPoolWithMembers(t, {
+      members: ["blake"],
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.buf,
+    });
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.phi,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.dal,
+    });
+    await moveKickoffPast(t, seeded.week1GameId);
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+    await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId, week: 1 },
+    );
+
+    vi.useFakeTimers();
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await t.mutation(
+          internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
+          { gameId: seeded.week1GameId },
+        );
+      }
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const state = await t.run(async (ctx) => ({
+      pool: await ctx.db.get(poolId),
+      revisions: await ctx.db
+        .query("scoringRevisions")
+        .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+        .collect(),
+    }));
+    expect(state.pool).toMatchObject({
+      status: "completed",
+      completedWeek: 1,
+    });
+    expect(state.revisions.map((revision) => revision.week)).toEqual([1]);
+  });
+});
+
 describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
+  it("settles resolved entrant picks before unrelated slate games lock", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w1:dal@phi",
+        seasonId: seeded.seasonId,
+        seasonLabel: "2025",
+        week: 1,
+        homeTeamId: seeded.phi,
+        awayTeamId: seeded.dal,
+        scheduledKickoffMs: Date.now() + 2 * 24 * 60 * 60 * 1000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        resultAuthority: "none",
+      });
+    });
+    const { asAlex, poolId } = await createPoolWithMembers(t, {
+      members: ["blake"],
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.buf,
+    });
+    await moveKickoffPast(t, seeded.week1GameId);
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+
+    const result = await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId, week: 1 },
+    );
+
+    expect(result).toMatchObject({
+      status: "published",
+      weekSettled: true,
+      poolStatus: "completed",
+    });
+  });
+
   it("win keeps Alive; verified loss eliminates permanently (scenario 32)", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSurvivorWorld(t);
@@ -462,13 +693,11 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
         stableKey: "nfl:kc",
         name: "Kansas City Chiefs",
         abbreviation: "KC",
-        sportsDbTeamId: "134934",
       });
       const buf = await ctx.db.insert("nflTeams", {
         stableKey: "nfl:buf",
         name: "Buffalo Bills",
         abbreviation: "BUF",
-        sportsDbTeamId: "134918",
       });
       const gameId = await ctx.db.insert("nflGames", {
         stableKey: "nfl:2025:w18:buf@kc",
@@ -481,7 +710,6 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w18",
         resultAuthority: "none",
       });
       return { seasonId, kc, buf, gameId };
@@ -532,6 +760,40 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
     expect(denied).toBeNull();
   });
 
+  it("standings grid includes every remaining Survivor week", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t, { includeWeek2: false });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w5:buf@kc",
+        seasonId: seeded.seasonId,
+        seasonLabel: "2025",
+        week: 5,
+        homeTeamId: seeded.kc,
+        awayTeamId: seeded.buf,
+        scheduledKickoffMs: Date.now() + 35 * 24 * 60 * 60 * 1000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        resultAuthority: "none",
+      });
+    });
+    const { asAlex, poolId } = await createPoolWithMembers(t, {
+      startWeek: 5,
+    });
+
+    const grid = await asAlex.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId },
+    );
+
+    const expectedWeeks = Array.from({ length: 14 }, (_, index) => index + 5);
+    expect(grid?.weeks).toEqual(expectedWeeks);
+    for (const row of grid?.rows ?? []) {
+      expect(row.cells.map((cell) => cell.week)).toEqual(expectedWeeks);
+    }
+  });
+
   it("standings grid reveals locked picks with outcomes and hides unlocked", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSurvivorWorld(t, { includeWeek2: false });
@@ -570,7 +832,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       teamAbbreviation: "KC",
       teamName: "Kansas City Chiefs",
       teamLogoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
     });
     expect(blakeHidden?.cells[0]).toMatchObject({
       revealed: false,
@@ -604,7 +866,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       teamAbbreviation: "KC",
       teamName: "Kansas City Chiefs",
       teamLogoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
       outcome: "win",
     });
     expect(blake?.cells[0]).toMatchObject({
@@ -612,7 +874,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       teamAbbreviation: "BUF",
       teamName: "Buffalo Bills",
       teamLogoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
+        "https://example.test/images/media/team/badge/6pb37b1515849026.png",
       outcome: "loss",
     });
   });

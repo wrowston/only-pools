@@ -6,13 +6,13 @@ import {
   canClaimProviderFetch,
   type SyncSurface,
 } from "./lib/syncGate";
+import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
 
 const SYNC_GATE_KEY = "deployment" as const;
 
 const surfaceValidator = v.union(
   v.literal("schedule"),
   v.literal("live"),
-  v.literal("confirmation"),
   v.literal("bootstrap"),
 );
 
@@ -51,6 +51,7 @@ export const claimProviderFetch = mutation({
         status: "denied",
         reason: decision.reason,
         claimedAtMs,
+        expiresAtMs: providerDiagnosticExpiry(claimedAtMs),
       });
       return { ok: false as const, reason: decision.reason };
     }
@@ -59,6 +60,7 @@ export const claimProviderFetch = mutation({
       surface: args.surface,
       status: "claimed",
       claimedAtMs,
+      expiresAtMs: providerDiagnosticExpiry(claimedAtMs),
     });
     return { ok: true as const, surface: args.surface };
   },
@@ -70,6 +72,14 @@ export const ensureSyncGate = internalMutation({
     actorTokenIdentifier: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (
+      args.enabled &&
+      process.env.DEPLOYMENT_KIND?.trim().toLowerCase() === "production"
+    ) {
+      throw new Error(
+        "Production Sync Gate enablement requires current provider qualification",
+      );
+    }
     const nowMs = Date.now();
     const existing = await ctx.db
       .query("syncGate")

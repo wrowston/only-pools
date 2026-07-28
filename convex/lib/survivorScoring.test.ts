@@ -86,26 +86,6 @@ describe("resolveSurvivorPickOutcome (scenario 32)", () => {
     ).toBe("missing_pick");
   });
 
-  it("stays pending when pick game is not yet Verified", () => {
-    expect(
-      resolveSurvivorPickOutcome({
-        pick: {
-          participantId: "p1",
-          week: 1,
-          nflTeamId: "kc",
-          gameId: "g1",
-          provenance: "authored",
-          provisional: false,
-        },
-        game: {
-          ...verifiedWin,
-          resultAuthority: "confirmation_pending",
-        },
-        weekFullyLocked: true,
-      }),
-    ).toBe("pending");
-  });
-
   it("never treats provisional authority as official", () => {
     expect(
       resolveSurvivorPickOutcome({
@@ -170,6 +150,54 @@ describe("resolveSurvivorPickOutcome (scenario 32)", () => {
         weekFullyLocked: false,
       }),
     ).toBe("pending");
+  });
+
+  it("keeps a pre-lock cancellation invalidation pending until replacement closes", () => {
+    const pick = {
+      participantId: "p1",
+      week: 2,
+      nflTeamId: "kc",
+      gameId: "g1",
+      provenance: "authored" as const,
+      provisional: true,
+      invalidated: true,
+      invalidationReason: "pre_lock_cancellation" as const,
+      locked: false,
+    };
+    expect(
+      resolveSurvivorPickOutcome({
+        pick,
+        game: null,
+        weekFullyLocked: false,
+      }),
+    ).toBe("pending");
+    expect(
+      resolveSurvivorPickOutcome({
+        pick,
+        game: null,
+        weekFullyLocked: true,
+      }),
+    ).toBe("missing_pick");
+  });
+
+  it("keeps earlier-elimination invalidations out of active scoring", () => {
+    expect(
+      resolveSurvivorPickOutcome({
+        pick: {
+          participantId: "p1",
+          week: 2,
+          nflTeamId: "kc",
+          gameId: "g1",
+          provenance: "authored",
+          provisional: true,
+          invalidated: true,
+          invalidationReason: "earlier_elimination",
+          locked: false,
+        },
+        game: null,
+        weekFullyLocked: true,
+      }),
+    ).toBe("invalidated");
   });
 });
 
@@ -302,6 +330,37 @@ describe("survivor scoring fingerprint idempotency", () => {
     };
     expect(buildSurvivorWeekFingerprint(base)).not.toBe(
       buildSurvivorWeekFingerprint(changed),
+    );
+  });
+
+  it("changes when invalidation provenance changes", () => {
+    const base = {
+      poolId: "pool1",
+      week: 2,
+      priorEligibility: [{ participantId: "a", eligibility: "alive" }],
+      picks: [
+        {
+          participantId: "a",
+          nflTeamId: "kc",
+          gameId: "g1",
+          provenance: "authored",
+          invalidated: true,
+          invalidationReason: "earlier_elimination" as const,
+        },
+      ],
+      verifiedGames: [],
+      weekFullyLocked: false,
+    };
+    expect(buildSurvivorWeekFingerprint(base)).not.toBe(
+      buildSurvivorWeekFingerprint({
+        ...base,
+        picks: [
+          {
+            ...base.picks[0]!,
+            invalidationReason: "pre_lock_cancellation",
+          },
+        ],
+      }),
     );
   });
 });

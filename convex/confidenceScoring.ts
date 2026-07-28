@@ -26,6 +26,14 @@ import {
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
 import {
+  recordScoringDependencyEvent,
+  getScoringGate,
+  markBlockedScoringWorkReplayed,
+  pendingBlockedScoringWeeks,
+  recordBlockedScoringWork,
+  scoringGateGameId,
+} from "./lib/scoringHolds";
+import {
   CONFIDENCE_FINAL_WEEK,
   buildConfidenceWeekFingerprint,
   computePossibleRemainingPoints,
@@ -239,6 +247,13 @@ async function upsertWeeklyStanding(
 }
 
 type PublishResult =
+  | {
+      status: "held";
+      holdId?: Id<"scoringHolds">;
+      evaluationId?: Id<"scoringHoldEvaluations">;
+      cleanupId?: Id<"scoringHoldCleanups">;
+      acceptanceId?: Id<"scoringHoldAcceptances">;
+    }
   | { status: "noop"; reason: "identical_fingerprint"; revisionNumber: number }
   | { status: "stale"; reason: "newer_revision_exists"; revisionNumber: number }
   | {
@@ -271,6 +286,32 @@ export const applyConfidenceScoringRevision = internalMutation({
     }
 
     const nowMs = args.nowMs ?? Date.now();
+    const scoringGate = await getScoringGate(ctx, pool);
+    if (scoringGate) {
+      await recordBlockedScoringWork(ctx, {
+        poolId: pool._id,
+        kind: "confidence",
+        week: args.week,
+        gate: scoringGate,
+        nowMs,
+      });
+      switch (scoringGate.kind) {
+        case "hold":
+          return { status: "held", holdId: scoringGate.hold._id };
+        case "evaluation":
+          return {
+            status: "held",
+            evaluationId: scoringGate.evaluation._id,
+          };
+        case "cleanup":
+          return { status: "held", cleanupId: scoringGate.cleanup._id };
+        case "acceptance":
+          return {
+            status: "held",
+            acceptanceId: scoringGate.acceptance._id,
+          };
+      }
+    }
     const memberships = (
       await ctx.db
         .query("poolMemberships")
@@ -360,7 +401,7 @@ export const applyConfidenceScoringRevision = internalMutation({
       })),
     });
 
-    let poolWeek = await ctx.db
+    const poolWeek = await ctx.db
       .query("poolWeeks")
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).eq("week", args.week),
@@ -383,6 +424,12 @@ export const applyConfidenceScoringRevision = internalMutation({
     if (poolWeek?.currentScoringRevisionId) {
       const currentRev = await ctx.db.get(poolWeek.currentScoringRevisionId);
       if (currentRev && currentRev.fingerprint === fingerprint) {
+        await markBlockedScoringWorkReplayed(ctx, {
+          poolId: pool._id,
+          kind: "confidence",
+          week: args.week,
+          nowMs,
+        });
         return {
           status: "noop",
           reason: "identical_fingerprint",
@@ -437,6 +484,13 @@ export const applyConfidenceScoringRevision = internalMutation({
         currentRevisionNumber: nextRevisionNumber,
         updatedAtMs: nowMs,
       });
+    }
+    if (weekSettled && poolWeek?.settled !== true) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     const tbGame = sheet
@@ -691,6 +745,12 @@ export const applyConfidenceScoringRevision = internalMutation({
       poolStatus = "completed";
     }
 
+    await markBlockedScoringWorkReplayed(ctx, {
+      poolId: pool._id,
+      kind: "confidence",
+      week: args.week,
+      nowMs,
+    });
     return {
       status: "published",
       revisionId,
@@ -708,40 +768,89 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
   args: {
     gameId: v.id("nflGames"),
     nowMs: v.optional(v.number()),
+    replayLaterWeeks: v.optional(v.boolean()),
+    cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.gameId);
     if (!game) return { scoredPools: 0 };
     if (game.resultAuthority !== "verified") return { scoredPools: 0 };
 
-    const pools = await ctx.db
+    const page = await ctx.db
       .query("pools")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", game.seasonId))
-      .take(200);
+      .paginate({ numItems: 200, cursor: args.cursor ?? null });
 
     let scoredPools = 0;
-    for (const pool of pools) {
+    for (const pool of page.page) {
       if (pool.type !== "confidence") continue;
       if (game.week < pool.startWeek || game.week > CONFIDENCE_FINAL_WEEK) {
         continue;
       }
-      await ctx.runMutation(
-        internal.confidenceScoring.applyConfidenceScoringRevision,
-        {
+      // Corrections replay only Pool Weeks that already exist as scoring
+      // dependencies. A future scheduled NFL slate alone must not create an
+      // official revision (or make the next correction unsafe).
+      const replayWeeks = new Set([game.week]);
+      if (args.replayLaterWeeks) {
+        const existingLaterWeeks = await ctx.db
+          .query("poolWeeks")
+          .withIndex("by_poolId_and_week", (q) =>
+            q.eq("poolId", pool._id).gt("week", game.week),
+          )
+          .take(CONFIDENCE_FINAL_WEEK);
+        for (const poolWeek of existingLaterWeeks) {
+          if (poolWeek.week <= CONFIDENCE_FINAL_WEEK) {
+            replayWeeks.add(poolWeek.week);
+          }
+        }
+        const blockedWeeks = await pendingBlockedScoringWeeks(ctx, {
           poolId: pool._id,
-          week: game.week,
-          nowMs: args.nowMs,
-        },
-      );
+          kind: "confidence",
+        });
+        for (const blockedWeek of blockedWeeks) {
+          if (
+            blockedWeek >= game.week &&
+            blockedWeek <= CONFIDENCE_FINAL_WEEK
+          ) {
+            replayWeeks.add(blockedWeek);
+          }
+        }
+      }
+      for (const week of [...replayWeeks].sort((a, b) => a - b)) {
+        await ctx.runMutation(
+          internal.confidenceScoring.applyConfidenceScoringRevision,
+          {
+            poolId: pool._id,
+            week,
+            nowMs: args.nowMs,
+          },
+        );
+      }
       scoredPools += 1;
     }
-    return { scoredPools };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+        {
+          gameId: game._id,
+          cursor: page.continueCursor,
+          ...(args.nowMs === undefined ? {} : { nowMs: args.nowMs }),
+          ...(args.replayLaterWeeks === undefined
+            ? {}
+            : { replayLaterWeeks: args.replayLaterWeeks }),
+        },
+      );
+    }
+    return page.isDone
+      ? { scoredPools }
+      : { scoredPools, continuationScheduled: true };
   },
 });
 
 /**
  * Member-facing Confidence Standings — Weekly + Season.
- * Projections from live/provisional scores are labeled official: false.
+ * Projections from live scores are labeled official: false.
  * Deny-by-default: non-members receive null. Never exposes Hidden Pick values.
  */
 export const getConfidenceStandings = query({
@@ -885,13 +994,13 @@ export const getConfidenceStandings = query({
       return a.displayName.localeCompare(b.displayName);
     });
 
-    // Labeled non-official projection from live/provisional scores (never Hidden).
+    // Labeled non-official projection from live scores (never Hidden).
     const games = await loadWeekGames(ctx, pool.seasonId, week);
     const hasLiveProjection = games.some(
       (g) =>
-        g.resultAuthority === "projected" ||
-        g.resultAuthority === "confirmation_pending",
+        g.resultAuthority === "projected",
     );
+    const scoringGate = await getScoringGate(ctx, pool);
 
     return {
       poolId: pool._id,
@@ -900,6 +1009,14 @@ export const getConfidenceStandings = query({
       startWeek: pool.startWeek,
       week,
       weekSettled: poolWeek?.settled ?? false,
+      scoringHold: scoringGate
+        ? {
+            gameId: scoringGateGameId(scoringGate),
+            gameWeek: scoringGate.gameWeek,
+            label: "Official result under review",
+            note: "The last official standings remain in place while a corrected result is reviewed.",
+          }
+        : null,
       weekly: {
         official: true as const,
         rows: weekly,
@@ -908,7 +1025,7 @@ export const getConfidenceStandings = query({
         ? {
             official: false as const,
             label: "Projected — not official",
-            note: "Live and provisionally final scores do not change official Weekly Standings.",
+            note: "Live scores do not change official Weekly Standings.",
           }
         : null,
       season: {

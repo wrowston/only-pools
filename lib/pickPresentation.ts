@@ -36,6 +36,22 @@ export function resolvePickOutcome(args: {
   return args.pickedTeamId === args.winnerTeamId ? "won" : "lost";
 }
 
+export function resolveSurvivorGamePickOutcome(args: {
+  pickedTeamId: string | null | undefined;
+  winnerTeamId: string | null | undefined;
+  homeTeamId: string | null | undefined;
+  awayTeamId: string | null | undefined;
+}): PickOutcome {
+  if (
+    !args.pickedTeamId ||
+    (args.pickedTeamId !== args.homeTeamId &&
+      args.pickedTeamId !== args.awayTeamId)
+  ) {
+    return null;
+  }
+  return resolvePickOutcome(args);
+}
+
 /** Accessible text/icon label — color alone must not carry meaning. */
 export function pickOutcomeLabel(outcome: Exclude<PickOutcome, null>): string {
   return outcome === "won" ? "Pick won" : "Pick lost";

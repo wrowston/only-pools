@@ -17,6 +17,7 @@
   --op-surface: #ffffff;
   --op-surface-raised: #ffffff;
   --op-control: #0000000a;
+  --op-control-solid: #f5f5f5;
   --op-border: #ededed;
   --op-border-strong: #e6e6e6;
   --op-text: #262626;
@@ -28,6 +29,7 @@
   --op-ink-hover: #e55416;
   --op-ink-pressed: #d14c14;
   --op-selected: #fa5d1914;
+  --op-selected-solid: #fff2ed;
   --op-selected-fg: #c44512;
   --op-accent: #fa5d19;
   --op-heat: #fa5d19;
@@ -207,6 +209,29 @@ body {
     color 80ms ease,
     transform 50ms ease;
   cursor: pointer;
+}
+
+/* Sticky table layers must be opaque so horizontally scrolled cells cannot
+ * show through translucent control/selection colors. */
+.op-sticky-control,
+.op-sticky-selected {
+  isolation: isolate;
+}
+
+.op-sticky-control::before,
+.op-sticky-selected::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: "";
+}
+
+.op-sticky-control::before {
+  background: var(--op-control-solid);
+}
+
+.op-sticky-selected::before {
+  background: var(--op-selected-solid);
 }
 
 .op-btn:active:not(:disabled) {

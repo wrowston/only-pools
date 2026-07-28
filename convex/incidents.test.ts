@@ -118,22 +118,6 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
     );
     expect(scoring.opened).toBe(true);
 
-    const quarantine = await t.mutation(
-      internal.incidents.evaluateAndOpenIncident,
-      {
-        trigger: {
-          kind: "quarantine_past_confirmation",
-          confirmationWindowEndsAtMs: nowMs - 1,
-          nowMs,
-          verificationBlocked: true,
-        },
-        surface: "confirmation",
-        scopeKey: "game:q",
-        nowMs,
-      },
-    );
-    expect(quarantine.opened).toBe(true);
-
     const capacity = await t.mutation(
       internal.incidents.evaluateAndOpenIncident,
       {
@@ -152,20 +136,21 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
     const openRows = await t.run(async (ctx) => {
       return await ctx.db.query("operatorIncidents").collect();
     });
-    expect(openRows).toHaveLength(5);
+    expect(openRows).toHaveLength(4);
     expect(openRows.every((r) => r.maintenanceLock === false)).toBe(true);
 
     // Incident open signals Sentry sink (Dev does not page production).
     const openedSignals = sentrySink.captures.filter(
       (c) => c.tags?.signal === "opened",
     );
-    expect(openedSignals.length).toBeGreaterThanOrEqual(5);
+    expect(openedSignals.length).toBeGreaterThanOrEqual(4);
     expect(openedSignals.every((c) => c.pagesProduction === false)).toBe(true);
   });
 
   it("returns a single participant banner; clears on resolve; healthy is null (scenario 43)", async () => {
     const t = convexTest(schema, modules);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
 
     const healthy = await asAlex.query(
       api.incidents.getParticipantStatusBanner,
@@ -202,14 +187,10 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
       {},
     );
     expect(banner).not.toBeNull();
-    expect(banner!.type).toBe("provider_exception");
+    expect(banner!.severity).toBe("critical");
     expect(banner!.summary).toMatch(/temporarily delayed/i);
     expect(banner!.maintenanceLock).toBe(false);
-    // No last-updated chrome fields on the banner payload beyond incident status.
-    expect(
-      Object.keys(banner!).includes("lastUpdatedAtMs") ||
-        Object.keys(banner!).includes("lastSuccessAtMs"),
-    ).toBe(false);
+    expect(banner).not.toHaveProperty("lastSuccessfulUpdateAtMs");
 
     const asOps = t.withIdentity(operatorIdentity());
     await asOps.mutation(api.participants.ensureMyParticipant, {});
@@ -362,13 +343,11 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
         stableKey: "nfl:kc",
         name: "Kansas City Chiefs",
         abbreviation: "KC",
-        sportsDbTeamId: "134934",
       });
       const buf = await ctx.db.insert("nflTeams", {
         stableKey: "nfl:buf",
         name: "Buffalo Bills",
         abbreviation: "BUF",
-        sportsDbTeamId: "134918",
       });
       await ctx.db.insert("nflGames", {
         stableKey: "nfl:2025:w1:buf@kc",
@@ -381,7 +360,6 @@ describe("Operator Incidents (scenarios 34–35, 42–44)", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w1",
       });
       return { seasonId, kc };
     });

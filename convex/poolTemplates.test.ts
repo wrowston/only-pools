@@ -76,13 +76,11 @@ async function seedSeasonWithSlate(
       stableKey: `nfl:kc:${opts.label}`,
       name: "Kansas City Chiefs",
       abbreviation: "KC",
-      sportsDbTeamId: `134934_${opts.label}`,
     });
     const awayId = await ctx.db.insert("nflTeams", {
       stableKey: `nfl:buf:${opts.label}`,
       name: "Buffalo Bills",
       abbreviation: "BUF",
-      sportsDbTeamId: `134918_${opts.label}`,
     });
 
     await ctx.db.insert("nflGames", {
@@ -96,7 +94,6 @@ async function seedSeasonWithSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: `evt_${opts.label}_w1`,
     });
     await ctx.db.insert("nflGames", {
       stableKey: `nfl:${opts.label}:w2:buf@kc`,
@@ -109,7 +106,6 @@ async function seedSeasonWithSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: `evt_${opts.label}_w2`,
     });
 
     return { seasonId, homeId, awayId };

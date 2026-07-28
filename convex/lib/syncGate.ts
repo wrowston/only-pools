@@ -3,7 +3,7 @@
  * When OFF: new fetch claims are refused; locks and ordinary queries continue.
  */
 
-export type SyncSurface = "schedule" | "live" | "confirmation" | "bootstrap";
+export type SyncSurface = "schedule" | "live" | "bootstrap";
 
 export type SyncGateState = {
   enabled: boolean;
@@ -16,10 +16,12 @@ export type ClaimResult =
 export type DeploymentKind = "development" | "dev" | "production" | string;
 
 /**
- * Production defaults ON after Season Bootstrap; Dev defaults OFF.
+ * Competitive provider sync always starts OFF. Production requires a current
+ * qualification decision before an explicit Operator enable.
  */
 export function defaultSyncGateEnabled(kind: DeploymentKind): boolean {
-  return kind === "production";
+  void kind;
+  return false;
 }
 
 export function resolveDeploymentKind(
@@ -28,11 +30,7 @@ export function resolveDeploymentKind(
     string | undefined
   >,
 ): DeploymentKind {
-  const explicit = env.DEPLOYMENT_KIND?.trim().toLowerCase();
-  if (explicit) return explicit;
-  // Heuristic: Convex cloud URLs for prod often lack "dev:" prefix in dashboard;
-  // prefer explicit DEPLOYMENT_KIND. Fall back to development.
-  return "development";
+  return env.DEPLOYMENT_KIND?.trim().toLowerCase() ?? "";
 }
 
 /**

@@ -1,0 +1,1 @@
+export { ApiSportsProvider } from "./adapter";

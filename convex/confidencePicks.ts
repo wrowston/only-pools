@@ -24,6 +24,7 @@ import {
   requireOwnedActiveEntry,
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 
 const log = createLogger("confidencePicks");
 
@@ -838,6 +839,13 @@ export const materializeConfidenceLocks = mutation({
       !pool.rulesFrozen
     ) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
+    }
+    if (lockedPickCount > 0) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     log.info("confidence_locks_materialized", {

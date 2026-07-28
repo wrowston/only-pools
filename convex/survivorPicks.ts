@@ -17,6 +17,7 @@ import {
   requireOwnedActiveEntry,
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 
 const log = createLogger("survivorPicks");
 
@@ -299,6 +300,9 @@ export const autosaveSurvivorPick = mutation({
     }
 
     const provisional = args.week > pool.startWeek;
+    const createsNonProvisionalDependency =
+      !provisional &&
+      (!existingPick || existingPick.provisional === true);
 
     if (existingPick) {
       const previousTeamId = existingPick.nflTeamId;
@@ -336,6 +340,7 @@ export const autosaveSurvivorPick = mutation({
         provenance: "authored",
         invalidated: undefined,
         invalidatedAtMs: undefined,
+        invalidationReason: undefined,
         updatedAtMs: nowMs,
       });
     } else {
@@ -363,6 +368,13 @@ export const autosaveSurvivorPick = mutation({
 
     if (!pool.rulesFrozen) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
+    }
+    if (createsNonProvisionalDependency) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     await writeSanitizedAudit(ctx, {
@@ -445,6 +457,7 @@ export const materializeSurvivorLocks = mutation({
       }),
     );
 
+    let kickoffLatchCount = 0;
     for (const g of games) {
       if (
         g.kickoffLockReachedAtMs == null &&
@@ -458,6 +471,7 @@ export const materializeSurvivorLocks = mutation({
         await ctx.db.patch(g._id, {
           kickoffLockReachedAtMs: Math.min(nowMs, g.scheduledKickoffMs),
         });
+        kickoffLatchCount += 1;
       }
     }
 
@@ -519,6 +533,17 @@ export const materializeSurvivorLocks = mutation({
 
     if ((lockedCount > 0 || omissionCount > 0) && !pool.rulesFrozen) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
+    }
+    if (
+      kickoffLatchCount > 0 ||
+      lockedCount > 0 ||
+      omissionCount > 0
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     log.info("survivor_locks_materialized", {

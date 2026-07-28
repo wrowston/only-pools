@@ -8,26 +8,14 @@
  */
 
 import { v } from "convex/values";
-import {
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-} from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import {
-  applyConfirmationObservation,
-  emptyConfirmationState,
-  type ConfirmationObservation,
-  type ConfirmationState,
-  type ResultAuthority,
-  type TerminalStatus,
-} from "./lib/confirmationPolicy";
 import { applyKickoffScheduleChange } from "./lib/pickLock";
 import { deriveFreshness } from "./lib/freshness";
-import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
+import { LIVE_INGESTION_WATCHDOG } from "./lib/liveIngestionWatchdog";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   admitProviderFetch,
   emptyBudgetUsage,
@@ -35,19 +23,21 @@ import {
   type BudgetPriority,
   type BudgetUsage,
 } from "./lib/providerBudget";
-import { createLogger, errorMessage } from "./lib/log";
+import { API_SPORTS_RECOVERY_SCOPE_KEY } from "./lib/providerReliabilityPolicy";
+import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
+import { createLogger } from "./lib/log";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
+import { isCompetitiveProviderSyncAuthorized } from "./providerQualification";
 import { enqueueSentryDelivery } from "./sentry";
 import {
-  CONFIRMATION_15_MS,
-  CONFIRMATION_60_MS,
-  confirmationObservationValidator,
-  confirmationScopeKey,
   LEASE_MS,
-  liveObservationValidator,
   scheduleObservationValidator,
 } from "./lib/syncObservations";
+import {
+  recordNflGameSchedule,
+} from "./providers/sportsData/identityStore";
+import { isLivePollingActive } from "./providers/sportsData/liveSyncPolicy";
 
 const log = createLogger("syncLive");
 
@@ -63,397 +53,6 @@ async function loadSyncGateEnabled(
     .unique();
   return gate?.enabled ?? false;
 }
-
-function gameConfirmationState(game: {
-  resultAuthority?: ResultAuthority;
-  provisionalTerminalAtMs?: number;
-  confirmationObservations?: ConfirmationObservation[];
-  verifiedResult?: {
-    homeScore: number;
-    awayScore: number;
-    verifiedAtMs: number;
-    status: TerminalStatus;
-  };
-  priorVerifiedResult?: {
-    homeScore: number;
-    awayScore: number;
-    verifiedAtMs: number;
-    status: TerminalStatus;
-    supersededAtMs?: number;
-  };
-}): ConfirmationState {
-  const prior = game.priorVerifiedResult;
-  return {
-    resultAuthority: game.resultAuthority ?? "none",
-    provisionalTerminalAtMs: game.provisionalTerminalAtMs ?? null,
-    observations: game.confirmationObservations ?? [],
-    verifiedResult: game.verifiedResult ?? null,
-    priorVerifiedResult: prior
-      ? {
-          homeScore: prior.homeScore,
-          awayScore: prior.awayScore,
-          verifiedAtMs: prior.verifiedAtMs,
-          status: prior.status,
-        }
-      : null,
-    pendingRetry: false,
-  };
-}
-
-/**
- * Apply a live / provisional observation. Updates projected scores and
- * lifecycle. First terminal becomes confirmation_pending — never verified.
- */
-export const applyLiveObservation = internalMutation({
-  args: {
-    observation: liveObservationValidator,
-  },
-  handler: async (ctx, args) => {
-    const { observation } = args;
-    const game = await ctx.db.get(observation.gameId);
-    if (!game) {
-      throw new Error(`NFL Game not found: ${observation.gameId}`);
-    }
-
-    const revision = (game.revision ?? 0) + 1;
-    const patch: Record<string, unknown> = {
-      lifecycle: observation.lifecycle,
-      homeScore: observation.homeScore,
-      awayScore: observation.awayScore,
-      lastObservedAtMs: observation.observedAtMs,
-      revision,
-    };
-
-    const isTerminalLifecycle =
-      observation.lifecycle === "terminal" ||
-      observation.lifecycle === "canceled";
-    const terminalStatus = observation.terminalStatus;
-
-    if (isTerminalLifecycle && terminalStatus && observation.homeScore !== null && observation.awayScore !== null) {
-      // Already verified — do not regress via live path.
-      if (game.resultAuthority === "verified") {
-        await ctx.db.patch(game._id, patch);
-        return {
-          gameId: game._id,
-          resultAuthority: "verified" as const,
-          scheduledConfirmationLookups: [] as string[],
-        };
-      }
-
-      const prior =
-        game.resultAuthority === "confirmation_pending" ||
-        game.resultAuthority === "correction_candidate"
-          ? gameConfirmationState(game)
-          : emptyConfirmationState();
-
-      const outcome = applyConfirmationObservation({
-        prior,
-        observation: {
-          observedAtMs: observation.observedAtMs,
-          homeScore: observation.homeScore,
-          awayScore: observation.awayScore,
-          status: terminalStatus,
-        },
-      });
-
-      patch.resultAuthority = outcome.resultAuthority;
-      patch.provisionalTerminalAtMs =
-        outcome.provisionalTerminalAtMs ?? undefined;
-      patch.confirmationObservations = outcome.observations;
-      if (outcome.verifiedResult) {
-        patch.verifiedResult = outcome.verifiedResult;
-      }
-      if (outcome.priorVerifiedResult) {
-        patch.priorVerifiedResult = {
-          ...outcome.priorVerifiedResult,
-          supersededAtMs: outcome.justCorrected
-            ? observation.observedAtMs
-            : (game.priorVerifiedResult?.supersededAtMs ??
-              observation.observedAtMs),
-        };
-      }
-
-      await ctx.db.patch(game._id, patch);
-
-      if (outcome.justVerified) {
-        if (terminalStatus === "CANC") {
-          await ctx.scheduler.runAfter(
-            0,
-            internal.survivorScoring.handleVerifiedCancellation,
-            { gameId: game._id, nowMs: observation.observedAtMs },
-          );
-        }
-        await ctx.scheduler.runAfter(
-          0,
-          internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
-          { gameId: game._id, nowMs: observation.observedAtMs },
-        );
-        await ctx.scheduler.runAfter(
-          0,
-          internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
-          { gameId: game._id, nowMs: observation.observedAtMs },
-        );
-        await ctx.scheduler.runAfter(
-          SCORING_DELAY_THRESHOLD_MS + 1_000,
-          internal.incidents.checkScoringDelayForGame,
-          {
-            gameId: game._id,
-            verifiedAtMs:
-              outcome.verifiedResult?.verifiedAtMs ??
-              observation.observedAtMs,
-          },
-        );
-      }
-
-      const scheduled: string[] = [];
-      // Schedule 15- and 60-minute confirmation lookups on first provisional
-      // or when a correction candidate restarts the clock.
-      if (
-        (outcome.resultAuthority === "confirmation_pending" ||
-          outcome.resultAuthority === "correction_candidate") &&
-        outcome.provisionalTerminalAtMs !== null &&
-        (prior.provisionalTerminalAtMs === null || outcome.restarted)
-      ) {
-        for (const purpose of ["confirmation_15", "confirmation_60"] as const) {
-          const dueOffset =
-            purpose === "confirmation_15"
-              ? CONFIRMATION_15_MS
-              : CONFIRMATION_60_MS;
-          const scopeKey = confirmationScopeKey(game._id, purpose);
-          const existing = await ctx.db
-            .query("syncWorkItems")
-            .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
-            .unique();
-          const dueAtMs = outcome.provisionalTerminalAtMs + dueOffset;
-          if (existing) {
-            await ctx.db.patch(existing._id, {
-              status: "due",
-              dueAtMs,
-              attemptCount: existing.attemptCount,
-              claimedAtMs: undefined,
-              leaseExpiresAtMs: undefined,
-            });
-          } else {
-            await ctx.db.insert("syncWorkItems", {
-              surface: "confirmation",
-              scopeKey,
-              priority: "confirmation",
-              status: "due",
-              dueAtMs,
-              attemptCount: 0,
-              gameId: game._id,
-              seasonId: game.seasonId,
-              purpose,
-            });
-          }
-          scheduled.push(purpose);
-        }
-      }
-
-      return {
-        gameId: game._id,
-        resultAuthority: outcome.resultAuthority,
-        scheduledConfirmationLookups: scheduled,
-      };
-    }
-
-    // Non-terminal live → Projected Result only.
-    if (game.resultAuthority !== "verified") {
-      patch.resultAuthority = "projected";
-    }
-    await ctx.db.patch(game._id, patch);
-    return {
-      gameId: game._id,
-      resultAuthority: (patch.resultAuthority as ResultAuthority) ?? game.resultAuthority ?? "projected",
-      scheduledConfirmationLookups: [] as string[],
-    };
-  },
-});
-
-/**
- * Apply a targeted confirmation lookup observation.
- */
-export const applyConfirmationObservationMutation = internalMutation({
-  args: {
-    observation: confirmationObservationValidator,
-  },
-  handler: async (ctx, args) => {
-    const { observation } = args;
-    const game = await ctx.db.get(observation.gameId);
-    if (!game) {
-      throw new Error(`NFL Game not found: ${observation.gameId}`);
-    }
-
-    const prior = gameConfirmationState(game);
-    const outcome = applyConfirmationObservation({
-      prior,
-      observation: {
-        observedAtMs: observation.observedAtMs,
-        homeScore: observation.homeScore,
-        awayScore: observation.awayScore,
-        status: observation.status,
-      },
-      lookupFailed: observation.lookupFailed,
-    });
-
-    const revision = (game.revision ?? 0) + 1;
-    const patch: Record<string, unknown> = {
-      resultAuthority: outcome.resultAuthority,
-      provisionalTerminalAtMs: outcome.provisionalTerminalAtMs ?? undefined,
-      confirmationObservations: outcome.observations,
-      lastObservedAtMs: observation.observedAtMs,
-      revision,
-      homeScore: observation.lookupFailed
-        ? game.homeScore
-        : observation.homeScore,
-      awayScore: observation.lookupFailed
-        ? game.awayScore
-        : observation.awayScore,
-      lifecycle:
-        observation.lookupFailed
-          ? game.lifecycle
-          : observation.status === "CANC"
-            ? "canceled"
-            : "terminal",
-    };
-    if (outcome.verifiedResult) {
-      patch.verifiedResult = outcome.verifiedResult;
-    }
-    if (outcome.priorVerifiedResult) {
-      patch.priorVerifiedResult = {
-        ...outcome.priorVerifiedResult,
-        supersededAtMs: outcome.justCorrected
-          ? observation.observedAtMs
-          : (game.priorVerifiedResult?.supersededAtMs ??
-            observation.observedAtMs),
-      };
-    }
-
-    await ctx.db.patch(game._id, patch);
-
-    // Verified / Corrected Result → schedule Scoring Revisions for affected pools.
-    if (outcome.justVerified) {
-      if (
-        !observation.lookupFailed &&
-        observation.status === "CANC"
-      ) {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.survivorScoring.handleVerifiedCancellation,
-          { gameId: game._id, nowMs: observation.observedAtMs },
-        );
-      }
-      await ctx.scheduler.runAfter(
-        0,
-        internal.survivorScoring.scoreSurvivorPoolsForVerifiedGame,
-        { gameId: game._id, nowMs: observation.observedAtMs },
-      );
-      await ctx.scheduler.runAfter(
-        0,
-        internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
-        { gameId: game._id, nowMs: observation.observedAtMs },
-      );
-      await ctx.scheduler.runAfter(
-        SCORING_DELAY_THRESHOLD_MS + 1_000,
-        internal.incidents.checkScoringDelayForGame,
-        {
-          gameId: game._id,
-          verifiedAtMs:
-            outcome.verifiedResult?.verifiedAtMs ?? observation.observedAtMs,
-        },
-      );
-    }
-
-    // On restart (including correction candidates), reschedule confirmation lookups.
-    if (
-      outcome.restarted &&
-      outcome.provisionalTerminalAtMs !== null &&
-      !observation.lookupFailed
-    ) {
-      for (const purpose of ["confirmation_15", "confirmation_60"] as const) {
-        const dueOffset =
-          purpose === "confirmation_15" ? CONFIRMATION_15_MS : CONFIRMATION_60_MS;
-        const scopeKey = confirmationScopeKey(game._id, purpose);
-        const existing = await ctx.db
-          .query("syncWorkItems")
-          .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
-          .unique();
-        const dueAtMs = outcome.provisionalTerminalAtMs + dueOffset;
-        if (existing) {
-          await ctx.db.patch(existing._id, {
-            status: "due",
-            dueAtMs,
-            claimedAtMs: undefined,
-            leaseExpiresAtMs: undefined,
-          });
-        } else {
-          await ctx.db.insert("syncWorkItems", {
-            surface: "confirmation",
-            scopeKey,
-            priority: "confirmation",
-            status: "due",
-            dueAtMs,
-            attemptCount: 0,
-            gameId: game._id,
-            seasonId: game.seasonId,
-            purpose,
-          });
-        }
-      }
-    }
-
-    // Failed lookup → retry via ordinary path (re-due same purpose if known).
-    if (observation.lookupFailed && outcome.pendingRetry) {
-      const items = await ctx.db
-        .query("syncWorkItems")
-        .withIndex("by_gameId", (q) => q.eq("gameId", game._id))
-        .collect();
-      for (const item of items) {
-        if (item.surface === "confirmation" && item.status === "claimed") {
-          await ctx.db.patch(item._id, {
-            status: "due",
-            dueAtMs: observation.observedAtMs + 60_000,
-            attemptCount: item.attemptCount + 1,
-            claimedAtMs: undefined,
-            leaseExpiresAtMs: undefined,
-          });
-        }
-      }
-    }
-
-    // Quarantine / contradiction past confirmation window → Operator Incident.
-    if (
-      !outcome.justVerified &&
-      (outcome.resultAuthority === "confirmation_pending" ||
-        outcome.resultAuthority === "correction_candidate") &&
-      outcome.provisionalTerminalAtMs !== null
-    ) {
-      const windowEnds =
-        outcome.provisionalTerminalAtMs + CONFIRMATION_60_MS;
-      if (observation.observedAtMs > windowEnds) {
-        await ctx.runMutation(
-          internal.incidents.checkQuarantinePastConfirmation,
-          {
-            gameId: game._id,
-            confirmationWindowEndsAtMs: windowEnds,
-            verificationBlocked: true,
-            nowMs: observation.observedAtMs,
-          },
-        );
-      }
-    }
-
-    return {
-      gameId: game._id,
-      resultAuthority: outcome.resultAuthority,
-      justVerified: outcome.justVerified,
-      justCorrected: outcome.justCorrected,
-      restarted: outcome.restarted,
-      pendingRetry: outcome.pendingRetry,
-      verifiedResult: outcome.verifiedResult,
-    };
-  },
-});
 
 /**
  * Apply a schedule observation (kickoff / lifecycle from schedule surface).
@@ -483,6 +82,27 @@ export const applyScheduleObservation = internalMutation({
       kickoffLockReachedAtMs: schedule.kickoffLockReachedAtMs ?? undefined,
       lastObservedAtMs: observation.observedAtMs,
       revision,
+    });
+    if (
+      schedule.scheduledKickoffMs !== game.scheduledKickoffMs ||
+      observation.lifecycle !== game.lifecycle ||
+      schedule.kickoffLockReachedAtMs !==
+        (game.kickoffLockReachedAtMs ?? null)
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        game.seasonId,
+        game.week,
+      );
+    }
+    await recordNflGameSchedule(ctx, {
+      nflGameId: game._id,
+      seasonId: game.seasonId,
+      week: game.week,
+      homeTeamId: game.homeTeamId,
+      awayTeamId: game.awayTeamId,
+      scheduledKickoffMs: schedule.scheduledKickoffMs,
+      observedAtMs: observation.observedAtMs,
     });
     return {
       gameId: game._id,
@@ -515,13 +135,27 @@ export const recordSyncSurfaceHealth = internalMutation({
       .unique();
 
     const providerException = args.providerException ?? false;
+    const previousLastSuccessAtMs =
+      existing?.lastSuccessAtMs ?? null;
+    const acceptsSuccessfulIngestion =
+      args.success &&
+      (previousLastSuccessAtMs === null ||
+        args.nowMs > previousLastSuccessAtMs);
+    if (args.success && !acceptsSuccessfulIngestion) {
+      return deriveFreshness({
+        surface: args.surface === "schedule" ? "schedule" : "league_live",
+        lastSuccessAtMs: previousLastSuccessAtMs,
+        nowMs: Math.max(args.nowMs, existing?.updatedAtMs ?? args.nowMs),
+        providerException: existing?.providerException ?? false,
+      });
+    }
     const fields = {
       surface: args.surface,
       scopeKey: args.scopeKey,
       lastAttemptAtMs: args.nowMs,
       lastSuccessAtMs: args.success
         ? args.nowMs
-        : (existing?.lastSuccessAtMs ?? undefined),
+        : (previousLastSuccessAtMs ?? undefined),
       expectedNextRefreshAtMs: args.expectedNextRefreshAtMs,
       consecutiveFailures: args.success
         ? 0
@@ -541,19 +175,21 @@ export const recordSyncSurfaceHealth = internalMutation({
         surface: args.surface,
         scopeKey: args.scopeKey,
         gameId: args.gameId ?? null,
-        message: args.exceptionMessage ?? "Provider Exception",
+        failureCode: "provider_sync_failed",
         consecutiveFailures: fields.consecutiveFailures,
       });
       await ctx.db.insert("providerExceptions", {
         kind: "sync_failure",
         gameId: args.gameId,
         scopeKey: args.scopeKey,
-        message: args.exceptionMessage ?? "Provider Exception",
+        message:
+          "Provider synchronization failed; inspect sanitized request diagnostics.",
         createdAtMs: args.nowMs,
+        expiresAtMs: providerDiagnosticExpiry(args.nowMs),
       });
       await enqueueSentryDelivery(
         ctx,
-        captureException(args.exceptionMessage ?? "Provider Exception", {
+        captureException("Provider synchronization failed", {
           tags: { channel: "sync", surface: args.surface },
           extra: { scopeKey: args.scopeKey },
         }),
@@ -569,47 +205,61 @@ export const recordSyncSurfaceHealth = internalMutation({
     }
 
     const freshness = deriveFreshness({
-      surface:
-        args.surface === "confirmation"
-          ? "confirmation"
-          : args.surface === "schedule"
-            ? "schedule"
-            : "league_live",
+      surface: args.surface === "schedule" ? "schedule" : "league_live",
       lastSuccessAtMs: fields.lastSuccessAtMs ?? null,
       nowMs: args.nowMs,
-      dueAtMs: args.expectedNextRefreshAtMs ?? null,
       providerException,
     });
 
-    // Operator Incidents: Provider Exception / Stale-in-window open; Late alone
-    // does not. Active game window = live or confirmation surfaces.
+    // The global API-Sports live feed has a dedicated 90s/120s watchdog. Its
+    // transport failures remain operator diagnostics and must not expose a
+    // participant banner before the critical freshness threshold.
+    const isGlobalApiSportsLive =
+      args.surface === LIVE_INGESTION_WATCHDOG.surface &&
+      args.scopeKey === LIVE_INGESTION_WATCHDOG.scopeKey;
+
+    // Other surfaces retain the settled freshness incident behavior.
     const activeGameWindow =
-      args.surface === "live" || args.surface === "confirmation";
-    await ctx.runMutation(internal.incidents.evaluateAndOpenIncident, {
-      trigger: {
-        kind: "freshness",
-        freshnessState: freshness.state,
-        activeGameWindow,
-      },
-      surface: args.surface,
-      scopeKey: args.scopeKey,
-      nowMs: args.nowMs,
-    });
+      args.surface === "live" || args.surface === "league_live";
+    if (!isGlobalApiSportsLive) {
+      await ctx.runMutation(internal.incidents.evaluateAndOpenIncident, {
+        trigger: {
+          kind: "freshness",
+          freshnessState: freshness.state,
+          activeGameWindow,
+        },
+        surface: args.surface,
+        scopeKey: args.scopeKey,
+        nowMs: args.nowMs,
+      });
+    }
 
     // Heal: successful fresh refresh auto-resolves matching open incidents.
-    if (args.success && !providerException && freshness.state === "fresh") {
-      await ctx.runMutation(internal.incidents.autoResolveIncident, {
-        type: "stale_in_window",
-        surface: args.surface,
-        scopeKey: args.scopeKey,
-        nowMs: args.nowMs,
-      });
-      await ctx.runMutation(internal.incidents.autoResolveIncident, {
-        type: "provider_exception",
-        surface: args.surface,
-        scopeKey: args.scopeKey,
-        nowMs: args.nowMs,
-      });
+    if (
+      acceptsSuccessfulIngestion &&
+      !providerException &&
+      freshness.state === "fresh"
+    ) {
+      if (isGlobalApiSportsLive) {
+        await ctx.runMutation(
+          internal.liveIngestionWatchdog
+            .recordSuccessfulExpectedIngestion,
+          { nowMs: args.nowMs },
+        );
+      } else {
+        await ctx.runMutation(internal.incidents.autoResolveIncident, {
+          type: "stale_in_window",
+          surface: args.surface,
+          scopeKey: args.scopeKey,
+          nowMs: args.nowMs,
+        });
+        await ctx.runMutation(internal.incidents.autoResolveIncident, {
+          type: "provider_exception",
+          surface: args.surface,
+          scopeKey: args.scopeKey,
+          nowMs: args.nowMs,
+        });
+      }
     }
 
     return freshness;
@@ -624,14 +274,13 @@ export const enqueueSyncWork = internalMutation({
     surface: v.union(
       v.literal("schedule"),
       v.literal("live"),
-      v.literal("confirmation"),
       v.literal("correction"),
       v.literal("operator"),
     ),
     scopeKey: v.string(),
     priority: v.union(
       v.literal("routine"),
-      v.literal("confirmation"),
+      v.literal("recovery"),
       v.literal("operator"),
     ),
     dueAtMs: v.number(),
@@ -674,8 +323,10 @@ async function budgetUsageInWindow(
   const since = nowMs - BUDGET_WINDOW_MS;
   const claims = await ctx.db
     .query("providerFetchClaims")
-    .withIndex("by_claimedAtMs", (q) => q.gte("claimedAtMs", since))
-    .collect();
+    .withIndex("by_status_and_claimedAtMs", (q) =>
+      q.eq("status", "claimed").gte("claimedAtMs", since),
+    )
+    .take(61);
 
   let usage = emptyBudgetUsage();
   for (const claim of claims) {
@@ -687,12 +338,14 @@ async function budgetUsageInWindow(
   return usage;
 }
 
-const LIVE_LEAD_MS = 15 * 60 * 1000;
-const LIVE_CADENCE_MS = 2 * 60 * 1000;
+// Clean activation produces one Available Season. Four is bounded defensive
+// headroom; 400 similarly exceeds the validated 272-game regular season.
+const MAX_AVAILABLE_SEASONS_PER_DISPATCH = 4;
+const MAX_NFL_GAMES_PER_SEASON = 400;
 
 /**
  * Enqueue league-live (and light schedule) work when any NFL Game is in an
- * active window: within 15 minutes of kickoff, in progress, or confirmation-pending.
+ * active window: within 15 minutes of kickoff or in progress.
  */
 async function enqueuePhaseAwareWork(
   ctx: MutationCtx,
@@ -701,68 +354,92 @@ async function enqueuePhaseAwareWork(
   const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .collect();
+    .order("desc")
+    .take(MAX_AVAILABLE_SEASONS_PER_DISPATCH);
+  let needsLeagueLive = false;
 
   for (const season of seasons) {
     const games = await ctx.db
       .query("nflGames")
       .withIndex("by_seasonId", (q) => q.eq("seasonId", season._id))
-      .collect();
+      .take(MAX_NFL_GAMES_PER_SEASON);
 
-    const needsLive = games.some((g) => {
-      if (
-        g.lifecycle === "in_progress" ||
-        g.lifecycle === "interrupted" ||
-        g.resultAuthority === "confirmation_pending"
-      ) {
-        return true;
-      }
-      const untilKickoff = g.scheduledKickoffMs - nowMs;
-      const sinceKickoff = nowMs - g.scheduledKickoffMs;
-      // Approaching kickoff or recently kicked off without terminal.
-      if (untilKickoff >= 0 && untilKickoff <= LIVE_LEAD_MS) return true;
-      if (
-        sinceKickoff >= 0 &&
-        sinceKickoff <= 4 * 60 * 60 * 1000 &&
-        g.lifecycle === "scheduled"
-      ) {
-        return true;
-      }
-      return false;
-    });
-
-    if (!needsLive) continue;
-
-    const scopeKey = `live:${season._id}`;
-    const existing = await ctx.db
+    const scheduleKey = `schedule:${season._id}`;
+    const scheduleWork = await ctx.db
       .query("syncWorkItems")
-      .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
+      .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scheduleKey))
       .unique();
-
-    if (existing) {
-      if (existing.status === "due" || existing.status === "claimed") {
-        // Coalesce — leave existing claim/due item.
-        continue;
-      }
-      // Reschedule completed live poll on cadence.
-      await ctx.db.patch(existing._id, {
-        status: "due",
-        dueAtMs: nowMs,
-        claimedAtMs: undefined,
-        leaseExpiresAtMs: undefined,
-      });
-    } else {
+    if (!scheduleWork) {
       await ctx.db.insert("syncWorkItems", {
-        surface: "live",
-        scopeKey,
+        surface: "schedule",
+        scopeKey: scheduleKey,
         priority: "routine",
         status: "due",
         dueAtMs: nowMs,
         attemptCount: 0,
         seasonId: season._id,
-        purpose: "league_live",
+        purpose: "season_schedule",
+      });
+    } else if (
+      scheduleWork.status === "done" ||
+      scheduleWork.status === "failed"
+    ) {
+      await ctx.db.patch(scheduleWork._id, {
+        status: "due",
+        dueAtMs: nowMs,
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
       });
     }
+
+    needsLeagueLive ||= games.some((game) =>
+      isLivePollingActive(game, nowMs),
+    );
+  }
+
+  const scopeKey = "live:nfl";
+  const existing = await ctx.db
+    .query("syncWorkItems")
+    .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
+    .unique();
+  if (!needsLeagueLive) {
+    if (
+      existing &&
+      (existing.status !== "claimed" ||
+        (existing.leaseExpiresAtMs !== undefined &&
+          existing.leaseExpiresAtMs <= nowMs))
+    ) {
+      await ctx.db.patch(existing._id, {
+        status: "done",
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      });
+    }
+    return;
+  }
+  if (existing) {
+    if (existing.priority !== "recovery") {
+      await ctx.db.patch(existing._id, {
+        priority: "recovery",
+      });
+    }
+    if (existing.status === "due" || existing.status === "claimed") return;
+    await ctx.db.patch(existing._id, {
+      status: "due",
+      dueAtMs: nowMs,
+      claimedAtMs: undefined,
+      leaseExpiresAtMs: undefined,
+    });
+  } else {
+    await ctx.db.insert("syncWorkItems", {
+      surface: "live",
+      scopeKey,
+      priority: "recovery",
+      status: "due",
+      dueAtMs: nowMs,
+      attemptCount: 0,
+      purpose: "league_live",
+    });
   }
 }
 
@@ -779,9 +456,14 @@ export const dispatchSyncWork = internalMutation({
     const nowMs = args.nowMs ?? Date.now();
     const maxClaims = args.maxClaims ?? 20;
     const gateEnabled = await loadSyncGateEnabled(ctx);
+    const effectiveAuthorized =
+      gateEnabled && (await isCompetitiveProviderSyncAuthorized(ctx));
 
-    if (!gateEnabled) {
-      log.info("dispatch_skipped", { reason: "sync_gate_off", nowMs });
+    if (!effectiveAuthorized) {
+      const reason = gateEnabled
+        ? "qualification_required"
+        : "sync_gate_off";
+      log.info("dispatch_skipped", { reason, nowMs });
       return {
         gateEnabled: false,
         claimed: [] as Array<{
@@ -792,7 +474,7 @@ export const dispatchSyncWork = internalMutation({
           gameId?: Id<"nflGames">;
           purpose?: string;
         }>,
-        denied: "sync_gate_off" as const,
+        denied: reason,
       };
     }
 
@@ -802,8 +484,13 @@ export const dispatchSyncWork = internalMutation({
     // Return expired leases to due.
     const claimedItems = await ctx.db
       .query("syncWorkItems")
-      .withIndex("by_status_and_dueAtMs", (q) => q.eq("status", "claimed"))
-      .collect();
+      .withIndex("by_status_and_leaseExpiresAtMs", (q) =>
+        q
+          .eq("status", "claimed")
+          .gt("leaseExpiresAtMs", 0)
+          .lte("leaseExpiresAtMs", nowMs),
+      )
+      .take(200);
     for (const item of claimedItems) {
       if (
         item.leaseExpiresAtMs !== undefined &&
@@ -817,16 +504,83 @@ export const dispatchSyncWork = internalMutation({
       }
     }
 
-    const dueItems = await ctx.db
-      .query("syncWorkItems")
-      .withIndex("by_status_and_dueAtMs", (q) => q.eq("status", "due"))
-      .collect();
+    const [recoveryDue, operatorDue, routineDue, recoveryWork] =
+      await Promise.all([
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex(
+            "by_status_and_priority_and_dueAtMs",
+            (q) =>
+              q
+                .eq("status", "due")
+                .eq("priority", "recovery"),
+          )
+          .take(200),
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex(
+            "by_status_and_priority_and_dueAtMs",
+            (q) =>
+              q
+                .eq("status", "due")
+                .eq("priority", "operator"),
+          )
+          .take(200),
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex(
+            "by_status_and_priority_and_dueAtMs",
+            (q) =>
+              q.eq("status", "due").eq("priority", "routine"),
+          )
+          .take(200),
+        ctx.db
+          .query("syncWorkItems")
+          .withIndex("by_scopeKey", (q) =>
+            q.eq("scopeKey", API_SPORTS_RECOVERY_SCOPE_KEY),
+          )
+          .unique(),
+      ]);
+    const dueById = new Map(
+      [...recoveryDue, ...operatorDue, ...routineDue].map((item) => [
+        item._id,
+        item,
+      ]),
+    );
+    let recoveryForDispatch = recoveryWork;
+    if (
+      recoveryWork?.status === "claimed" &&
+      recoveryWork.leaseExpiresAtMs !== undefined &&
+      recoveryWork.leaseExpiresAtMs <= nowMs
+    ) {
+      await ctx.db.patch(recoveryWork._id, {
+        status: "due",
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      });
+      recoveryForDispatch = {
+        ...recoveryWork,
+        status: "due",
+        claimedAtMs: undefined,
+        leaseExpiresAtMs: undefined,
+      };
+    }
+    if (recoveryForDispatch?.status === "due") {
+      dueById.set(recoveryForDispatch._id, recoveryForDispatch);
+    }
+    const dueItems = [...dueById.values()];
 
-    // Priority order: confirmation → operator → routine (by due time within).
-    const priorityRank = (p: BudgetPriority) =>
-      p === "confirmation" ? 0 : p === "operator" ? 1 : 2;
+    // Priority order: recovery → operator → routine (by due time within).
+    const priorityRank = (item: (typeof dueItems)[number]) =>
+      item.purpose === "provider_recovery_probe"
+        ? -1
+        : item.priority === "recovery"
+          ? 0
+          : item.priority === "operator"
+            ? 1
+            : 2;
     dueItems.sort((a, b) => {
-      const pr = priorityRank(a.priority) - priorityRank(b.priority);
+      const pr = priorityRank(a) - priorityRank(b);
       if (pr !== 0) return pr;
       return a.dueAtMs - b.dueAtMs;
     });
@@ -846,23 +600,28 @@ export const dispatchSyncWork = internalMutation({
       if (item.dueAtMs > nowMs) continue;
 
       const surfaceForGate =
-        item.surface === "correction" || item.surface === "operator"
-          ? "confirmation"
-          : item.surface === "schedule" ||
-              item.surface === "live" ||
-              item.surface === "confirmation"
-            ? item.surface
-            : "live";
+        item.surface === "schedule" ? "schedule" : "live";
 
       const gateDecision = canClaimProviderFetch(
         { enabled: true },
-        surfaceForGate as "schedule" | "live" | "confirmation" | "bootstrap",
+        surfaceForGate,
       );
       if (!gateDecision.ok) continue;
 
-      const budgetDecision = admitProviderFetch(usage, item.priority);
+      const protectedLivePriority: BudgetPriority =
+        item.surface === "live" ||
+        item.surface === "correction" ||
+        item.purpose === "provider_recovery_probe"
+          ? item.purpose === "provider_recovery_probe"
+            ? "operator"
+            : "recovery"
+          : item.priority;
+      const budgetDecision = admitProviderFetch(
+        usage,
+        protectedLivePriority,
+      );
       if (!budgetDecision.ok) {
-        // Try next item — confirmation/operator may still fit when routine can't.
+        // Try next item — recovery/operator may still fit when routine cannot.
         continue;
       }
 
@@ -871,34 +630,96 @@ export const dispatchSyncWork = internalMutation({
         claimedAtMs: nowMs,
         leaseExpiresAtMs: nowMs + LEASE_MS,
         attemptCount: item.attemptCount + 1,
+        deferredReason: undefined,
+        deferredAtMs: undefined,
+        isProviderDeferred: undefined,
       });
 
       const claimId = await ctx.db.insert("providerFetchClaims", {
         surface: item.surface,
         status: "claimed",
         claimedAtMs: nowMs,
-        priority: item.priority,
+        priority: protectedLivePriority,
         workItemId: item._id,
+        expiresAtMs: providerDiagnosticExpiry(nowMs),
       });
       void claimId;
 
-      usage = recordAdmission(usage, item.priority);
+      usage = recordAdmission(usage, protectedLivePriority);
       claimed.push({
         workItemId: item._id,
         surface: item.surface,
-        priority: item.priority,
+        priority: protectedLivePriority,
         scopeKey: item.scopeKey,
         gameId: item.gameId,
         purpose: item.purpose,
       });
 
-      // Schedule fetch action — no provider I/O inside this mutation.
-      await ctx.scheduler.runAfter(0, internal.syncLive.runClaimedFetch, {
-        workItemId: item._id,
-        surface: item.surface,
-        gameId: item.gameId,
-        purpose: item.purpose,
-      });
+      // Every work surface routes to an explicit API-Sports action.
+      switch (item.surface) {
+        case "operator": {
+          if (item.purpose !== "provider_recovery_probe") {
+            await ctx.db.patch(item._id, { status: "failed" });
+            break;
+          }
+          await ctx.scheduler.runAfter(
+            0,
+            internal.providerReliability.runApiSportsRecoveryProbe,
+            { workItemId: item._id },
+          );
+          break;
+        }
+        case "schedule": {
+          if (item.seasonId === undefined) {
+            await ctx.db.patch(item._id, { status: "failed" });
+            break;
+          }
+          await ctx.scheduler.runAfter(
+            0,
+            internal.syncSchedule.runClaimedScheduleFetch,
+            {
+              workItemId: item._id,
+              seasonId: item.seasonId,
+            },
+          );
+          break;
+        }
+        case "live": {
+          if (
+            item.purpose === "targeted_live_recovery" &&
+            item.gameId !== undefined
+          ) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.syncApiSportsLive.runClaimedTargetedRecovery,
+              { workItemId: item._id, gameId: item.gameId },
+            );
+          } else {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.syncApiSportsLive.runClaimedLiveFetch,
+              { workItemId: item._id },
+            );
+          }
+          break;
+        }
+        case "correction": {
+          if (item.gameId === undefined) {
+            await ctx.db.patch(item._id, { status: "failed" });
+            break;
+          }
+          await ctx.scheduler.runAfter(
+            0,
+            internal.syncApiSportsLive.runClaimedResultReconciliation,
+            {
+              workItemId: item._id,
+              gameId: item.gameId,
+              expectedPinnedOverrideId: item.pinnedResultOverrideId,
+            },
+          );
+          break;
+        }
+      }
     }
 
     log.info("dispatch_complete", {
@@ -912,451 +733,46 @@ export const dispatchSyncWork = internalMutation({
   },
 });
 
-/**
- * Scheduled after a successful claim. Fetches provider data in an action
- * (never from clients). Tests skip this path and inject observations.
- *
- * Free-tier livescore / lookup may be empty; failures record health + retry.
- */
-export const runClaimedFetch = internalAction({
-  args: {
-    workItemId: v.id("syncWorkItems"),
-    surface: v.string(),
-    gameId: v.optional(v.id("nflGames")),
-    purpose: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    // Production path: fetch via TheSportsDB adapter, then apply mutations.
-    // Intentionally no HTTP in the default test path — fixture tests call
-    // applyLiveObservation / applyConfirmationObservationMutation directly.
-    // When a live key is present, confirmation lookups use fetchEventLookup.
-    const fetchLog = log.child({
-      workItemId: args.workItemId,
-      surface: args.surface,
-      gameId: args.gameId ?? null,
-      purpose: args.purpose ?? null,
-    });
-    fetchLog.info("fetch_started");
-    const startedAtMs = Date.now();
-
-    const { fetchEventLookup, sportsDbApiKey } = await import(
-      "./providers/thesportsdb/client"
-    );
-    const { mapProviderStatusToLifecycle } = await import(
-      "./providers/thesportsdb/adapter"
-    );
-
-    if (
-      args.surface === "confirmation" &&
-      args.gameId !== undefined
-    ) {
-      const game = await ctx.runQuery(internal.syncLive.getGameSyncProjection, {
-        gameId: args.gameId,
-      });
-      if (!game) {
-        await ctx.runMutation(internal.syncLive.completeSyncWork, {
-          workItemId: args.workItemId,
-        });
-        fetchLog.warn("fetch_finished", {
-          ok: false,
-          reason: "game_missing",
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: false as const, reason: "game_missing" };
-      }
-
-      // Resolve SportsDB event id from a thin internal query.
-      const eventMeta = await ctx.runQuery(internal.syncLive.getGameProviderAlias, {
-        gameId: args.gameId,
-      });
-      if (!eventMeta) {
-        await ctx.runMutation(internal.syncLive.applyConfirmationObservationMutation, {
-          observation: {
-            gameId: args.gameId,
-            observedAtMs: Date.now(),
-            homeScore: 0,
-            awayScore: 0,
-            status: "FT",
-            lookupFailed: true,
-          },
-        });
-        fetchLog.warn("fetch_finished", {
-          ok: false,
-          reason: "alias_missing",
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: false as const, reason: "alias_missing" };
-      }
-
-      try {
-        const raw = await fetchEventLookup(
-          eventMeta.sportsDbEventId,
-          sportsDbApiKey(),
-        );
-        const nowMs = Date.now();
-        if (!raw) {
-          await ctx.runMutation(
-            internal.syncLive.applyConfirmationObservationMutation,
-            {
-              observation: {
-                gameId: args.gameId,
-                observedAtMs: nowMs,
-                homeScore: 0,
-                awayScore: 0,
-                status: "FT",
-                lookupFailed: true,
-              },
-            },
-          );
-          await ctx.runMutation(internal.syncLive.completeSyncWork, {
-            workItemId: args.workItemId,
-          });
-          fetchLog.warn("fetch_finished", {
-            ok: false,
-            reason: "lookup_empty",
-            durationMs: Date.now() - startedAtMs,
-          });
-          return { ok: false as const, reason: "lookup_empty" };
-        }
-
-        const lifecycle = mapProviderStatusToLifecycle(raw.strStatus);
-        const homeScore =
-          raw.intHomeScore === null || raw.intHomeScore === undefined
-            ? null
-            : Number(raw.intHomeScore);
-        const awayScore =
-          raw.intAwayScore === null || raw.intAwayScore === undefined
-            ? null
-            : Number(raw.intAwayScore);
-        const statusUpper = (raw.strStatus ?? "").toUpperCase();
-        const terminalStatus =
-          statusUpper === "FT" || statusUpper === "AOT" || statusUpper === "CANC"
-            ? (statusUpper as "FT" | "AOT" | "CANC")
-            : null;
-
-        if (
-          terminalStatus &&
-          homeScore !== null &&
-          awayScore !== null &&
-          Number.isFinite(homeScore) &&
-          Number.isFinite(awayScore)
-        ) {
-          await ctx.runMutation(
-            internal.syncLive.applyConfirmationObservationMutation,
-            {
-              observation: {
-                gameId: args.gameId,
-                observedAtMs: nowMs,
-                homeScore,
-                awayScore,
-                status: terminalStatus,
-              },
-            },
-          );
-        } else if (lifecycle === "in_progress" || lifecycle === "scheduled") {
-          await ctx.runMutation(internal.syncLive.applyLiveObservation, {
-            observation: {
-              gameId: args.gameId,
-              observedAtMs: nowMs,
-              lifecycle,
-              homeScore: Number.isFinite(homeScore as number)
-                ? homeScore
-                : null,
-              awayScore: Number.isFinite(awayScore as number)
-                ? awayScore
-                : null,
-            },
-          });
-        } else {
-          await ctx.runMutation(
-            internal.syncLive.applyConfirmationObservationMutation,
-            {
-              observation: {
-                gameId: args.gameId,
-                observedAtMs: nowMs,
-                homeScore: 0,
-                awayScore: 0,
-                status: "FT",
-                lookupFailed: true,
-              },
-            },
-          );
-        }
-
-        await ctx.runMutation(internal.syncLive.completeSyncWork, {
-          workItemId: args.workItemId,
-        });
-        fetchLog.info("fetch_finished", {
-          ok: true,
-          reason: "confirmation_applied",
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: true as const };
-      } catch (error) {
-        await ctx.runMutation(
-          internal.syncLive.applyConfirmationObservationMutation,
-          {
-            observation: {
-              gameId: args.gameId,
-              observedAtMs: Date.now(),
-              homeScore: 0,
-              awayScore: 0,
-              status: "FT",
-              lookupFailed: true,
-            },
-          },
-        );
-        await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
-          surface: "confirmation",
-          scopeKey: `confirmation:${args.gameId}`,
-          success: false,
-          nowMs: Date.now(),
-          providerException: true,
-          exceptionMessage: "confirmation_fetch_failed",
-          gameId: args.gameId,
-        });
-        fetchLog.error("fetch_finished", {
-          ok: false,
-          reason: "fetch_failed",
-          error: errorMessage(error),
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: false as const, reason: "fetch_failed" };
-      }
-    }
-
-    // League-live / schedule surfaces — fetch then apply normalized observations.
-    if (args.surface === "live" || args.surface === "schedule") {
-      const { fetchLeagueLivescore, fetchSeasonEvents, sportsDbApiKey } =
-        await import("./providers/thesportsdb/client");
-      const {
-        mapProviderStatusToLifecycle,
-        normalizeSeasonEvents,
-      } = await import("./providers/thesportsdb/adapter");
-
-      const workMeta = await ctx.runQuery(internal.syncLive.getWorkItemMeta, {
-        workItemId: args.workItemId,
-      });
-      if (!workMeta?.seasonId) {
-        await ctx.runMutation(internal.syncLive.completeSyncWork, {
-          workItemId: args.workItemId,
-        });
-        fetchLog.warn("fetch_finished", {
-          ok: false,
-          reason: "missing_season",
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: false as const, reason: "missing_season" };
-      }
-
-      const nowMs = Date.now();
-      try {
-        if (args.surface === "live") {
-          const raw = await fetchLeagueLivescore(sportsDbApiKey());
-          let applied = 0;
-          for (const event of raw) {
-            const gameId = await ctx.runQuery(
-              internal.syncLive.findGameBySportsDbEventId,
-              { sportsDbEventId: event.idEvent },
-            );
-            if (!gameId) continue;
-            const lifecycle = mapProviderStatusToLifecycle(event.strStatus);
-            const homeScore =
-              event.intHomeScore === null || event.intHomeScore === undefined
-                ? null
-                : Number(event.intHomeScore);
-            const awayScore =
-              event.intAwayScore === null || event.intAwayScore === undefined
-                ? null
-                : Number(event.intAwayScore);
-            const statusUpper = (event.strStatus ?? "").toUpperCase();
-            const terminalStatus =
-              statusUpper === "FT" ||
-              statusUpper === "AOT" ||
-              statusUpper === "CANC"
-                ? (statusUpper as "FT" | "AOT" | "CANC")
-                : undefined;
-            await ctx.runMutation(internal.syncLive.applyLiveObservation, {
-              observation: {
-                gameId,
-                observedAtMs: nowMs,
-                lifecycle,
-                homeScore: Number.isFinite(homeScore as number)
-                  ? homeScore
-                  : null,
-                awayScore: Number.isFinite(awayScore as number)
-                  ? awayScore
-                  : null,
-                terminalStatus,
-              },
-            });
-            applied += 1;
-          }
-          await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
-            surface: "league_live",
-            scopeKey: `live:${workMeta.seasonId}`,
-            success: true,
-            nowMs,
-            expectedNextRefreshAtMs: nowMs + LIVE_CADENCE_MS,
-          });
-          await ctx.runMutation(internal.syncLive.completeSyncWork, {
-            workItemId: args.workItemId,
-          });
-          fetchLog.info("fetch_finished", {
-            ok: true,
-            reason: "live_applied",
-            applied,
-            durationMs: Date.now() - startedAtMs,
-          });
-          return { ok: true as const, applied };
-        }
-
-        // Schedule surface — refresh kickoffs from season events.
-        const seasonLabel = await ctx.runQuery(
-          internal.syncLive.getSeasonLabel,
-          { seasonId: workMeta.seasonId },
-        );
-        if (!seasonLabel) {
-          await ctx.runMutation(internal.syncLive.completeSyncWork, {
-            workItemId: args.workItemId,
-          });
-          fetchLog.warn("fetch_finished", {
-            ok: false,
-            reason: "season_missing",
-            durationMs: Date.now() - startedAtMs,
-          });
-          return { ok: false as const, reason: "season_missing" };
-        }
-        const rawEvents = await fetchSeasonEvents(
-          seasonLabel,
-          sportsDbApiKey(),
-        );
-        const normalized = normalizeSeasonEvents(rawEvents, seasonLabel);
-        let applied = 0;
-        for (const game of normalized) {
-          const gameId = await ctx.runQuery(
-            internal.syncLive.findGameBySportsDbEventId,
-            { sportsDbEventId: game.aliases.sportsDbEventId },
-          );
-          if (!gameId) continue;
-          await ctx.runMutation(internal.syncLive.applyScheduleObservation, {
-            observation: {
-              gameId,
-              observedAtMs: nowMs,
-              scheduledKickoffMs: game.scheduledKickoffMs,
-              lifecycle: game.lifecycle,
-            },
-          });
-          applied += 1;
-        }
-        await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
-          surface: "schedule",
-          scopeKey: `schedule:${workMeta.seasonId}`,
-          success: true,
-          nowMs,
-        });
-        await ctx.runMutation(internal.syncLive.completeSyncWork, {
-          workItemId: args.workItemId,
-        });
-        fetchLog.info("fetch_finished", {
-          ok: true,
-          reason: "schedule_applied",
-          applied,
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: true as const, applied };
-      } catch (error) {
-        await ctx.runMutation(internal.syncLive.recordSyncSurfaceHealth, {
-          surface: args.surface === "live" ? "league_live" : "schedule",
-          scopeKey: `${args.surface}:${workMeta.seasonId}`,
-          success: false,
-          nowMs,
-          providerException: true,
-          exceptionMessage: `${args.surface}_fetch_failed`,
-        });
-        // Leave work due for retry rather than marking done.
-        await ctx.runMutation(internal.syncLive.requeueFailedWork, {
-          workItemId: args.workItemId,
-          dueAtMs: nowMs + 60_000,
-        });
-        fetchLog.error("fetch_finished", {
-          ok: false,
-          reason: "fetch_failed",
-          error: errorMessage(error),
-          durationMs: Date.now() - startedAtMs,
-        });
-        return { ok: false as const, reason: "fetch_failed" };
-      }
-    }
-
-    await ctx.runMutation(internal.syncLive.completeSyncWork, {
-      workItemId: args.workItemId,
-    });
-    fetchLog.info("fetch_finished", {
-      ok: true,
-      reason: "noop_complete",
-      durationMs: Date.now() - startedAtMs,
-    });
-    return { ok: true as const };
-  },
-});
-
-export const getWorkItemMeta = internalQuery({
-  args: { workItemId: v.id("syncWorkItems") },
-  handler: async (ctx, args) => {
-    const item = await ctx.db.get(args.workItemId);
-    if (!item) return null;
-    return {
-      seasonId: item.seasonId ?? null,
-      gameId: item.gameId ?? null,
-      surface: item.surface,
-      purpose: item.purpose ?? null,
-    };
-  },
-});
-
-export const findGameBySportsDbEventId = internalQuery({
-  args: { sportsDbEventId: v.string() },
-  handler: async (ctx, args) => {
-    const game = await ctx.db
-      .query("nflGames")
-      .withIndex("by_sportsDbEventId", (q) =>
-        q.eq("sportsDbEventId", args.sportsDbEventId),
-      )
-      .unique();
-    return game?._id ?? null;
-  },
-});
-
-export const getSeasonLabel = internalQuery({
-  args: { seasonId: v.id("poolSeasons") },
-  handler: async (ctx, args) => {
-    const season = await ctx.db.get(args.seasonId);
-    return season?.label ?? null;
-  },
-});
-
 export const requeueFailedWork = internalMutation({
   args: {
     workItemId: v.id("syncWorkItems"),
     dueAtMs: v.number(),
+    gameId: v.optional(v.id("nflGames")),
+    expectedPinnedOverrideId: v.optional(
+      v.id("nflGameResultOverrides"),
+    ),
+    deferredReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (
+      args.gameId !== undefined &&
+      args.expectedPinnedOverrideId !== undefined
+    ) {
+      const game = await ctx.db.get(args.gameId);
+      if (
+        !game ||
+        game.pinnedResultOverrideId !== args.expectedPinnedOverrideId
+      ) {
+        await ctx.db.patch(args.workItemId, {
+          status: "done",
+          claimedAtMs: undefined,
+          leaseExpiresAtMs: undefined,
+        });
+        return { requeued: false as const };
+      }
+    }
     await ctx.db.patch(args.workItemId, {
       status: "due",
       dueAtMs: args.dueAtMs,
       claimedAtMs: undefined,
       leaseExpiresAtMs: undefined,
+      deferredReason: args.deferredReason,
+      deferredAtMs:
+        args.deferredReason === undefined ? undefined : Date.now(),
+      isProviderDeferred:
+        args.deferredReason === undefined ? undefined : true,
     });
-  },
-});
-
-export const getGameProviderAlias = internalQuery({
-  args: { gameId: v.id("nflGames") },
-  handler: async (ctx, args) => {
-    const game = await ctx.db.get(args.gameId);
-    if (!game) return null;
-    return { sportsDbEventId: game.sportsDbEventId, seasonId: game.seasonId };
+    return { requeued: true as const };
   },
 });
 
@@ -1371,100 +787,9 @@ export const completeSyncWork = internalMutation({
     await ctx.db.patch(args.workItemId, {
       status: "done",
       leaseExpiresAtMs: undefined,
+      deferredReason: undefined,
+      deferredAtMs: undefined,
+      isProviderDeferred: undefined,
     });
-  },
-});
-
-/**
- * Public-facing claim used by older Sync Gate tests — now also records priority.
- */
-export const claimProviderFetchWithBudget = mutation({
-  args: {
-    surface: v.union(
-      v.literal("schedule"),
-      v.literal("live"),
-      v.literal("confirmation"),
-      v.literal("bootstrap"),
-    ),
-    priority: v.optional(
-      v.union(
-        v.literal("routine"),
-        v.literal("confirmation"),
-        v.literal("operator"),
-      ),
-    ),
-    nowMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new Error("Unauthenticated");
-    }
-    const nowMs = args.nowMs ?? Date.now();
-    const gateEnabled = await loadSyncGateEnabled(ctx);
-    const priority: BudgetPriority =
-      args.priority ??
-      (args.surface === "confirmation"
-        ? "confirmation"
-        : args.surface === "bootstrap"
-          ? "operator"
-          : "routine");
-
-    const gateDecision = canClaimProviderFetch(
-      { enabled: gateEnabled },
-      args.surface,
-    );
-    if (!gateDecision.ok) {
-      await ctx.db.insert("providerFetchClaims", {
-        surface: args.surface,
-        status: "denied",
-        reason: gateDecision.reason,
-        claimedAtMs: nowMs,
-        priority,
-      });
-      return { ok: false as const, reason: gateDecision.reason };
-    }
-
-    const usage = await budgetUsageInWindow(ctx, nowMs);
-    const budgetDecision = admitProviderFetch(usage, priority);
-    if (!budgetDecision.ok) {
-      await ctx.db.insert("providerFetchClaims", {
-        surface: args.surface,
-        status: "denied",
-        reason: budgetDecision.reason,
-        claimedAtMs: nowMs,
-        priority,
-      });
-      return { ok: false as const, reason: budgetDecision.reason };
-    }
-
-    await ctx.db.insert("providerFetchClaims", {
-      surface: args.surface,
-      status: "claimed",
-      claimedAtMs: nowMs,
-      priority,
-    });
-    return { ok: true as const, surface: args.surface, priority };
-  },
-});
-
-export const getGameSyncProjection = internalQuery({
-  args: { gameId: v.id("nflGames") },
-  handler: async (ctx, args) => {
-    const game = await ctx.db.get(args.gameId);
-    if (!game) return null;
-    const authority = game.resultAuthority ?? "none";
-    const isOfficial = authority === "verified";
-    return {
-      gameId: game._id,
-      lifecycle: game.lifecycle,
-      resultAuthority: authority,
-      projectedHomeScore: game.homeScore,
-      projectedAwayScore: game.awayScore,
-      isOfficial,
-      verifiedResult: game.verifiedResult ?? null,
-      provisionalTerminalAtMs: game.provisionalTerminalAtMs ?? null,
-      lastObservedAtMs: game.lastObservedAtMs ?? null,
-    };
   },
 });

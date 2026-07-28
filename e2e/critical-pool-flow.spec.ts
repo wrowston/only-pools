@@ -157,6 +157,84 @@ test("create → invite → pick → lock → score → standings", async ({
         ).first(),
       ).toBeVisible({ timeout: 30_000 });
       await expect(ownerPage.getByText(/Survivor · \d+ Alive/)).toBeVisible();
+
+      const standingsGrid = ownerPage.getByRole("table");
+      const stickyOverlay = await standingsGrid.evaluate((table) => {
+        const scrollContainer = table.parentElement;
+        const playerHeader = table.querySelector("thead th:first-child");
+        const statusHeader = table.querySelector("thead th:last-child");
+        const viewerBadge = Array.from(
+          table.querySelectorAll("tbody span"),
+        ).find(
+          (element) => element.textContent?.trim().toLowerCase() === "you",
+        );
+        const viewerRow = viewerBadge?.closest("tr");
+        const playerCell = viewerRow?.querySelector("td:first-child");
+        const statusCell = viewerRow?.querySelector("td:last-child");
+        if (
+          !scrollContainer ||
+          !playerHeader ||
+          !statusHeader ||
+          !playerCell ||
+          !statusCell
+        ) {
+          throw new Error("Standings sticky columns are missing");
+        }
+
+        const maxScrollLeft = Math.max(
+          0,
+          scrollContainer.scrollWidth - scrollContainer.clientWidth,
+        );
+        scrollContainer.scrollLeft = Math.min(40, maxScrollLeft / 2);
+        const playerRect = playerHeader.getBoundingClientRect();
+        const statusRect = statusHeader.getBoundingClientRect();
+        const weekHeaders = Array.from(
+          table.querySelectorAll("thead th:not(:last-child)"),
+        ).filter((header) => header !== playerHeader);
+        const hasWeekUnderPlayer = weekHeaders.some((header) => {
+          const rect = header.getBoundingClientRect();
+          return rect.left < playerRect.right && rect.right > playerRect.left;
+        });
+        const hasWeekUnderStatus = weekHeaders.some((header) => {
+          const rect = header.getBoundingClientRect();
+          return rect.left < statusRect.right && rect.right > statusRect.left;
+        });
+
+        const isOpaque = (color: string) => {
+          const alpha = color.match(
+            /^rgba\([^,]+,[^,]+,[^,]+,\s*([0-9.]+)\)$/,
+          )?.[1];
+          return alpha === undefined || Number(alpha) === 1;
+        };
+        const hasVisibleOpaqueBackground = (element: Element) =>
+          [getComputedStyle(element), getComputedStyle(element, "::before")].some(
+            (style) =>
+              isOpaque(style.backgroundColor) &&
+              Number(style.opacity) > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none",
+          );
+
+        return {
+          scrolled: scrollContainer.scrollLeft > 0,
+          hasWeekUnderPlayer,
+          hasWeekUnderStatus,
+          playerHeaderIsOpaque: hasVisibleOpaqueBackground(playerHeader),
+          playerCellIsOpaque: hasVisibleOpaqueBackground(playerCell),
+          headerIsOpaque: hasVisibleOpaqueBackground(statusHeader),
+          cellIsOpaque: hasVisibleOpaqueBackground(statusCell),
+        };
+      });
+
+      expect(stickyOverlay).toEqual({
+        scrolled: true,
+        hasWeekUnderPlayer: true,
+        hasWeekUnderStatus: true,
+        playerHeaderIsOpaque: true,
+        playerCellIsOpaque: true,
+        headerIsOpaque: true,
+        cellIsOpaque: true,
+      });
     });
   } finally {
     await ownerContext.close();

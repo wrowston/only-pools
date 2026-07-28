@@ -56,16 +56,14 @@ async function seedAvailableSeasonWithSlate(
       name: "Kansas City Chiefs",
       abbreviation: "KC",
       logoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
-      sportsDbTeamId: "134934",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
     });
     const awayId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
       logoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
-      sportsDbTeamId: "134918",
+        "https://example.test/images/media/team/badge/6pb37b1515849026.png",
     });
 
     await ctx.db.insert("nflGames", {
@@ -79,7 +77,6 @@ async function seedAvailableSeasonWithSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1",
     });
 
     if (opts.includeWeek2 !== false) {
@@ -94,7 +91,6 @@ async function seedAvailableSeasonWithSlate(
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w2",
       });
     }
 
@@ -416,12 +412,12 @@ describe("getWeekBoard", () => {
       homeTeam: {
         abbreviation: "KC",
         logoUrl:
-          "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+          "https://example.test/images/media/team/badge/936t161515847222.png",
       },
       awayTeam: {
         abbreviation: "BUF",
         logoUrl:
-          "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
+          "https://example.test/images/media/team/badge/6pb37b1515849026.png",
       },
       locked: false,
     });

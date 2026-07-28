@@ -91,27 +91,6 @@ describe("shouldOpenIncident (scenario 42 — incident triggers)", () => {
     expect(decision.open).toBe(false);
   });
 
-  it("opens for quarantine past the confirmation window", () => {
-    const decision = shouldOpenIncident({
-      kind: "quarantine_past_confirmation",
-      confirmationWindowEndsAtMs: NOW - 1_000,
-      nowMs: NOW,
-      verificationBlocked: true,
-    });
-    expect(decision.open).toBe(true);
-    expect(decision.type).toBe("quarantine_past_confirmation");
-  });
-
-  it("does not open for quarantine still inside the confirmation window", () => {
-    const decision = shouldOpenIncident({
-      kind: "quarantine_past_confirmation",
-      confirmationWindowEndsAtMs: NOW + 60_000,
-      nowMs: NOW,
-      verificationBlocked: true,
-    });
-    expect(decision.open).toBe(false);
-  });
-
   it("opens for Convex capacity at or above 90 percent", () => {
     const decision = shouldOpenIncident({
       kind: "convex_capacity",

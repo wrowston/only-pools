@@ -8,6 +8,7 @@
  */
 
 import { resolveDeploymentKind } from "./syncGate";
+import { env as convexEnv } from "../_generated/server";
 
 export type SentryLevel = "info" | "warning" | "error" | "fatal";
 
@@ -35,11 +36,21 @@ function createSink(): SentrySink {
     captures,
     capture(event) {
       const env = process.env as Record<string, string | undefined>;
-      const kind = resolveDeploymentKind(env);
+      const kind = resolveDeploymentKind(convexEnv);
       const dsn = env.SENTRY_DSN?.trim() || env.NEXT_PUBLIC_SENTRY_DSN?.trim();
       const isProduction = kind === "production";
+      const incidentEmailEnabled =
+        convexEnv.SENTRY_INCIDENT_EMAIL_ENABLED?.trim().toLowerCase() ===
+        "true";
       // Dev/Preview must never page production — even if a DSN is present.
       const pagesProduction = isProduction && Boolean(dsn);
+      const routesIncidentEmail =
+        pagesProduction &&
+        incidentEmailEnabled &&
+        event.tags?.channel === "operator_incident" &&
+        (event.tags.signal === "opened" ||
+          event.tags.signal === "escalated" ||
+          event.tags.signal === "resolved");
 
       const record: SentryCapture = {
         message: event.message,
@@ -48,6 +59,9 @@ function createSink(): SentrySink {
           ...(event.tags ?? {}),
           deployment_kind: String(kind),
           ...(pagesProduction ? { alert_channel: "production" } : {}),
+          ...(routesIncidentEmail
+            ? { notification_channel: "email" }
+            : {}),
         },
         extra: event.extra,
         pagesProduction,
@@ -89,16 +103,27 @@ export function captureException(
 export function captureIncidentSignal(args: {
   signal: "opened" | "escalated" | "resolved";
   incidentType: string;
+  severity?: "warning" | "critical";
   dedupeKey: string;
   summary?: string;
+  resolutionCause?: "healthy_ingestion" | "window_ended";
 }): SentryCapture {
   return sentrySink.capture({
     message: `Operator Incident ${args.signal}: ${args.incidentType}`,
-    level: args.signal === "resolved" ? "info" : "warning",
+    level:
+      args.signal === "resolved"
+        ? "info"
+        : args.severity === "critical"
+          ? "error"
+          : "warning",
     tags: {
       channel: "operator_incident",
       signal: args.signal,
       incident_type: args.incidentType,
+      ...(args.severity ? { severity: args.severity } : {}),
+      ...(args.resolutionCause
+        ? { resolution_cause: args.resolutionCause }
+        : {}),
     },
     extra: {
       dedupeKey: args.dedupeKey,

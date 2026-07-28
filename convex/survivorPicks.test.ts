@@ -59,25 +59,21 @@ async function seedSurvivorSlate(
       stableKey: "nfl:kc",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
-      sportsDbTeamId: "134934",
     });
     const buf = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
-      sportsDbTeamId: "134918",
     });
     const phi = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:phi",
       name: "Philadelphia Eagles",
       abbreviation: "PHI",
-      sportsDbTeamId: "134936",
     });
     const dal = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:dal",
       name: "Dallas Cowboys",
       abbreviation: "DAL",
-      sportsDbTeamId: "134925",
     });
 
     const week1GameId = await ctx.db.insert("nflGames", {
@@ -91,7 +87,6 @@ async function seedSurvivorSlate(
       lifecycle,
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1",
     });
 
     let week1ExtraGameId: Id<"nflGames"> | null = null;
@@ -107,7 +102,6 @@ async function seedSurvivorSlate(
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w1b",
       });
     }
 
@@ -122,7 +116,6 @@ async function seedSurvivorSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w2",
     });
 
     return {
