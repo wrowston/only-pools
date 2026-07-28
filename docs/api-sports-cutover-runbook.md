@@ -12,8 +12,8 @@ dataset has a passing, non-stale qualification decision.
 
 The contraction is a two-schema deployment:
 
-1. `dde9364` — compatibility schema, writer lock, bounded legacy migration,
-   and the live-qualified nullable-placeholder decoder.
+1. `a3deb3d` — compatibility schema, writer lock, bounded legacy migration,
+   live-qualified nullable-placeholder decoder, and protected-audit inventory.
 2. `d877e06` — strict provider-neutral schema and runtime.
 3. `a85f30b` — the same strict tree with the base compatibility migration
    recorded as ancestry.
@@ -27,7 +27,7 @@ export TICKET_48_RELEASE_SHA='<approved-pr-head-sha>'
 git merge-base --is-ancestor d6493c9 a85f30b
 git diff --quiet d877e06 a85f30b
 git merge-base --is-ancestor a85f30b "$TICKET_48_RELEASE_SHA"
-git merge-base --is-ancestor dde9364 "$TICKET_48_RELEASE_SHA"
+git merge-base --is-ancestor a3deb3d "$TICKET_48_RELEASE_SHA"
 ```
 
 All three commands must exit zero. Record:
@@ -153,7 +153,7 @@ If the test email is not received, leave the flag false and stop.
 Create a detached worktree so the exact compatibility source is reviewable:
 
 ```sh
-git worktree add --detach '<compatibility-worktree>' dde9364
+git worktree add --detach '<compatibility-worktree>' a3deb3d
 ```
 
 From that worktree, point an env file containing only the reviewed
