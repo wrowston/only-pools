@@ -41,6 +41,11 @@ import {
   resolveBoardWeek,
 } from "./lib/myPoolsStatus";
 import { normalizePoolDescription } from "./lib/poolDescription";
+import { isRegularPoolSeason } from "./lib/poolSeason";
+import {
+  resolveSurvivorFinalWeek,
+  SURVIVOR_FINAL_WEEK,
+} from "./lib/survivorScoring";
 
 const log = createLogger("pools");
 
@@ -66,8 +71,8 @@ async function requireAvailableSeason(
   const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .take(1);
-  const season = seasons[0];
+    .take(20);
+  const season = seasons.find(isRegularPoolSeason);
   if (!season) {
     throw new PoolError("No Available Season — Create Pool is disabled");
   }
@@ -684,8 +689,8 @@ export const listAvailableStartWeeks = query({
     const seasons = await ctx.db
       .query("poolSeasons")
       .withIndex("by_status", (q) => q.eq("status", "available"))
-      .take(1);
-    const season = seasons[0];
+      .take(20);
+    const season = seasons.find(isRegularPoolSeason);
     if (!season) {
       return { seasonId: null, weeks: [] as number[] };
     }
@@ -763,19 +768,27 @@ export const getWeekBoard = query({
       ctx,
       pool.seasonId,
     );
+    const finalWeek =
+      pool.type === "survivor"
+        ? resolveSurvivorFinalWeek(pool)
+        : SURVIVOR_FINAL_WEEK;
     const week =
       args.week ??
       resolveBoardWeek({
         startWeek: pool.startWeek,
+        finalWeek,
         earliestKickoffByWeek,
         nowMs,
       });
+    if (week < pool.startWeek || week > finalWeek) {
+      throw new PoolError("Week is outside this Pool's included weeks");
+    }
     const games = await loadWeekGames(ctx, pool.seasonId, week);
     const season = await ctx.db.get(pool.seasonId);
 
     const availableWeekSet = new Set<number>();
     for (const weekNumber of earliestKickoffByWeek.keys()) {
-      if (weekNumber >= pool.startWeek && weekNumber <= 18) {
+      if (weekNumber >= pool.startWeek && weekNumber <= finalWeek) {
         availableWeekSet.add(weekNumber);
       }
     }
@@ -1162,6 +1175,7 @@ export const getWeekBoard = query({
         name: pool.name,
         type: pool.type,
         startWeek: pool.startWeek,
+        finalWeek,
         pickLockMode: pool.pickLockMode,
         rulesFrozen: pool.rulesFrozen,
         status: pool.status,

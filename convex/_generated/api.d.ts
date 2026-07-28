@@ -47,6 +47,7 @@ import type * as lib_poolArchive from "../lib/poolArchive.js";
 import type * as lib_poolDescription from "../lib/poolDescription.js";
 import type * as lib_poolEntries from "../lib/poolEntries.js";
 import type * as lib_poolRules from "../lib/poolRules.js";
+import type * as lib_poolSeason from "../lib/poolSeason.js";
 import type * as lib_providerBudget from "../lib/providerBudget.js";
 import type * as lib_providerEvidencePolicy from "../lib/providerEvidencePolicy.js";
 import type * as lib_providerQualificationCandidate from "../lib/providerQualificationCandidate.js";
@@ -95,6 +96,7 @@ import type * as providers_sportsData_types from "../providers/sportsData/types.
 import type * as resultOverrides from "../resultOverrides.js";
 import type * as scoringHolds from "../scoringHolds.js";
 import type * as seedDemo from "../seedDemo.js";
+import type * as seedPreseason from "../seedPreseason.js";
 import type * as sentry from "../sentry.js";
 import type * as survivorPicks from "../survivorPicks.js";
 import type * as survivorScoring from "../survivorScoring.js";
@@ -149,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "lib/poolDescription": typeof lib_poolDescription;
   "lib/poolEntries": typeof lib_poolEntries;
   "lib/poolRules": typeof lib_poolRules;
+  "lib/poolSeason": typeof lib_poolSeason;
   "lib/providerBudget": typeof lib_providerBudget;
   "lib/providerEvidencePolicy": typeof lib_providerEvidencePolicy;
   "lib/providerQualificationCandidate": typeof lib_providerQualificationCandidate;
@@ -197,6 +200,7 @@ declare const fullApi: ApiFromModules<{
   resultOverrides: typeof resultOverrides;
   scoringHolds: typeof scoringHolds;
   seedDemo: typeof seedDemo;
+  seedPreseason: typeof seedPreseason;
   sentry: typeof sentry;
   survivorPicks: typeof survivorPicks;
   survivorScoring: typeof survivorScoring;

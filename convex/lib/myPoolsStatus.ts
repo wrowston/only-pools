@@ -52,11 +52,13 @@ export type MyPoolsMembershipStatus = {
  */
 export function resolveBoardWeek(args: {
   startWeek: number;
+  finalWeek?: number;
   earliestKickoffByWeek: Map<number, number>;
   nowMs: number;
 }): number {
+  const finalWeek = args.finalWeek ?? 18;
   const weeks = [...args.earliestKickoffByWeek.keys()]
-    .filter((w) => w >= args.startWeek && w <= 18)
+    .filter((w) => w >= args.startWeek && w <= finalWeek)
     .sort((a, b) => a - b);
   if (weeks.length === 0) return args.startWeek;
 

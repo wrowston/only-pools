@@ -4,6 +4,7 @@ import {
   computeWeeklyCutoffMs,
   isGameKickoffLocked,
 } from "./pickLock";
+import { resolveSurvivorFinalWeek } from "./survivorScoring";
 
 export type ScoringHoldDependency =
   | "later_game_lock"
@@ -107,9 +108,15 @@ async function dependencyForPool(
   },
 ): Promise<ScoringHoldDependency | null> {
   if (input.pool.startWeek > input.game.week) return null;
+  const finalWeek =
+    input.pool.type === "survivor"
+      ? resolveSurvivorFinalWeek(input.pool)
+      : 18;
+  if (input.game.week > finalWeek) return null;
   if (input.seasonGames.length > 400) return "bounded_scope_exceeded";
   const laterGames = input.seasonGames.filter(
-    (candidate) => candidate.week > input.game.week,
+    (candidate) =>
+      candidate.week > input.game.week && candidate.week <= finalWeek,
   );
   const laterGameLockReached = laterGames.some((candidate) =>
     isGameKickoffLocked(candidate, input.observedAtMs),
@@ -130,7 +137,8 @@ async function dependencyForPool(
       q
         .eq("poolId", input.pool._id)
         .eq("settled", true)
-        .gt("week", input.game.week),
+        .gt("week", input.game.week)
+        .lte("week", finalWeek),
     )
     .first();
   const laterSurvivorLock =
@@ -141,7 +149,8 @@ async function dependencyForPool(
             q
               .eq("poolId", input.pool._id)
               .eq("locked", true)
-              .gt("week", input.game.week),
+              .gt("week", input.game.week)
+              .lte("week", finalWeek),
           )
           .first()
       : null;
@@ -153,7 +162,8 @@ async function dependencyForPool(
             q
               .eq("poolId", input.pool._id)
               .eq("provisional", false)
-              .gt("week", input.game.week),
+              .gt("week", input.game.week)
+              .lte("week", finalWeek),
           )
           .first()
       : null;
@@ -189,13 +199,16 @@ export async function getScoringGate(
   ctx: QueryCtx | MutationCtx,
   pool: Doc<"pools">,
 ): Promise<ScoringGate | null> {
+  const finalWeek =
+    pool.type === "survivor" ? resolveSurvivorFinalWeek(pool) : 18;
   const hold = await ctx.db
     .query("scoringHolds")
     .withIndex("by_poolId_and_status_and_gameWeek", (q) =>
       q
         .eq("poolId", pool._id)
         .eq("status", "open")
-        .gte("gameWeek", pool.startWeek),
+        .gte("gameWeek", pool.startWeek)
+        .lte("gameWeek", finalWeek),
     )
     .order("desc")
     .first();
@@ -218,6 +231,9 @@ export async function getScoringGate(
   )
     .take(18);
   for (const blocked of blockedRows) {
+    if (blocked.week < pool.startWeek || blocked.week > finalWeek) {
+      continue;
+    }
     let workflowGameId: Id<"nflGames"> | null = null;
     let workflowCandidateKey: string | null = null;
     if (blocked.holdId) {
@@ -347,7 +363,8 @@ export async function getScoringGate(
           q
             .eq("seasonId", pool.seasonId)
             .eq("status", status)
-            .gte("gameWeek", pool.startWeek),
+            .gte("gameWeek", pool.startWeek)
+            .lte("gameWeek", finalWeek),
         )
         .order("desc")
         .take(401)),

@@ -5,6 +5,13 @@
 
 export const SURVIVOR_FINAL_WEEK = 18;
 
+/** Pool-specific Survivor boundary; legacy pools run through Week 18. */
+export function resolveSurvivorFinalWeek(pool: {
+  finalWeek?: number;
+}): number {
+  return pool.finalWeek ?? SURVIVOR_FINAL_WEEK;
+}
+
 export type SurvivorPickOutcomeKind =
   | "win"
   | "loss"

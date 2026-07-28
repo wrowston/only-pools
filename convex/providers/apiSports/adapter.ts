@@ -17,6 +17,7 @@ import type {
   SportsDataProviderHealth,
   SportsDataLiveResult,
   SportsDataQuota,
+  SportsDataSchedulePhase,
   SportsDataTeam,
 } from "../sportsData/types";
 import {
@@ -41,6 +42,14 @@ function subtractOrNull(
   return limit === null || remaining === null
     ? null
     : Math.max(0, limit - remaining);
+}
+
+function preseasonPoolWeek(rawWeek: string): boolean {
+  const matches = [...rawWeek.matchAll(/\d+/g)];
+  const value = matches.at(-1)?.[0];
+  if (!value) return false;
+  const week = Number(value);
+  return Number.isInteger(week) && week >= 1 && week <= 3;
 }
 
 function sportsDataQuota(
@@ -113,6 +122,7 @@ export class ApiSportsProvider
 
   listSeasonGames(
     seasonYear: number,
+    phase: SportsDataSchedulePhase = "regular_season",
   ): Effect.Effect<
     readonly SportsDataGameObservation[],
     ApiSportsClientError | ApiSportsDecodeError
@@ -121,9 +131,13 @@ export class ApiSportsProvider
       Effect.flatMap((response) =>
         normalizeApiSportsGames(
           response.data.filter(
-            (row) =>
-              row.game.stage.trim().toLowerCase() ===
-              "regular season",
+            (row) => {
+              const stage = row.game.stage.trim().toLowerCase();
+              return phase === "preseason"
+                ? (stage === "pre season" || stage === "preseason") &&
+                    preseasonPoolWeek(row.game.week)
+                : stage === "regular season";
+            },
           ),
           response.observedAtMs,
         ),

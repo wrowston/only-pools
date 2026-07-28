@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { isRegularPoolSeason } from "./lib/poolSeason";
 import { AuthError, requireParticipant } from "./lib/auth";
 import {
   generateInviteToken,
@@ -53,8 +54,8 @@ async function requireAvailableSeason(
   const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .take(1);
-  const season = seasons[0];
+    .take(20);
+  const season = seasons.find(isRegularPoolSeason);
   if (!season) {
     throw new TemplateError("No Available Season — Create Pool is disabled");
   }
@@ -190,8 +191,8 @@ export const listMyTemplates = query({
     const available = await ctx.db
       .query("poolSeasons")
       .withIndex("by_status", (q) => q.eq("status", "available"))
-      .take(1);
-    const availableSeason = available[0];
+      .take(20);
+    const availableSeason = available.find(isRegularPoolSeason);
     if (!availableSeason) {
       return [];
     }

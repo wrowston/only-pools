@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { isRegularPoolSeason } from "./lib/poolSeason";
 import * as Schema from "effect/Schema";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -659,7 +660,7 @@ export const listQualificationSeasons = query({
       .withIndex("by_status", (q) => q.eq("status", "available"))
       .order("desc")
       .take(20);
-    return rows.map((season) => ({
+    return rows.filter(isRegularPoolSeason).map((season) => ({
       seasonId: season._id,
       label: season.label,
       year: season.year,
@@ -681,7 +682,11 @@ export const createQualificationRun = mutation({
       process.env as Record<string, string | undefined>,
     );
     const season = await ctx.db.get(args.seasonId);
-    if (!season || season.status !== "available") {
+    if (
+      !season ||
+      season.status !== "available" ||
+      !isRegularPoolSeason(season)
+    ) {
       throw new Error("Selected Pool Season is not available");
     }
     const previous = await latestRun(ctx, season._id);

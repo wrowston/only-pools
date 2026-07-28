@@ -199,6 +199,42 @@ describe("autosaveSurvivorPick (acceptance scenario 19)", () => {
     ).rejects.toThrow(/not eligible|not on the week|Week slate/i);
   });
 
+  it("rejects picks after a shortened Survivor Pool's final week", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const pool = await asAlex.mutation(api.pools.createPool, {
+      name: "Short Survivor Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(pool.poolId, { finalWeek: 1 });
+    });
+
+    await expect(
+      asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: pool.poolId,
+        week: 2,
+        nflTeamId: seeded.kc,
+      }),
+    ).rejects.toThrow(/outside this Pool's included weeks/i);
+
+    const board = await asAlex.query(api.pools.getWeekBoard, {
+      poolId: pool.poolId,
+    });
+    expect(board.pool.finalWeek).toBe(1);
+    expect(board.availableWeeks).toEqual([1]);
+    await expect(
+      asAlex.query(api.pools.getWeekBoard, {
+        poolId: pool.poolId,
+        week: 2,
+      }),
+    ).rejects.toThrow(/outside this Pool's included weeks/i);
+  });
+
   it("releases prior reservation and reserves the new team on unlocked change", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSurvivorSlate(t);

@@ -748,6 +748,58 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
     expect(memberIds.alex).toBeTruthy();
   });
 
+  it("uses a shortened Pool's own final week for terminal winners", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    const { asAlex, poolId } = await createPoolWithMembers(t, {
+      startWeek: 2,
+      members: ["blake"],
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(poolId, { finalWeek: 2 });
+    });
+
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.phi,
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.phi,
+    });
+    await moveKickoffPast(t, seeded.week2GameId!);
+    await verifyGame(t, seeded.week2GameId!, 24, 17);
+
+    const result = await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId, week: 2 },
+    );
+    expect(result).toMatchObject({
+      status: "published",
+      weekSettled: true,
+      poolStatus: "completed",
+    });
+
+    const standings = await asAlex.query(
+      api.survivorScoring.getSurvivorStandings,
+      { poolId },
+    );
+    expect(standings?.finalWeek).toBe(2);
+    expect(
+      standings?.rows.filter((row) => row.eligibility === "winner"),
+    ).toHaveLength(2);
+
+    const grid = await asAlex.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId },
+    );
+    expect(grid?.finalWeek).toBe(2);
+    expect(grid?.weeks).toEqual([2]);
+  });
+
   it("standings query denies non-members", async () => {
     const t = convexTest(schema, modules);
     await seedSurvivorWorld(t, { includeWeek2: false });
@@ -788,6 +840,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
     );
 
     const expectedWeeks = Array.from({ length: 14 }, (_, index) => index + 5);
+    expect(grid?.finalWeek).toBe(18);
     expect(grid?.weeks).toEqual(expectedWeeks);
     for (const row of grid?.rows ?? []) {
       expect(row.cells.map((cell) => cell.week)).toEqual(expectedWeeks);

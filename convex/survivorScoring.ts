@@ -37,6 +37,7 @@ import {
   buildSurvivorWeekFingerprint,
   decideSurvivorTerminalOutcome,
   eliminationReasonFromOutcome,
+  resolveSurvivorFinalWeek,
   resolveSurvivorPickOutcome,
   type SurvivorEligibility,
   type SurvivorPickOutcomeKind,
@@ -317,7 +318,8 @@ export const applySurvivorScoringRevision = internalMutation({
     if (pool.type !== "survivor") {
       throw new Error("Survivor scoring only applies to Survivor Pools");
     }
-    if (args.week < pool.startWeek || args.week > SURVIVOR_FINAL_WEEK) {
+    const finalWeek = resolveSurvivorFinalWeek(pool);
+    if (args.week < pool.startWeek || args.week > finalWeek) {
       throw new Error("Week is outside this Pool's included weeks");
     }
 
@@ -719,7 +721,7 @@ export const applySurvivorScoringRevision = internalMutation({
       });
       const terminal = decideSurvivorTerminalOutcome({
         week: args.week,
-        finalWeek: SURVIVOR_FINAL_WEEK,
+        finalWeek,
         weekSettled: true,
         enteredAliveIds: enteredAliveAtTarget.map((id) => id as string),
         afterWeek,
@@ -826,7 +828,10 @@ export const handleVerifiedCancellation = internalMutation({
     let scheduledPools = 0;
     for (const pool of page.page) {
       if (pool.type !== "survivor") continue;
-      if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
+      if (
+        game.week < pool.startWeek ||
+        game.week > resolveSurvivorFinalWeek(pool)
+      ) {
         continue;
       }
       await ctx.scheduler.runAfter(
@@ -881,7 +886,7 @@ export const handleVerifiedCancellationForPool = internalMutation({
       pool.type !== "survivor" ||
       pool.seasonId !== game.seasonId ||
       game.week < pool.startWeek ||
-      game.week > SURVIVOR_FINAL_WEEK
+      game.week > resolveSurvivorFinalWeek(pool)
     ) {
       return { invalidated: 0, replayScheduled: false };
     }
@@ -968,7 +973,10 @@ export const scoreSurvivorPoolsForVerifiedGame = internalMutation({
     let scheduledPools = 0;
     for (const pool of page.page) {
       if (pool.type !== "survivor") continue;
-      if (game.week < pool.startWeek || game.week > SURVIVOR_FINAL_WEEK) {
+      if (
+        game.week < pool.startWeek ||
+        game.week > resolveSurvivorFinalWeek(pool)
+      ) {
         continue;
       }
       await ctx.scheduler.runAfter(
@@ -1015,12 +1023,16 @@ export const scoreSurvivorPoolForVerifiedGame = internalMutation({
     if (!game || game.resultAuthority !== "verified") {
       return { scored: false };
     }
+    const finalWeek =
+      pool?.type === "survivor"
+        ? resolveSurvivorFinalWeek(pool)
+        : SURVIVOR_FINAL_WEEK;
     if (
       !pool ||
       pool.type !== "survivor" ||
       pool.seasonId !== game.seasonId ||
       game.week < pool.startWeek ||
-      game.week > SURVIVOR_FINAL_WEEK
+      game.week > finalWeek
     ) {
       return { scored: false };
     }
@@ -1035,9 +1047,9 @@ export const scoreSurvivorPoolForVerifiedGame = internalMutation({
       .withIndex("by_poolId_and_week", (q) =>
         q.eq("poolId", pool._id).gt("week", game.week),
       )
-      .take(SURVIVOR_FINAL_WEEK);
+      .take(finalWeek);
     for (const poolWeek of laterPoolWeeks) {
-      if (poolWeek.week <= SURVIVOR_FINAL_WEEK) {
+      if (poolWeek.week <= finalWeek) {
         replayWeeks.add(poolWeek.week);
       }
     }
@@ -1048,12 +1060,12 @@ export const scoreSurvivorPoolForVerifiedGame = internalMutation({
     for (const blockedWeek of blockedWeeks) {
       if (
         blockedWeek >= game.week &&
-        blockedWeek <= SURVIVOR_FINAL_WEEK
+        blockedWeek <= finalWeek
       ) {
         replayWeeks.add(blockedWeek);
       }
     }
-    for (let week = game.week + 1; week <= SURVIVOR_FINAL_WEEK; week++) {
+    for (let week = game.week + 1; week <= finalWeek; week++) {
       const existingPick = await ctx.db
         .query("survivorPicks")
         .withIndex("by_poolId_and_week", (q) =>
@@ -1100,6 +1112,10 @@ export const scoreSurvivorPoolWeekContinuation = internalMutation({
       ctx.db.get(args.gameId),
       ctx.db.get(args.poolId),
     ]);
+    const finalWeek =
+      pool?.type === "survivor"
+        ? resolveSurvivorFinalWeek(pool)
+        : SURVIVOR_FINAL_WEEK;
     if (
       !game ||
       game.resultAuthority !== "verified" ||
@@ -1107,9 +1123,9 @@ export const scoreSurvivorPoolWeekContinuation = internalMutation({
       pool.type !== "survivor" ||
       pool.seasonId !== game.seasonId ||
       game.week < pool.startWeek ||
-      game.week > SURVIVOR_FINAL_WEEK ||
+      game.week > finalWeek ||
       week < game.week ||
-      week > SURVIVOR_FINAL_WEEK
+      week > finalWeek
     ) {
       return { scored: false, continuationScheduled: false };
     }
@@ -1237,6 +1253,7 @@ export const getSurvivorStandings = query({
       poolStatus: pool.status,
       completedWeek: pool.completedWeek ?? null,
       startWeek: pool.startWeek,
+      finalWeek: resolveSurvivorFinalWeek(pool),
       rows,
     };
   },
@@ -1297,7 +1314,8 @@ export const getSurvivorStandingsGrid = query({
     const pickByEntryWeek = new Map<string, Doc<"survivorPicks">>();
     const outcomeByEntryWeek = new Map<string, Doc<"survivorPickOutcomes">>();
 
-    for (let week = pool.startWeek; week <= SURVIVOR_FINAL_WEEK; week++) {
+    const finalWeek = resolveSurvivorFinalWeek(pool);
+    for (let week = pool.startWeek; week <= finalWeek; week++) {
       const weekPicks = await ctx.db
         .query("survivorPicks")
         .withIndex("by_poolId_and_week", (q) =>
@@ -1322,7 +1340,7 @@ export const getSurvivorStandingsGrid = query({
     }
 
     const weeks: number[] = [];
-    for (let w = pool.startWeek; w <= SURVIVOR_FINAL_WEEK; w++) weeks.push(w);
+    for (let w = pool.startWeek; w <= finalWeek; w++) weeks.push(w);
 
     const teamCache = new Map<
       Id<"nflTeams">,
@@ -1436,6 +1454,7 @@ export const getSurvivorStandingsGrid = query({
       poolStatus: pool.status,
       completedWeek: pool.completedWeek ?? null,
       startWeek: pool.startWeek,
+      finalWeek,
       weeks,
       aliveCount,
       scoringHold: scoringGate

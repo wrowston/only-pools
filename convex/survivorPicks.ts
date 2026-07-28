@@ -11,6 +11,7 @@ import {
 } from "./lib/pickLock";
 import { isPoolArchived } from "./lib/poolArchive";
 import { SURVIVOR_ONE_USE_MESSAGE } from "./lib/survivorMessages";
+import { resolveSurvivorFinalWeek } from "./lib/survivorScoring";
 import {
   ensurePrimaryEntryIfMissing,
   listActivePoolEntries,
@@ -225,7 +226,10 @@ export const autosaveSurvivorPick = mutation({
       );
     }
 
-    if (args.week < pool.startWeek || args.week > 18) {
+    if (
+      args.week < pool.startWeek ||
+      args.week > resolveSurvivorFinalWeek(pool)
+    ) {
       throw new SurvivorPickError("Week is outside this Pool's included weeks");
     }
 
@@ -433,6 +437,12 @@ export const materializeSurvivorLocks = mutation({
     if (pool.type !== "survivor") {
       return { lockedCount: 0, omissionCount: 0 };
     }
+    if (
+      args.week < pool.startWeek ||
+      args.week > resolveSurvivorFinalWeek(pool)
+    ) {
+      throw new SurvivorPickError("Week is outside this Pool's included weeks");
+    }
 
     const nowMs = Date.now();
     const games = await loadWeekGames(ctx, pool.seasonId, args.week);
@@ -573,6 +583,15 @@ export const getMySurvivorPick = query({
       throw new SurvivorPickError("Pool not found");
     }
     await requirePoolMembership(ctx, pool._id, participant._id);
+    if (pool.type !== "survivor") {
+      throw new SurvivorPickError("Survivor picks only apply to Survivor Pools");
+    }
+    if (
+      args.week < pool.startWeek ||
+      args.week > resolveSurvivorFinalWeek(pool)
+    ) {
+      throw new SurvivorPickError("Week is outside this Pool's included weeks");
+    }
 
     const entry = await requireOwnedActiveEntry(ctx, {
       poolId: pool._id,
