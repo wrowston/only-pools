@@ -46,37 +46,6 @@ function detailsRecord(
   }
 }
 
-function actionMatches(
-  rows: readonly Readonly<{
-    action: string;
-    detailsJson?: string;
-  }>[],
-  action: string,
-  input: {
-    requestId: string | null;
-    stageId: string | null;
-  },
-): boolean {
-  return rows.some((row) => {
-    if (row.action !== action) return false;
-    const details = detailsRecord(row.detailsJson);
-    if (details === null) return false;
-    if (
-      input.requestId !== null &&
-      String(details.requestId ?? "") !== input.requestId
-    ) {
-      return false;
-    }
-    if (
-      input.stageId !== null &&
-      String(details.stageId ?? "") !== input.stageId
-    ) {
-      return false;
-    }
-    return true;
-  });
-}
-
 function matchingActionDetails(
   rows: readonly Readonly<{
     action: string;
@@ -331,15 +300,24 @@ export const getOperatorCutoverVerification = query({
       CLEAN_ACTIVATION_PRESERVED_CATEGORIES.every((category) =>
         preservedCategories.has(category),
       );
-    const activationAudited =
-      actionMatches(audits, "season_bootstrap_activation_requested", {
-        requestId,
-        stageId,
-      }) &&
-      actionMatches(audits, "season_bootstrap_clean_activated", {
-        requestId,
-        stageId,
+    const matchingAudit = (action: string) =>
+      audits.find((row) => {
+        if (row.action !== action) return false;
+        const details = detailsRecord(row.detailsJson);
+        return (
+          details !== null &&
+          String(details.requestId ?? "") === requestId &&
+          String(details.stageId ?? "") === stageId
+        );
       });
+    const requestAudit = matchingAudit(
+      "season_bootstrap_activation_requested",
+    );
+    const activationAudit = matchingAudit(
+      "season_bootstrap_clean_activated",
+    );
+    const activationAudited =
+      requestAudit !== undefined && activationAudit !== undefined;
     const requestAuditDetails = matchingActionDetails(
       audits,
       "season_bootstrap_activation_requested",
@@ -398,10 +376,32 @@ export const getOperatorCutoverVerification = query({
         countRecord(activationAuditDetails?.rebuiltCounts),
         requestRebuiltCounts,
       );
-    const stageAudited = audits.some((row) => {
+    const stageAudit = audits.find((row) => {
       if (row.action !== "season_bootstrap_staged") return false;
       return String(detailsRecord(row.detailsJson)?.stageId ?? "") === stageId;
     });
+    const stageAudited = stageAudit !== undefined;
+    const preActivationAuditHistoryPreserved =
+      activation !== undefined &&
+      activatedAtMs !== null &&
+      stage !== null &&
+      stageAudit !== undefined &&
+      requestAudit !== undefined &&
+      activationAudit !== undefined &&
+      stageAudit.atMs === stage.stagedAtMs &&
+      requestAudit.atMs === activation.requestedAtMs &&
+      stageAudit.atMs < activatedAtMs &&
+      requestAudit.atMs < activatedAtMs &&
+      activationAudit.atMs === activatedAtMs &&
+      stageAudit.actorTokenIdentifier ===
+        activation.actorTokenIdentifier &&
+      stageAudit.actorClerkUserId === activation.actorClerkUserId &&
+      requestAudit.actorTokenIdentifier ===
+        activation.actorTokenIdentifier &&
+      requestAudit.actorClerkUserId === activation.actorClerkUserId &&
+      activationAudit.actorTokenIdentifier ===
+        activation.actorTokenIdentifier &&
+      activationAudit.actorClerkUserId === activation.actorClerkUserId;
 
     const incompatibleOperationalResidue =
       teamAliases.filter((alias) => alias.provider !== "api-sports").length +
@@ -429,7 +429,8 @@ export const getOperatorCutoverVerification = query({
       (row) =>
         activatedAtMs !== null &&
         row.recordedAtMs >= activatedAtMs &&
-        row.seasonLabel === String(args.seasonYear),
+        row.seasonLabel === String(args.seasonYear) &&
+        row.provider === "api-sports",
     );
     const auditsAfterActivation = audits.filter(
       (row) => activatedAtMs !== null && row.atMs >= activatedAtMs,
@@ -598,6 +599,7 @@ export const getOperatorCutoverVerification = query({
       activationPlanExact &&
       stageAudited &&
       activationAudited &&
+      preActivationAuditHistoryPreserved &&
       audits.length <= 500;
 
     const checks: VerificationCheck[] = [
@@ -651,7 +653,7 @@ export const getOperatorCutoverVerification = query({
       check(
         "protected_state_preserved",
         protectedStatePresent,
-        "Activation declaration, stage/request/activation audit chain, Sync Gate row, and provider reliability state must remain present.",
+        "Activation declaration, the original pre-activation stage/request audit markers, the activation audit, Sync Gate row, and provider reliability state must remain present.",
       ),
       check(
         "incompatible_operational_residue",
@@ -709,6 +711,7 @@ export const getOperatorCutoverVerification = query({
         activationPlanExact,
         stageAuditPresent: stageAudited,
         activationRequestAuditPresent: activationAudited,
+        preActivationAuditHistoryPreserved,
       },
       incompatibleOperationalResidue,
       smokeEvidence: smoke,

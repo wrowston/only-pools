@@ -51,6 +51,9 @@ export DEV_DEPLOYMENT='<reviewed-development-deployment>'
 export SEASON_YEAR='2026'
 export TICKET_48_RELEASE_SHA='<approved-pr-head-sha>'
 export CUTOVER_OPERATOR_IDENTITY_JSON='<authenticated-operator-identity-json>'
+export CUTOVER_OPERATOR_CLERK_USER_ID='<allowlisted-clerk-user-id>'
+export CUTOVER_OPERATOR_TOKEN_IDENTIFIER='<identity-token-identifier>'
+export CUTOVER_OPERATOR_SESSION_ID='<current-clerk-session-id>'
 ```
 
 The identity JSON is used only for authenticated CLI reads and bounded
@@ -167,7 +170,45 @@ bunx convex dev \
   --env-file '<development-deployment-env-file>'
 ```
 
-Open `/operator` on the matching development application:
+Establish the authenticated Participant and record the human-observed Clerk
+reverification for the same session. `STEP_UP_MS` must be the actual
+reverification time, not a fabricated future timestamp:
+
+```sh
+bunx convex run participants:ensureMyParticipant '{}' \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+
+export STEP_UP_MS="$(node -p 'Date.now()')"
+bunx convex run operatorStepUpInternal:recordVerifiedOperatorStepUp \
+  "{\"tokenIdentifier\":\"$CUTOVER_OPERATOR_TOKEN_IDENTIFIER\",\"clerkUserId\":\"$CUTOVER_OPERATOR_CLERK_USER_ID\",\"sessionId\":\"$CUTOVER_OPERATOR_SESSION_ID\",\"verifiedAtMs\":$STEP_UP_MS}" \
+  --deployment "$DEV_DEPLOYMENT"
+```
+
+The compatibility release does not contain the ticket-48 cutover panel. Run
+the three separate authenticated CLI operations and save each JSON result:
+
+```sh
+bunx convex run bootstrap:stageSeasonBootstrap \
+  "{\"seasonYear\":$SEASON_YEAR}" \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+
+export STAGE_ID='<valid-stage-id-from-the-prior-result>'
+bunx convex run bootstrap:requestCleanSeasonActivation \
+  "{\"stageId\":\"$STAGE_ID\",\"seasonYear\":$SEASON_YEAR}" \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+
+export ACTIVATION_REQUEST_ID='<request-id-from-the-prior-result>'
+export EXACT_CONFIRMATION_TEXT='<exact-confirmation-text-from-the-prior-result>'
+bunx convex run bootstrap:activateCleanSeasonBootstrap \
+  "{\"requestId\":\"$ACTIVATION_REQUEST_ID\",\"confirmationText\":\"$EXACT_CONFIRMATION_TEXT\"}" \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+```
+
+For these operations:
 
 1. Fetch and stage the selected season through API-Sports.
 2. Require a valid report with exactly 32 teams, 272 regular-season games,
@@ -182,7 +223,8 @@ Open `/operator` on the matching development application:
 The authorized rebuild counts are one Pool Season, 32 NFL Teams, 272 NFL
 Games, 32 current API-Sports team aliases, 272 current API-Sports game aliases,
 and 272 schedule-history rows. The deletion report may contain only tables
-whose policy is `delete`; the preserved list must include the Sync Gate,
+whose policy is `delete` or `rebuild`—all and only non-preserved tables. The
+preserved list must include the Sync Gate,
 Production Operator audit history, external authentication/operator
 configuration, checked-in NFL catalog, staging history, provider reliability,
 and provider evidence/recent diagnostics.
@@ -246,10 +288,20 @@ Both results must remain `false`.
 
 ## Development smoke rehearsal
 
-Use only the development deployment. A Production Operator may briefly enable
-development competitive sync from the qualification panel, exercise the
-provider-backed flows, and then disable it again. Never use this exception in
-production.
+Use only the development deployment. The qualification panel intentionally
+requires a passing qualification even in development, so the rehearsal uses
+the audited backend mutation explicitly. Resolve the sole Available Season id,
+refresh Step-up Verification, and enable only the development gate:
+
+```sh
+export SEASON_ID='<sole-available-development-season-id>'
+bunx convex run providerQualification:setProductionCompetitiveSyncEnabled \
+  "{\"enabled\":true,\"seasonId\":\"$SEASON_ID\",\"provider\":\"api-sports\"}" \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+```
+
+Never use this development exception in production.
 
 Record durable evidence for each item:
 
@@ -264,8 +316,15 @@ Record durable evidence for each item:
 8. Surface health records a successful freshness observation.
 9. Diagnostic retention completes a bounded cleanup generation.
 
-Disable development sync immediately after the smoke window. The final gate
-must be OFF.
+Disable development sync immediately after the smoke window. Refresh Step-up
+Verification if needed; the final gate must be OFF:
+
+```sh
+bunx convex run providerQualification:setProductionCompetitiveSyncEnabled \
+  "{\"enabled\":false,\"seasonId\":\"$SEASON_ID\",\"provider\":\"api-sports\"}" \
+  --deployment "$DEV_DEPLOYMENT" \
+  --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
+```
 
 Run the authenticated, read-only, machine-readable verification and save its
 JSON:
@@ -277,9 +336,14 @@ bunx convex run cutoverVerification:getOperatorCutoverVerification \
   --identity "$CUTOVER_OPERATOR_IDENTITY_JSON"
 ```
 
-Require:
+Require every dataset, plan, preservation, residue, gate, and smoke check to
+pass. `status:"pass"` and `developmentCutoverReady:true` additionally require
+the human Sentry receipt and flag from **Verify Sentry email routing**. Until
+that human observation exists, retain the fail-closed report and do not claim
+the development cutover is release-ready.
 
-- `status:"pass"` and `developmentCutoverReady:true`;
+The completed report must show:
+
 - `productionActivationAllowed:false`;
 - 32 teams, 272 games, Weeks 1–18;
 - exactly one unique current API-Sports alias per team and game;

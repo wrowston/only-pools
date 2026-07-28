@@ -181,11 +181,19 @@ async function seedVerifiedDevelopmentCutover(
         : action.startsWith("nfl_game_result_override_")
           ? { overrideId: "override-1" }
           : {};
+      const atMs =
+        action === "season_bootstrap_staged"
+          ? nowMs - 10_000
+          : action === "season_bootstrap_activation_requested"
+            ? nowMs - 6_000
+            : action === "season_bootstrap_clean_activated"
+              ? nowMs - 5_000
+              : nowMs;
       await ctx.db.insert("operatorAuditEvents", {
         action,
         actorTokenIdentifier: "https://auth.example.test|operator",
         actorClerkUserId: "operator",
-        atMs: nowMs,
+        atMs,
         detailsJson: JSON.stringify({
           requestId,
           stageId,
@@ -536,6 +544,67 @@ describe("read-only API-Sports cutover verification", () => {
     expect(report.status).toBe("fail");
     expect(report.smokeEvidence.scoringHold.observed).toBe(false);
     expect(report.smokeEvidence.pinnedOverride.observed).toBe(false);
+  });
+
+  it("does not accept operator evidence for API-Sports provider smokes", async () => {
+    const t = convexTest(schema, modules);
+    await seedVerifiedDevelopmentCutover(t);
+    await t.run(async (ctx) => {
+      const evidence = await ctx.db.query("providerGameEvidence").collect();
+      for (const row of evidence) {
+        await ctx.db.patch(row._id, { provider: "operator" });
+      }
+    });
+
+    const report = await t
+      .withIdentity(identity("operator"))
+      .query(
+        api.cutoverVerification.getOperatorCutoverVerification,
+        { seasonYear },
+      );
+
+    expect(report.status).toBe("fail");
+    expect(report.incompatibleOperationalResidue).toBe(0);
+    expect(report.smokeEvidence).toMatchObject({
+      schedule: { observed: false },
+      live: { observed: false },
+      immediateResult: { observed: false },
+      correction: { observed: false },
+    });
+  });
+
+  it("requires pre-activation Production Operator audits to survive with their original timestamps", async () => {
+    const t = convexTest(schema, modules);
+    await seedVerifiedDevelopmentCutover(t);
+    await t.run(async (ctx) => {
+      const requestAudit = (
+        await ctx.db.query("operatorAuditEvents").collect()
+      ).find(
+        (row) =>
+          row.action === "season_bootstrap_activation_requested",
+      );
+      await ctx.db.patch(requestAudit!._id, { atMs: nowMs });
+    });
+
+    const report = await t
+      .withIdentity(identity("operator"))
+      .query(
+        api.cutoverVerification.getOperatorCutoverVerification,
+        { seasonYear },
+      );
+
+    expect(report.status).toBe("fail");
+    expect(report.protectedState.preActivationAuditHistoryPreserved).toBe(
+      false,
+    );
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "protected_state_preserved",
+          status: "fail",
+        }),
+      ]),
+    );
   });
 
   it("fails closed when an operational residue scan exceeds its proof bound", async () => {
