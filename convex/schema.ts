@@ -17,14 +17,6 @@ const providerEvidenceTerminalStatus = v.union(
   v.literal("CANC"),
 );
 
-const providerEvidenceResultAuthority = v.union(
-  v.literal("none"),
-  v.literal("projected"),
-  v.literal("confirmation_pending"),
-  v.literal("verified"),
-  v.literal("correction_candidate"),
-);
-
 const providerEvidenceResult = v.object({
   homeScore: v.number(),
   awayScore: v.number(),
@@ -38,7 +30,9 @@ const providerGameEvidenceState = v.object({
   lifecycle: nflGameLifecycle,
   homeScore: v.union(v.number(), v.null()),
   awayScore: v.union(v.number(), v.null()),
-  resultAuthority: providerEvidenceResultAuthority,
+  // Permanent evidence preserves the authority value observed at write time.
+  // Runtime writers enforce the current authority union at their boundary.
+  resultAuthority: v.string(),
   verifiedResult: v.union(providerEvidenceResult, v.null()),
   correctionCandidate: v.union(providerEvidenceResult, v.null()),
   pinned: v.boolean(),
@@ -108,16 +102,13 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_label", ["label"]),
 
-  /** Provider-independent NFL Team identity. SportsDB ids are aliases only. */
+  /** Provider-independent NFL Team identity. Provider ids live in aliases. */
   nflTeams: defineTable({
     stableKey: v.string(),
     name: v.string(),
     abbreviation: v.string(),
     logoUrl: v.optional(v.string()),
-    sportsDbTeamId: v.string(),
-  })
-    .index("by_stableKey", ["stableKey"])
-    .index("by_sportsDbTeamId", ["sportsDbTeamId"]),
+  }).index("by_stableKey", ["stableKey"]),
 
   /** Provider-independent NFL Game identity for a Pool Season. */
   nflGames: defineTable({
@@ -137,33 +128,16 @@ export default defineSchema({
     /** Last observed / projected scores — never official until verified. */
     homeScore: v.union(v.number(), v.null()),
     awayScore: v.union(v.number(), v.null()),
-    sportsDbEventId: v.string(),
     /**
      * Result authority. Absent / "none" until live or terminal evidence arrives.
-     * Provisional finals are confirmation_pending — never official.
+     * A coherent terminal provider observation is immediately verified.
      */
     resultAuthority: v.optional(
       v.union(
         v.literal("none"),
         v.literal("projected"),
-        v.literal("confirmation_pending"),
         v.literal("verified"),
         v.literal("correction_candidate"),
-      ),
-    ),
-    provisionalTerminalAtMs: v.optional(v.number()),
-    confirmationObservations: v.optional(
-      v.array(
-        v.object({
-          observedAtMs: v.number(),
-          homeScore: v.number(),
-          awayScore: v.number(),
-          status: v.union(
-            v.literal("FT"),
-            v.literal("AOT"),
-            v.literal("CANC"),
-          ),
-        }),
       ),
     ),
     verifiedResult: v.optional(
@@ -225,7 +199,6 @@ export default defineSchema({
       "by_seasonId_and_lifecycle_and_scheduledKickoffMs",
       ["seasonId", "lifecycle", "scheduledKickoffMs"],
     )
-    .index("by_sportsDbEventId", ["sportsDbEventId"])
     .index("by_seasonId", ["seasonId"]),
 
   /** Immutable history: one row for every Verified Result superseded by correction. */
@@ -352,20 +325,16 @@ export default defineSchema({
       v.literal("pinned_matching"),
       v.literal("pinned_conflicting"),
     ),
-    source: v.union(
-      v.literal("api_sports_live"),
-      v.literal("api_sports_targeted"),
-      v.literal("legacy_live"),
-      v.literal("legacy_confirmation"),
-    ),
+    // Permanent historical provenance is intentionally provider-neutral.
+    // Runtime writers remain constrained at their API boundary.
+    source: v.string(),
   }).index(
     "by_overrideId_and_disposition_and_observedAtMs",
     ["overrideId", "disposition", "observedAtMs"],
   ),
 
   /**
-   * Replaceable provider aliases. Legacy SportsDB columns remain temporarily
-   * on the owning rows while the expand/contract migration is in progress.
+   * Replaceable provider aliases keep external identity off owning rows.
    */
   nflTeamAliases: defineTable({
     nflTeamId: v.id("nflTeams"),
@@ -458,19 +427,11 @@ export default defineSchema({
     gameWeek: v.number(),
     homeTeamAbbreviation: v.string(),
     awayTeamAbbreviation: v.string(),
-    provider: v.union(
-      v.literal("api-sports"),
-      v.literal("legacy"),
-      v.literal("operator"),
-    ),
+    // Preserve exact historical provenance across provider contractions.
+    // Runtime writers remain constrained at their API boundary.
+    provider: v.string(),
     externalId: v.optional(v.string()),
-    source: v.union(
-      v.literal("schedule"),
-      v.literal("live"),
-      v.literal("targeted"),
-      v.literal("correction"),
-      v.literal("override"),
-    ),
+    source: v.string(),
     transitionKind: v.union(
       v.literal("kickoff"),
       v.literal("kickoff_lock"),
@@ -1231,7 +1192,7 @@ export default defineSchema({
     priority: v.optional(
       v.union(
         v.literal("routine"),
-        v.literal("confirmation"),
+        v.literal("recovery"),
         v.literal("operator"),
       ),
     ),
@@ -1243,21 +1204,20 @@ export default defineSchema({
     .index("by_status_and_claimedAtMs", ["status", "claimedAtMs"]),
 
   /**
-   * Durable sync work queue — schedule, live, confirmation, correction, operator.
+   * Durable sync work queue — schedule, live, correction, and operator work.
    * Coalesced by surface + scopeKey; dispatcher claims due items under budget.
    */
   syncWorkItems: defineTable({
     surface: v.union(
       v.literal("schedule"),
       v.literal("live"),
-      v.literal("confirmation"),
       v.literal("correction"),
       v.literal("operator"),
     ),
     scopeKey: v.string(),
     priority: v.union(
       v.literal("routine"),
-      v.literal("confirmation"),
+      v.literal("recovery"),
       v.literal("operator"),
     ),
     status: v.union(
@@ -1351,7 +1311,6 @@ export default defineSchema({
       v.literal("provider_exception"),
       v.literal("stale_in_window"),
       v.literal("scoring_delayed"),
-      v.literal("quarantine_past_confirmation"),
       v.literal("convex_capacity"),
     ),
     status: v.union(

@@ -206,17 +206,6 @@ describe("provider qualification policy", () => {
     expect(
       canRunAutomatedProviderSync({
         deploymentKind: "production",
-        mode: "competitive",
-        provider: "legacy",
-        hasCurrentPassingQualification: true,
-      }),
-    ).toEqual({
-      allowed: false,
-      reason: "production_provider_not_allowed",
-    });
-    expect(
-      canRunAutomatedProviderSync({
-        deploymentKind: "production",
         mode: "qualification",
         provider: "api-sports",
         hasCurrentPassingQualification: false,

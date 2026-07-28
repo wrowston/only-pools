@@ -42,13 +42,11 @@ async function seedHeldPools(t: ReturnType<typeof convexTest>) {
       stableKey: "team:home",
       name: "Home",
       abbreviation: "HOM",
-      sportsDbTeamId: "legacy-home",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "team:away",
       name: "Away",
       abbreviation: "AWY",
-      sportsDbTeamId: "legacy-away",
     });
     const gameId = await ctx.db.insert("nflGames", {
       stableKey: "game:held",
@@ -61,7 +59,6 @@ async function seedHeldPools(t: ReturnType<typeof convexTest>) {
       lifecycle: "terminal",
       homeScore: 27,
       awayScore: 24,
-      sportsDbEventId: "legacy-held",
       resultAuthority: "verified",
       verifiedResult: {
         homeScore: 27,
@@ -87,7 +84,6 @@ async function seedHeldPools(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "legacy-future",
       resultAuthority: "none",
     });
     const poolIds: Id<"pools">[] = [];
@@ -1017,7 +1013,6 @@ describe("Scoring Holds", () => {
         lifecycle: "scheduled",
         homeScore: 10,
         awayScore: 7,
-        sportsDbEventId: "week-10-correction",
         resultAuthority: "verified",
         verifiedResult: {
           homeScore: 10,
@@ -1063,7 +1058,6 @@ describe("Scoring Holds", () => {
         lifecycle: "scheduled",
         homeScore: 14,
         awayScore: 10,
-        sportsDbEventId: "week-12-correction",
         resultAuthority: "verified",
         verifiedResult: {
           homeScore: 14,
@@ -1110,7 +1104,6 @@ describe("Scoring Holds", () => {
           lifecycle: "scheduled",
           homeScore: 14,
           awayScore: 10,
-          sportsDbEventId: `week-${week}-unrelated-correction`,
           resultAuthority: "verified",
           verifiedResult: {
             homeScore: 14,
@@ -1539,7 +1532,6 @@ describe("Scoring Holds", () => {
           lifecycle: "terminal",
           homeScore: 10,
           awayScore: 7,
-          sportsDbEventId: `legacy-queue-${index}`,
           resultAuthority: "verified",
           verifiedResult: {
             homeScore: 10,

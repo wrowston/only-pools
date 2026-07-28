@@ -71,13 +71,11 @@ async function seedSeason(t: ReturnType<typeof convexTest>) {
       stableKey: "nfl-team:den",
       name: "Denver",
       abbreviation: "DEN",
-      sportsDbTeamId: "den",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl-team:kc",
       name: "Kansas City",
       abbreviation: "KC",
-      sportsDbTeamId: "kc",
     });
     const gameId = await ctx.db.insert("nflGames", {
       stableKey: "nfl:2026:w1:kc@den",
@@ -90,7 +88,6 @@ async function seedSeason(t: ReturnType<typeof convexTest>) {
       lifecycle: "in_progress",
       homeScore: 0,
       awayScore: 0,
-      sportsDbEventId: "legacy-1",
       resultAuthority: "projected",
     });
     await ctx.db.insert("nflGameAliases", {
@@ -243,7 +240,7 @@ describe("API-Sports production qualification", () => {
     ["blank", "   "],
     ["unknown", "staging"],
   ])(
-    "fails closed before provider/apply/legacy work when DEPLOYMENT_KIND is %s",
+    "fails closed before provider/apply work when DEPLOYMENT_KIND is %s",
     async (_label, value) => {
       if (value === null) delete process.env.DEPLOYMENT_KIND;
       else process.env.DEPLOYMENT_KIND = value;
@@ -291,28 +288,6 @@ describe("API-Sports production qualification", () => {
           },
         ),
       ).rejects.toThrow(/qualification fence/i);
-      const workItemId = await t.run(
-        async (ctx) =>
-          await ctx.db.insert("syncWorkItems", {
-            surface: "live",
-            scopeKey: `legacy:${String(value)}`,
-            priority: "routine",
-            status: "claimed",
-            dueAtMs: NOW_MS,
-            attemptCount: 1,
-            claimedAtMs: NOW_MS,
-            leaseExpiresAtMs: NOW_MS + 60_000,
-          }),
-      );
-      await expect(
-        t.action(internal.syncLive.runClaimedFetch, {
-          workItemId,
-          surface: "live",
-        }),
-      ).resolves.toMatchObject({
-        ok: false,
-        reason: "deployment_not_allowed",
-      });
       process.env.DEPLOYMENT_KIND = "production";
     },
   );

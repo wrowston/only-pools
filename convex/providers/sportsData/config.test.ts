@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InMemorySportsDataProvider } from "./inMemory";
 import { SPORTS_DATA_CONTRACT_FIXTURE } from "./testing/contract";
 import {
+  createApiSportsProviderFactory,
   SportsDataProviderConfigurationError,
   selectSportsDataProvider,
 } from "./config";
@@ -14,6 +15,8 @@ const apiSportsAdapter: SportsDataProvider = {
   listTeams: () => adapter.listTeams(),
   listSeasonGames: (seasonYear) => adapter.listSeasonGames(seasonYear),
   listLiveGames: () => adapter.listLiveGames(),
+  listLiveGamesWithFailures: () =>
+    adapter.listLiveGamesWithFailures(),
   getGame: (alias) => adapter.getGame(alias),
   getHealth: () =>
     adapter.getHealth().pipe(
@@ -25,6 +28,20 @@ const apiSportsAdapter: SportsDataProvider = {
 };
 
 describe("deployment sports-data provider selection", () => {
+  it("constructs the production adapter behind the neutral factory seam", () => {
+    const provider = selectSportsDataProvider({
+      config: {
+        provider: "api-sports",
+        apiSportsKey: "test-api-key",
+      },
+      providers: {
+        "api-sports": createApiSportsProviderFactory(),
+      },
+    });
+
+    expect(provider.name).toBe("api-sports");
+  });
+
   it("selects the one explicitly configured production provider", () => {
     let receivedApiKey: string | undefined;
     expect(
@@ -58,7 +75,7 @@ describe("deployment sports-data provider selection", () => {
     );
   });
 
-  it.each(["", "in-memory", "thesportsdb", "API-SPORTS"])(
+  it.each(["", "in-memory", "API-SPORTS"])(
     "fails closed for unsupported production provider %j",
     (configuredProvider) => {
       expect(() =>

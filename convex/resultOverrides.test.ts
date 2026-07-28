@@ -36,13 +36,11 @@ async function seedVerifiedGame(t: ReturnType<typeof convexTest>) {
       stableKey: "nfl-team:gb",
       name: "Green Bay Packers",
       abbreviation: "GB",
-      sportsDbTeamId: "legacy-gb",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl-team:det",
       name: "Detroit Lions",
       abbreviation: "DET",
-      sportsDbTeamId: "legacy-det",
     });
     const gameId = await ctx.db.insert("nflGames", {
       stableKey: "nfl:2026:w1:det@gb",
@@ -56,7 +54,6 @@ async function seedVerifiedGame(t: ReturnType<typeof convexTest>) {
       kickoffLockReachedAtMs: NOW_MS - 2 * 60 * 60 * 1_000,
       homeScore: 27,
       awayScore: 24,
-      sportsDbEventId: "legacy-game",
       resultAuthority: "verified",
       verifiedResult: {
         homeScore: 27,
@@ -366,7 +363,7 @@ describe("pinned Production Operator NFL Game result overrides", () => {
     );
     expect(workItem).toMatchObject({
       surface: "correction",
-      priority: "confirmation",
+      priority: "recovery",
       status: "due",
       dueAtMs: NOW_MS,
       gameId,
@@ -603,89 +600,6 @@ describe("pinned Production Operator NFL Game result overrides", () => {
     expect(state.ingestion?.lastAppliedObservedAtMs).toBe(NOW_MS + 3_000);
     expect(state.evidence).toHaveLength(2);
     expect(state.evidence.map((row) => row.homeScore)).toEqual([27, 28]);
-  });
-
-  it("neutralizes legacy live and confirmation writers, retains their evidence, and retires queued confirmation work", async () => {
-    const t = convexTest(schema, modules);
-    const { gameId, seasonId } = await seedVerifiedGame(t);
-    await t.run(async (ctx) => {
-      for (const [purpose, status] of [
-        ["confirmation_15", "due"],
-        ["confirmation_60", "claimed"],
-      ] as const) {
-        await ctx.db.insert("syncWorkItems", {
-          surface: "confirmation",
-          scopeKey: `confirmation:${gameId}:${purpose}`,
-          priority: "confirmation",
-          status,
-          dueAtMs: NOW_MS,
-          attemptCount: 0,
-          claimedAtMs: status === "claimed" ? NOW_MS : undefined,
-          leaseExpiresAtMs:
-            status === "claimed" ? NOW_MS + 60_000 : undefined,
-          gameId,
-          seasonId,
-          purpose,
-        });
-      }
-    });
-    const asOperator = await steppedUpOperator(t);
-    const pin = await asOperator.mutation(
-      api.resultOverrides.pinNflGameResultOverride,
-      {
-        gameId,
-        reason: "Legacy ingestion must not bypass the pin.",
-        replacedResult,
-        overrideResult,
-      },
-    );
-
-    expect(
-      await t.mutation(internal.syncLive.applyLiveObservation, {
-        observation: {
-          gameId,
-          observedAtMs: NOW_MS + 1_000,
-          lifecycle: "terminal",
-          homeScore: 26,
-          awayScore: 24,
-          terminalStatus: "FT",
-        },
-      }),
-    ).toMatchObject({ resultAuthority: "verified" });
-    expect(
-      await t.mutation(
-        internal.syncLive.applyConfirmationObservationMutation,
-        {
-          observation: {
-            gameId,
-            observedAtMs: NOW_MS + 2_000,
-            homeScore: 27,
-            awayScore: 24,
-            status: "FT",
-          },
-        },
-      ),
-    ).toMatchObject({ resultAuthority: "verified" });
-
-    const state = await t.run(async (ctx) => ({
-      game: await ctx.db.get(gameId),
-      evidence: await ctx.db
-        .query("nflGameResultReconciliationObservations")
-        .withIndex("by_pinnedOverrideId_and_observedAtMs", (q) =>
-          q.eq("pinnedOverrideId", pin.overrideId),
-        )
-        .collect(),
-      confirmationWork: await ctx.db
-        .query("syncWorkItems")
-        .withIndex("by_gameId", (q) => q.eq("gameId", gameId))
-        .filter((q) => q.eq(q.field("surface"), "confirmation"))
-        .collect(),
-    }));
-    expect(state.game?.verifiedResult).toMatchObject(overrideResult);
-    expect(state.evidence.map((row) => row.homeScore)).toEqual([26, 27]);
-    expect(
-      state.confirmationWork.every((item) => item.status === "done"),
-    ).toBe(true);
   });
 
   it("retires post-apply open holds and acceptance even after the correction candidate was cleared", async () => {

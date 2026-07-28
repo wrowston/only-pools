@@ -222,13 +222,11 @@ describe("staged API-Sports Season Bootstrap", () => {
         stableKey: "fixture-home",
         name: "Fixture Home",
         abbreviation: "FHM",
-        sportsDbTeamId: "fixture-home",
       });
       const awayTeamId = await ctx.db.insert("nflTeams", {
         stableKey: "fixture-away",
         name: "Fixture Away",
         abbreviation: "FAW",
-        sportsDbTeamId: "fixture-away",
       });
       const gameId = await ctx.db.insert("nflGames", {
         stableKey: "fixture-game",
@@ -241,7 +239,6 @@ describe("staged API-Sports Season Bootstrap", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "fixture-game",
       });
       const poolId = await ctx.db.insert("pools", {
         name: "Fixture Pool",

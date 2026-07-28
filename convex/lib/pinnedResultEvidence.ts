@@ -8,9 +8,7 @@ export type PinnedEvidenceDisposition =
 
 export type PinnedEvidenceSource =
   | "api_sports_live"
-  | "api_sports_targeted"
-  | "legacy_live"
-  | "legacy_confirmation";
+  | "api_sports_targeted";
 
 export const PINNED_RESULT_EVIDENCE_CADENCE_MS =
   6 * 60 * 60 * 1_000;

@@ -1,5 +1,5 @@
 /**
- * Dev-only browse-ready demo seeder — no SportsDB / provider calls.
+ * Dev-only browse-ready demo seeder — no provider calls.
  *
  * Narrative clock: weeks 1–3 are past/locked (1–2 scored), week 4 is the open
  * board (TNF started; rest of slate still pickable), weeks 5–6 stay fully
@@ -15,12 +15,14 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { resolveDeploymentKind } from "./lib/syncGate";
+import { nflGameStableKey } from "./providers/sportsData/identity";
 import {
-  canonicalNflTeam,
-  nflGameStableKey,
-} from "./providers/sportsData/identity";
-import type { NflTeamStableKey } from "./providers/sportsData/catalog";
+  CANONICAL_NFL_TEAM_LIST,
+  type CanonicalNflTeamAbbreviation,
+  type NflTeamStableKey,
+} from "./providers/sportsData/catalog";
 import {
+  attachNflGameAlias,
   attachNflTeamAlias,
   persistReconciledNflGame,
   reconcileStoredNflGame,
@@ -41,81 +43,6 @@ const SLATE_END_WEEK = 6;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const WEEK_MS = 7 * DAY_MS;
-
-const NFL_TEAMS: ReadonlyArray<{
-  abbr: string;
-  name: string;
-  sportsDbTeamId: string;
-}> = [
-  { abbr: "ARI", name: "Arizona Cardinals", sportsDbTeamId: "134946" },
-  { abbr: "ATL", name: "Atlanta Falcons", sportsDbTeamId: "134921" },
-  { abbr: "BAL", name: "Baltimore Ravens", sportsDbTeamId: "134922" },
-  { abbr: "BUF", name: "Buffalo Bills", sportsDbTeamId: "134918" },
-  { abbr: "CAR", name: "Carolina Panthers", sportsDbTeamId: "134923" },
-  { abbr: "CHI", name: "Chicago Bears", sportsDbTeamId: "134924" },
-  { abbr: "CIN", name: "Cincinnati Bengals", sportsDbTeamId: "134919" },
-  { abbr: "CLE", name: "Cleveland Browns", sportsDbTeamId: "134920" },
-  { abbr: "DAL", name: "Dallas Cowboys", sportsDbTeamId: "134925" },
-  { abbr: "DEN", name: "Denver Broncos", sportsDbTeamId: "134926" },
-  { abbr: "DET", name: "Detroit Lions", sportsDbTeamId: "134939" },
-  { abbr: "GB", name: "Green Bay Packers", sportsDbTeamId: "134927" },
-  { abbr: "HOU", name: "Houston Texans", sportsDbTeamId: "134928" },
-  { abbr: "IND", name: "Indianapolis Colts", sportsDbTeamId: "134929" },
-  { abbr: "JAX", name: "Jacksonville Jaguars", sportsDbTeamId: "134930" },
-  { abbr: "KC", name: "Kansas City Chiefs", sportsDbTeamId: "134934" },
-  { abbr: "LAC", name: "Los Angeles Chargers", sportsDbTeamId: "135908" },
-  { abbr: "LAR", name: "Los Angeles Rams", sportsDbTeamId: "134931" },
-  { abbr: "LV", name: "Las Vegas Raiders", sportsDbTeamId: "134932" },
-  { abbr: "MIA", name: "Miami Dolphins", sportsDbTeamId: "134933" },
-  { abbr: "MIN", name: "Minnesota Vikings", sportsDbTeamId: "134935" },
-  { abbr: "NE", name: "New England Patriots", sportsDbTeamId: "134936" },
-  { abbr: "NO", name: "New Orleans Saints", sportsDbTeamId: "134937" },
-  { abbr: "NYG", name: "New York Giants", sportsDbTeamId: "134938" },
-  { abbr: "NYJ", name: "New York Jets", sportsDbTeamId: "134940" },
-  { abbr: "PHI", name: "Philadelphia Eagles", sportsDbTeamId: "134941" },
-  { abbr: "PIT", name: "Pittsburgh Steelers", sportsDbTeamId: "134942" },
-  { abbr: "SEA", name: "Seattle Seahawks", sportsDbTeamId: "134943" },
-  { abbr: "SF", name: "San Francisco 49ers", sportsDbTeamId: "134944" },
-  { abbr: "TB", name: "Tampa Bay Buccaneers", sportsDbTeamId: "134945" },
-  { abbr: "TEN", name: "Tennessee Titans", sportsDbTeamId: "134947" },
-  { abbr: "WAS", name: "Washington Commanders", sportsDbTeamId: "134948" },
-];
-
-/** Live SportsDB badges keep the browse-ready demo visually production-like. */
-const NFL_TEAM_LOGO_URLS: Readonly<Partial<Record<string, string>>> = {
-  ARI: "https://r2.thesportsdb.com/images/media/team/badge/xvuwtw1420646838.png",
-  ATL: "https://r2.thesportsdb.com/images/media/team/badge/rrpvpr1420658174.png",
-  BAL: "https://r2.thesportsdb.com/images/media/team/badge/einz3p1546172463.png",
-  BUF: "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
-  CAR: "https://r2.thesportsdb.com/images/media/team/badge/xxyvvy1420940478.png",
-  CHI: "https://r2.thesportsdb.com/images/media/team/badge/ji22531698678538.png",
-  CIN: "https://r2.thesportsdb.com/images/media/team/badge/qqtwwv1420941670.png",
-  CLE: "https://r2.thesportsdb.com/images/media/team/badge/squvxy1420942389.png",
-  DAL: "https://r2.thesportsdb.com/images/media/team/badge/wrxssu1450018209.png",
-  DEN: "https://r2.thesportsdb.com/images/media/team/badge/upsspx1421635647.png",
-  DET: "https://r2.thesportsdb.com/images/media/team/badge/lgsgkr1546168257.png",
-  GB: "https://r2.thesportsdb.com/images/media/team/badge/rqpwtr1421434717.png",
-  HOU: "https://r2.thesportsdb.com/images/media/team/badge/wqyryy1421436627.png",
-  IND: "https://r2.thesportsdb.com/images/media/team/badge/wqqvpx1421434058.png",
-  JAX: "https://r2.thesportsdb.com/images/media/team/badge/0mrsd41546427902.png",
-  KC: "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
-  LAC: "https://r2.thesportsdb.com/images/media/team/badge/vrqanp1687734910.png",
-  LAR: "https://r2.thesportsdb.com/images/media/team/badge/8e8v4i1599764614.png",
-  LV: "https://r2.thesportsdb.com/images/media/team/badge/xqusqy1421724291.png",
-  MIA: "https://r2.thesportsdb.com/images/media/team/badge/trtusv1421435081.png",
-  MIN: "https://r2.thesportsdb.com/images/media/team/badge/qstqqr1421609163.png",
-  NE: "https://r2.thesportsdb.com/images/media/team/badge/xtwxyt1421431860.png",
-  NO: "https://r2.thesportsdb.com/images/media/team/badge/nd46c71537821337.png",
-  NYG: "https://r2.thesportsdb.com/images/media/team/badge/vxppup1423669459.png",
-  NYJ: "https://r2.thesportsdb.com/images/media/team/badge/hz92od1607953467.png",
-  PHI: "https://r2.thesportsdb.com/images/media/team/badge/pnpybf1515852421.png",
-  PIT: "https://r2.thesportsdb.com/images/media/team/badge/2975411515853129.png",
-  SEA: "https://r2.thesportsdb.com/images/media/team/badge/wwuqyr1421434817.png",
-  SF: "https://r2.thesportsdb.com/images/media/team/badge/bqbtg61539537328.png",
-  TB: "https://r2.thesportsdb.com/images/media/team/badge/2dfpdl1537820969.png",
-  TEN: "https://r2.thesportsdb.com/images/media/team/badge/3td0f41779180767.png",
-  WAS: "https://r2.thesportsdb.com/images/media/team/badge/rn0c7v1643826119.png",
-};
 
 const FAKE_PEOPLE: ReadonlyArray<{ slug: string; displayName: string }> = [
   { slug: "alex", displayName: "Alex Rivera" },
@@ -201,6 +128,7 @@ export const seedDemoWorld = internalMutation({
     poolCount: v.optional(v.number()),
     fakeUserCount: v.optional(v.number()),
     nowMs: v.optional(v.number()),
+    includeApiSportsGameAliases: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<SeedResult> => {
     assertDevDeployment();
@@ -259,41 +187,30 @@ export const seedDemoWorld = internalMutation({
 
     const teamIds: Id<"nflTeams">[] = [];
     const abbrToIdentity = new Map<
-      string,
+      CanonicalNflTeamAbbreviation,
       { id: Id<"nflTeams">; stableKey: NflTeamStableKey }
     >();
-    for (const team of NFL_TEAMS) {
-      const canonicalTeam = canonicalNflTeam(team.abbr);
-      if (!canonicalTeam) {
-        throw new Error(`Unknown canonical NFL Team: ${team.abbr}`);
-      }
+    for (const team of CANONICAL_NFL_TEAM_LIST) {
       const alias = {
         provider: "in-memory",
-        externalId: `seed-team-${team.abbr}`,
+        externalId: `seed-team-${team.abbreviation}`,
       } as const;
       const reconciliation = await reconcileStoredNflTeam(ctx, {
         alias,
-        stableKey: canonicalTeam.stableKey,
-        legacySportsDbTeamId: team.sportsDbTeamId,
+        stableKey: team.stableKey,
       });
+      const fields = {
+        stableKey: team.stableKey,
+        name: team.name,
+        abbreviation: team.abbreviation,
+        logoUrl: team.logoUrl,
+      };
       let id: Id<"nflTeams">;
       if (reconciliation.kind === "resolved") {
         id = reconciliation.nflTeamId;
-        await ctx.db.patch(id, {
-          stableKey: canonicalTeam.stableKey,
-          name: team.name,
-          abbreviation: canonicalTeam.abbreviation,
-          logoUrl: NFL_TEAM_LOGO_URLS[team.abbr],
-          sportsDbTeamId: team.sportsDbTeamId,
-        });
+        await ctx.db.replace(id, fields);
       } else {
-        id = await ctx.db.insert("nflTeams", {
-          stableKey: canonicalTeam.stableKey,
-          name: team.name,
-          abbreviation: canonicalTeam.abbreviation,
-          logoUrl: NFL_TEAM_LOGO_URLS[team.abbr],
-          sportsDbTeamId: team.sportsDbTeamId,
-        });
+        id = await ctx.db.insert("nflTeams", fields);
       }
       await attachNflTeamAlias(ctx, {
         nflTeamId: id,
@@ -301,27 +218,29 @@ export const seedDemoWorld = internalMutation({
         observedAtMs: nowMs,
       });
       teamIds.push(id);
-      abbrToIdentity.set(team.abbr, {
+      abbrToIdentity.set(team.abbreviation, {
         id,
-        stableKey: canonicalTeam.stableKey,
+        stableKey: team.stableKey,
       });
     }
 
     let gameCount = 0;
     for (let week = 1; week <= SLATE_END_WEEK; week++) {
       // Rotate pairings so weeks aren't identical.
-      const order = NFL_TEAMS.map((t, i) => NFL_TEAMS[(i + week) % NFL_TEAMS.length]!);
+      const order = CANONICAL_NFL_TEAM_LIST.map(
+        (_team, index) =>
+          CANONICAL_NFL_TEAM_LIST[
+            (index + week) % CANONICAL_NFL_TEAM_LIST.length
+          ]!,
+      );
       const pastWeek = week < OPEN_WEEK;
       const upcomingWeek = week > OPEN_WEEK;
       for (let i = 0; i + 1 < order.length; i += 2) {
         const home = order[i]!;
         const away = order[i + 1]!;
-        const homeTeam = abbrToIdentity.get(home.abbr);
-        const awayTeam = abbrToIdentity.get(away.abbr);
+        const homeTeam = abbrToIdentity.get(home.abbreviation);
+        const awayTeam = abbrToIdentity.get(away.abbreviation);
         if (!homeTeam || !awayTeam) continue;
-        const homeCanonical = canonicalNflTeam(home.abbr);
-        const awayCanonical = canonicalNflTeam(away.abbr);
-        if (!homeCanonical || !awayCanonical) continue;
 
         const slot = i / 2;
         // Past weeks: entire slate finished days/weeks ago so kickoff locks hold.
@@ -342,10 +261,11 @@ export const seedDemoWorld = internalMutation({
         const stableKey = nflGameStableKey({
           seasonYear: Number(SEASON_LABEL),
           week,
-          awayTeamAbbreviation: awayCanonical.abbreviation,
-          homeTeamAbbreviation: homeCanonical.abbreviation,
+          awayTeamAbbreviation: away.abbreviation,
+          homeTeamAbbreviation: home.abbreviation,
         });
-        const externalId = `seed_evt_w${week}_${away.abbr}_${home.abbr}`;
+        const externalId =
+          `seed_evt_w${week}_${away.abbreviation}_${home.abbreviation}`;
         const alias = {
           provider: "in-memory",
           externalId,
@@ -375,7 +295,6 @@ export const seedDemoWorld = internalMutation({
               : ("scheduled" as const),
           homeScore,
           awayScore,
-          sportsDbEventId: externalId,
           ...(kickoffReached
             ? { kickoffLockReachedAtMs: scheduledKickoffMs }
             : {}),
@@ -391,12 +310,22 @@ export const seedDemoWorld = internalMutation({
               }
             : { resultAuthority: "none" as const }),
         };
-        await persistReconciledNflGame(ctx, {
+        const gameId = await persistReconciledNflGame(ctx, {
           reconciliation,
           fields,
           alias,
           observedAtMs: nowMs,
         });
+        if (args.includeApiSportsGameAliases === true) {
+          await attachNflGameAlias(ctx, {
+            nflGameId: gameId,
+            alias: {
+              provider: "api-sports",
+              externalId: `e2e_w${week}_${away.abbreviation}_${home.abbreviation}`,
+            },
+            observedAtMs: nowMs,
+          });
+        }
         gameCount += 1;
       }
     }

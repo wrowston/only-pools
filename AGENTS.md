@@ -26,7 +26,7 @@ This project uses [Effect](https://effect.website) (stable 3.x) for typed effect
 
 Conventions:
 
-- Prefer Effect for external I/O and multi-step impure workflows (e.g. TheSportsDB).
+- Prefer Effect for external I/O and multi-step impure workflows (e.g. sports-data provider requests).
 - Use `Data.TaggedError` (or Schema-tagged errors) instead of `throw new Error` in new Effect code.
 - Decode unknown I/O with Effect `Schema` at boundaries. Convex `v.*` validators remain the source of truth for Convex args and `convex/schema.ts`.
 - Call `runEffect` / `runAppEffect` only at action, script, or HTTP edges. Do not put Layer graphs inside Convex mutations/queries.

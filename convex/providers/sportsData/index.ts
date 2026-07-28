@@ -9,6 +9,7 @@ export type {
   NflTeamStableKey,
 } from "./catalog";
 export {
+  createApiSportsProviderFactory,
   SportsDataProviderConfigurationError,
   selectSportsDataProvider,
 } from "./config";
@@ -23,19 +24,19 @@ export {
   InMemorySportsDataProvider,
 } from "./inMemory";
 export type { InMemorySportsDataFixture } from "./inMemory";
-export { ApiSportsProvider } from "../apiSports";
-export type {
-  ApiSportsGame,
-  ApiSportsStatusObservation,
-} from "../apiSports";
 export type {
   NflGameLifecycle,
   NflGameStableKey,
   SportsDataGame,
+  SportsDataGameObservation,
+  SportsDataLiveFailure,
+  SportsDataLiveResult,
   SportsDataProvider,
   SportsDataProviderAlias,
   SportsDataProviderHealth,
   SportsDataProviderName,
   SportsDataQuota,
+  SportsDataSeasonPhase,
+  SportsDataStatusObservation,
   SportsDataTeam,
 } from "./types";

@@ -13,7 +13,6 @@ const SYNC_GATE_KEY = "deployment" as const;
 const surfaceValidator = v.union(
   v.literal("schedule"),
   v.literal("live"),
-  v.literal("confirmation"),
   v.literal("bootstrap"),
 );
 

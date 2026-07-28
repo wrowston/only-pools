@@ -850,7 +850,7 @@ export const scoreConfidencePoolsForVerifiedGame = internalMutation({
 
 /**
  * Member-facing Confidence Standings — Weekly + Season.
- * Projections from live/provisional scores are labeled official: false.
+ * Projections from live scores are labeled official: false.
  * Deny-by-default: non-members receive null. Never exposes Hidden Pick values.
  */
 export const getConfidenceStandings = query({
@@ -994,12 +994,11 @@ export const getConfidenceStandings = query({
       return a.displayName.localeCompare(b.displayName);
     });
 
-    // Labeled non-official projection from live/provisional scores (never Hidden).
+    // Labeled non-official projection from live scores (never Hidden).
     const games = await loadWeekGames(ctx, pool.seasonId, week);
     const hasLiveProjection = games.some(
       (g) =>
-        g.resultAuthority === "projected" ||
-        g.resultAuthority === "confirmation_pending",
+        g.resultAuthority === "projected",
     );
     const scoringGate = await getScoringGate(ctx, pool);
 
@@ -1026,7 +1025,7 @@ export const getConfidenceStandings = query({
         ? {
             official: false as const,
             label: "Projected — not official",
-            note: "Live and provisionally final scores do not change official Weekly Standings.",
+            note: "Live scores do not change official Weekly Standings.",
           }
         : null,
       season: {

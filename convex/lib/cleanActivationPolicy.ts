@@ -29,19 +29,6 @@ export const CLEAN_ACTIVATION_PRESERVED_CATEGORIES = [
 ] as const;
 
 /**
- * Required only during the expand/contract window while legacy SportsDB
- * columns remain non-optional. These values are unique, visibly non-provider
- * sentinels; generic alias tables remain the only provider identity authority.
- */
-export function legacySportsDbTeamSentinel(stableKey: string): string {
-  return `legacy-unset:api-sports-team:${stableKey}`;
-}
-
-export function legacySportsDbGameSentinel(stableKey: string): string {
-  return `legacy-unset:api-sports-game:${stableKey}`;
-}
-
-/**
  * Every application table must have an explicit clean-activation disposition.
  * `satisfies Record<TableNames, ...>` deliberately makes schema additions fail
  * typechecking until their destructive-data policy is reviewed.

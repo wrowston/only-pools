@@ -36,14 +36,12 @@ async function seedSchedule(t: ReturnType<typeof convexTest>) {
       name: "Detroit Lions",
       abbreviation: "DET",
       logoUrl: "https://example.test/det.png",
-      sportsDbTeamId: "legacy-det",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl-team:franchise-12",
       name: "Green Bay Packers",
       abbreviation: "GB",
       logoUrl: "https://example.test/gb.png",
-      sportsDbTeamId: "legacy-gb",
     });
     const kickoffMs = observedAtMs + 60 * 60 * 1000;
     const gameId = await ctx.db.insert("nflGames", {
@@ -57,7 +55,6 @@ async function seedSchedule(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "legacy-game",
     });
     await ctx.db.insert("nflGameAliases", {
       nflGameId: gameId,
@@ -293,7 +290,6 @@ describe("API-Sports schedule synchronization", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "legacy-duplicate",
       }),
     );
 
@@ -489,13 +485,11 @@ describe("API-Sports schedule synchronization", () => {
         stableKey: "nfl-team:franchise-11",
         name: "Detroit Lions",
         abbreviation: "DET",
-        sportsDbTeamId: "legacy-det",
       });
       const awayTeamId = await ctx.db.insert("nflTeams", {
         stableKey: "nfl-team:franchise-12",
         name: "Green Bay Packers",
         abbreviation: "GB",
-        sportsDbTeamId: "legacy-gb",
       });
       for (let index = 0; index < 401; index += 1) {
         await ctx.db.insert("nflGames", {
@@ -512,7 +506,6 @@ describe("API-Sports schedule synchronization", () => {
           lifecycle: "scheduled",
           homeScore: null,
           awayScore: null,
-          sportsDbEventId: `legacy-${index}`,
         });
       }
     });

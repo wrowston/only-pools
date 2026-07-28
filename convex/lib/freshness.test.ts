@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  CONFIRMATION_LATE_AFTER_DUE_MS,
-  CONFIRMATION_STALE_AFTER_DUE_MS,
   deriveFreshness,
   LEAGUE_LIVE_LATE_MS,
   LEAGUE_LIVE_STALE_MS,
@@ -51,27 +49,4 @@ describe("freshness derivation (scenario 30 — Stale vs Late)", () => {
     expect(result.raisesParticipantBanner).toBe(true);
   });
 
-  it("confirmation Late after due does not raise a participant banner", () => {
-    const dueAtMs = NOW - CONFIRMATION_LATE_AFTER_DUE_MS - 1_000;
-    const result = deriveFreshness({
-      surface: "confirmation",
-      lastSuccessAtMs: dueAtMs - 60_000,
-      nowMs: NOW,
-      dueAtMs,
-    });
-    expect(result.state).toBe("late");
-    expect(result.raisesParticipantBanner).toBe(false);
-  });
-
-  it("confirmation Stale after due is distinguishable", () => {
-    const dueAtMs = NOW - CONFIRMATION_STALE_AFTER_DUE_MS - 1_000;
-    const result = deriveFreshness({
-      surface: "confirmation",
-      lastSuccessAtMs: dueAtMs - 60_000,
-      nowMs: NOW,
-      dueAtMs,
-    });
-    expect(result.state).toBe("stale");
-    expect(result.raisesParticipantBanner).toBe(true);
-  });
 });

@@ -10,7 +10,7 @@ import { internal } from "./_generated/api";
  * Enablement: Sync Gate must be ON (Production default after Season Bootstrap;
  * Dev defaults OFF). Set DEPLOYMENT_KIND=production for prod gate default.
  * Production provider fetches require SPORTS_DATA_PROVIDER=api-sports and
- * API_SPORTS_KEY. The legacy provider is not used by schedule/live claims.
+ * API_SPORTS_KEY. Schedule and live claims have no fallback provider.
  */
 const crons = cronJobs();
 

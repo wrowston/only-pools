@@ -13,7 +13,9 @@ import { ApiSportsDecodeError } from "../../effect/errors";
 import type {
   SportsDataProvider,
   SportsDataProviderAlias,
+  SportsDataGameObservation,
   SportsDataProviderHealth,
+  SportsDataLiveResult,
   SportsDataQuota,
   SportsDataTeam,
 } from "../sportsData/types";
@@ -21,7 +23,6 @@ import {
   normalizeApiSportsGame,
   normalizeApiSportsGames,
   normalizeApiSportsTeams,
-  type ApiSportsGame,
 } from "./normalize";
 
 function nextUtcMidnight(nowMs: number): number {
@@ -113,7 +114,7 @@ export class ApiSportsProvider
   listSeasonGames(
     seasonYear: number,
   ): Effect.Effect<
-    readonly ApiSportsGame[],
+    readonly SportsDataGameObservation[],
     ApiSportsClientError | ApiSportsDecodeError
   > {
     return this.#client.fetchSeasonGames(seasonYear).pipe(
@@ -134,7 +135,7 @@ export class ApiSportsProvider
   }
 
   listLiveGames(): Effect.Effect<
-    readonly ApiSportsGame[],
+    readonly SportsDataGameObservation[],
     ApiSportsClientError | ApiSportsDecodeError
   > {
     return this.listLiveGamesWithFailures().pipe(
@@ -143,13 +144,7 @@ export class ApiSportsProvider
   }
 
   listLiveGamesWithFailures(): Effect.Effect<
-    Readonly<{
-      games: readonly ApiSportsGame[];
-      failures: readonly Readonly<{
-        rowIndex: number;
-        detail: string;
-      }>[];
-    }>,
+    SportsDataLiveResult,
     ApiSportsClientError
   > {
     return this.#client.fetchLiveGameCandidates().pipe(
@@ -184,7 +179,7 @@ export class ApiSportsProvider
         ),
       ),
       Effect.map((results) => {
-        const games = new Map<string, ApiSportsGame>();
+        const games = new Map<string, SportsDataGameObservation>();
         const failures: Array<{ rowIndex: number; detail: string }> = [];
         for (const result of results) {
           if (result._tag === "failure") {
@@ -214,7 +209,7 @@ export class ApiSportsProvider
   getGame(
     alias: SportsDataProviderAlias,
   ): Effect.Effect<
-    ApiSportsGame | null,
+    SportsDataGameObservation | null,
     ApiSportsClientError | ApiSportsDecodeError
   > {
     if (alias.provider !== this.name) return Effect.succeed(null);

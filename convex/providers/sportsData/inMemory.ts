@@ -1,7 +1,8 @@
 import * as Effect from "effect/Effect";
 
 import type {
-  SportsDataGame,
+  SportsDataGameObservation,
+  SportsDataLiveResult,
   SportsDataProvider,
   SportsDataProviderHealth,
   SportsDataProviderAlias,
@@ -10,7 +11,7 @@ import type {
 
 export type InMemorySportsDataFixture = Readonly<{
   teams: readonly SportsDataTeam[];
-  games: readonly SportsDataGame[];
+  games: readonly SportsDataGameObservation[];
   liveGameAliases: readonly string[];
   health: SportsDataProviderHealth;
 }>;
@@ -28,7 +29,7 @@ export class InMemorySportsDataProvider
   readonly name = "in-memory" as const;
 
   readonly #teams: readonly SportsDataTeam[];
-  readonly #games: readonly SportsDataGame[];
+  readonly #games: readonly SportsDataGameObservation[];
   readonly #liveGameAliases: ReadonlySet<string>;
   readonly #health: SportsDataProviderHealth;
 
@@ -45,13 +46,13 @@ export class InMemorySportsDataProvider
 
   listSeasonGames(
     seasonYear: number,
-  ): Effect.Effect<readonly SportsDataGame[]> {
+  ): Effect.Effect<readonly SportsDataGameObservation[]> {
     return Effect.succeed(
       this.#games.filter((game) => game.seasonYear === seasonYear),
     );
   }
 
-  listLiveGames(): Effect.Effect<readonly SportsDataGame[]> {
+  listLiveGames(): Effect.Effect<readonly SportsDataGameObservation[]> {
     return Effect.succeed(
       this.#games.filter((game) =>
         game.providerAliases.some(
@@ -63,9 +64,15 @@ export class InMemorySportsDataProvider
     );
   }
 
+  listLiveGamesWithFailures(): Effect.Effect<SportsDataLiveResult> {
+    return this.listLiveGames().pipe(
+      Effect.map((games) => ({ games, failures: [] })),
+    );
+  }
+
   getGame(
     alias: SportsDataProviderAlias,
-  ): Effect.Effect<SportsDataGame | null> {
+  ): Effect.Effect<SportsDataGameObservation | null> {
     if (alias.provider !== this.name) return Effect.succeed(null);
 
     return Effect.succeed(

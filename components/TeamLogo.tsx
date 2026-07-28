@@ -53,8 +53,8 @@ export function TeamLogo({
       aria-hidden="true"
     >
       {showImage && logoUrl ? (
-        // TheSportsDB already serves this at /tiny or /small; a native image
-        // avoids routing an already-resized asset through another optimizer.
+        // Canonical badge artwork supports /tiny and /small variants; a native
+        // image avoids routing an already-resized asset through another optimizer.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={previewUrl(logoUrl, size)}

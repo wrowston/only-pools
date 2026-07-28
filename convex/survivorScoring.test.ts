@@ -71,28 +71,24 @@ async function seedSurvivorWorld(
       name: "Kansas City Chiefs",
       abbreviation: "KC",
       logoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
-      sportsDbTeamId: "134934",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
     });
     const buf = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
       logoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
-      sportsDbTeamId: "134918",
+        "https://example.test/images/media/team/badge/6pb37b1515849026.png",
     });
     const phi = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:phi",
       name: "Philadelphia Eagles",
       abbreviation: "PHI",
-      sportsDbTeamId: "134936",
     });
     const dal = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:dal",
       name: "Dallas Cowboys",
       abbreviation: "DAL",
-      sportsDbTeamId: "134925",
     });
 
     const week1GameId = await ctx.db.insert("nflGames", {
@@ -106,7 +102,6 @@ async function seedSurvivorWorld(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1",
       resultAuthority: "none",
     });
 
@@ -123,7 +118,6 @@ async function seedSurvivorWorld(
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w2",
       });
     }
 
@@ -417,7 +411,6 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w1_late",
         resultAuthority: "none",
       });
     });
@@ -700,13 +693,11 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
         stableKey: "nfl:kc",
         name: "Kansas City Chiefs",
         abbreviation: "KC",
-        sportsDbTeamId: "134934",
       });
       const buf = await ctx.db.insert("nflTeams", {
         stableKey: "nfl:buf",
         name: "Buffalo Bills",
         abbreviation: "BUF",
-        sportsDbTeamId: "134918",
       });
       const gameId = await ctx.db.insert("nflGames", {
         stableKey: "nfl:2025:w18:buf@kc",
@@ -719,7 +710,6 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "evt_w18",
         resultAuthority: "none",
       });
       return { seasonId, kc, buf, gameId };
@@ -808,7 +798,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       teamAbbreviation: "KC",
       teamName: "Kansas City Chiefs",
       teamLogoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
     });
     expect(blakeHidden?.cells[0]).toMatchObject({
       revealed: false,
@@ -842,7 +832,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       teamAbbreviation: "KC",
       teamName: "Kansas City Chiefs",
       teamLogoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/936t161515847222.png",
+        "https://example.test/images/media/team/badge/936t161515847222.png",
       outcome: "win",
     });
     expect(blake?.cells[0]).toMatchObject({
@@ -850,7 +840,7 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       teamAbbreviation: "BUF",
       teamName: "Buffalo Bills",
       teamLogoUrl:
-        "https://r2.thesportsdb.com/images/media/team/badge/6pb37b1515849026.png",
+        "https://example.test/images/media/team/badge/6pb37b1515849026.png",
       outcome: "loss",
     });
   });

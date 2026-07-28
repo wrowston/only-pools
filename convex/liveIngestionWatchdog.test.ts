@@ -51,13 +51,11 @@ async function seedActiveWindow(
       stableKey: "nfl-team:home",
       name: "Home",
       abbreviation: "HOM",
-      sportsDbTeamId: "legacy-home",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl-team:away",
       name: "Away",
       abbreviation: "AWY",
-      sportsDbTeamId: "legacy-away",
     });
     for (let index = 0; index < (options.irrelevantGames ?? 0); index += 1) {
       await ctx.db.insert("nflGames", {
@@ -71,7 +69,6 @@ async function seedActiveWindow(
         lifecycle: "terminal",
         homeScore: 1,
         awayScore: 0,
-        sportsDbEventId: `legacy-irrelevant-${index}`,
         resultAuthority: "verified",
       });
     }
@@ -86,7 +83,6 @@ async function seedActiveWindow(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "legacy-game",
       resultAuthority: "none",
     });
     return seasonId;

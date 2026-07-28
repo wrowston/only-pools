@@ -15,7 +15,6 @@ import {
   requireProductionOperatorWithStepUp,
 } from "./lib/operatorAuth";
 import { latestPinnedResultEvidence } from "./lib/pinnedResultEvidence";
-import { confirmationScopeKey } from "./lib/syncObservations";
 import { retireCorrectionWorkflowForPinnedOverride } from "./syncApiSportsLive";
 import {
   providerEvidenceState,
@@ -118,39 +117,6 @@ async function scheduleScoringReplay(
     internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
     { gameId, nowMs, replayLaterWeeks: true },
   );
-}
-
-async function retireQueuedConfirmationWork(
-  ctx: Parameters<
-    typeof retireCorrectionWorkflowForPinnedOverride
-  >[0],
-  gameId: Doc<"nflGames">["_id"],
-): Promise<number> {
-  const confirmationWork = (
-    await Promise.all(
-      (["confirmation_15", "confirmation_60"] as const).map((purpose) =>
-        ctx.db
-          .query("syncWorkItems")
-          .withIndex("by_scopeKey", (q) =>
-            q.eq("scopeKey", confirmationScopeKey(gameId, purpose)),
-          )
-          .unique(),
-      ),
-    )
-  ).filter(
-    (workItem): workItem is Doc<"syncWorkItems"> =>
-      workItem !== null &&
-      workItem.surface === "confirmation" &&
-      (workItem.status === "due" || workItem.status === "claimed"),
-  );
-  for (const workItem of confirmationWork) {
-    await ctx.db.patch(workItem._id, {
-      status: "done",
-      claimedAtMs: undefined,
-      leaseExpiresAtMs: undefined,
-    });
-  }
-  return confirmationWork.length;
 }
 
 export const listOperatorResultOverrides = query({
@@ -314,10 +280,6 @@ export const pinNflGameResultOverride = mutation({
         game,
         nowMs,
       });
-    const retiredConfirmationWork = await retireQueuedConfirmationWork(
-      ctx,
-      game._id,
-    );
     const pinnedResult = {
       ...args.overrideResult,
       verifiedAtMs: nowMs,
@@ -341,7 +303,7 @@ export const pinNflGameResultOverride = mutation({
     await ctx.db.insert("syncWorkItems", {
       surface: "correction",
       scopeKey: pinnedResultEvidenceScopeKey(overrideId),
-      priority: "confirmation",
+      priority: "recovery",
       status: "due",
       dueAtMs: nowMs,
       attemptCount: 0,
@@ -411,7 +373,6 @@ export const pinNflGameResultOverride = mutation({
         retiredCandidateKey: retiredWorkflow?.candidateKey ?? null,
         workflowCleanupId: retiredWorkflow?.cleanupId ?? null,
         workflowCleanupStatus: retiredWorkflow?.cleanupStatus ?? null,
-        retiredConfirmationWork,
       }),
     });
     await scheduleScoringReplay(

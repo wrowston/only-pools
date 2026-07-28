@@ -32,7 +32,6 @@ const lifecycleValidator = v.union(
 const resultAuthorityValidator = v.union(
   v.literal("none"),
   v.literal("projected"),
-  v.literal("confirmation_pending"),
   v.literal("verified"),
   v.literal("correction_candidate"),
 );
@@ -65,7 +64,6 @@ export type ProviderGameEvidenceState =
 
 const providerValidator = v.union(
   v.literal("api-sports"),
-  v.literal("legacy"),
   v.literal("operator"),
 );
 
@@ -251,7 +249,7 @@ export async function recordProviderGameTransition(
   ctx: MutationCtx,
   input: {
     gameId: Id<"nflGames">;
-    provider: "api-sports" | "legacy" | "operator";
+    provider: "api-sports" | "operator";
     externalId?: string;
     source:
       | "schedule"
@@ -332,10 +330,7 @@ export const recordGameTransitionForTest = internalMutation({
   handler: (ctx, args) =>
     recordProviderGameTransition(ctx, {
       ...args,
-      provider: args.provider as
-        | "api-sports"
-        | "legacy"
-        | "operator",
+      provider: args.provider as "api-sports" | "operator",
       source: args.source as
         | "schedule"
         | "live"

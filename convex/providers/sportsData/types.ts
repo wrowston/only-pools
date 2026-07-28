@@ -49,6 +49,41 @@ export type SportsDataGame = Readonly<{
   providerAliases: readonly SportsDataProviderAlias[];
 }>;
 
+export type SportsDataSeasonPhase =
+  | "preseason"
+  | "regular_season"
+  | "postseason"
+  | "unknown";
+
+/** Raw provider status retained as evidence behind a neutral shape. */
+export type SportsDataStatusObservation = Readonly<{
+  rawShort: string;
+  rawLong: string;
+  recognized: boolean;
+  terminal: boolean;
+}>;
+
+/**
+ * Provider observation used by schedule, live, and qualification callers.
+ * Persisted bootstrap snapshots may intentionally retain only SportsDataGame.
+ */
+export type SportsDataGameObservation = SportsDataGame &
+  Readonly<{
+    seasonPhase: SportsDataSeasonPhase;
+    providerStage: string;
+    providerStatus: SportsDataStatusObservation;
+  }>;
+
+export type SportsDataLiveFailure = Readonly<{
+  rowIndex: number;
+  detail: string;
+}>;
+
+export type SportsDataLiveResult = Readonly<{
+  games: readonly SportsDataGameObservation[];
+  failures: readonly SportsDataLiveFailure[];
+}>;
+
 export type SportsDataQuota = Readonly<{
   dailyLimit: number | null;
   requestsUsed: number;
@@ -76,10 +111,17 @@ export interface SportsDataProvider<Error = unknown> {
   listTeams(): Effect.Effect<readonly SportsDataTeam[], Error>;
   listSeasonGames(
     seasonYear: number,
-  ): Effect.Effect<readonly SportsDataGame[], Error>;
-  listLiveGames(): Effect.Effect<readonly SportsDataGame[], Error>;
+  ): Effect.Effect<readonly SportsDataGameObservation[], Error>;
+  listLiveGames(): Effect.Effect<
+    readonly SportsDataGameObservation[],
+    Error
+  >;
+  listLiveGamesWithFailures(): Effect.Effect<
+    SportsDataLiveResult,
+    Error
+  >;
   getGame(
     alias: SportsDataProviderAlias,
-  ): Effect.Effect<SportsDataGame | null, Error>;
+  ): Effect.Effect<SportsDataGameObservation | null, Error>;
   getHealth(): Effect.Effect<SportsDataProviderHealth, Error>;
 }

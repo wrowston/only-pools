@@ -46,7 +46,6 @@ const terminalStatusValidator = v.union(
 const qualificationSurfaceValidator = v.union(
   v.literal("schedule"),
   v.literal("live"),
-  v.literal("confirmation"),
   v.literal("bootstrap"),
 );
 

@@ -1,3 +1,8 @@
+import type {
+  ApiSportsFetch,
+  ApiSportsRequestFence,
+} from "../../effect/apiSports/client";
+import { ApiSportsProvider } from "../apiSports/adapter";
 import type { SportsDataProvider } from "./types";
 
 export type ProductionSportsDataProviderName = "api-sports";
@@ -15,6 +20,22 @@ export type SportsDataDeploymentConfig = Readonly<{
 export type ApiSportsProviderFactory = (input: {
   apiKey: string;
 }) => SportsDataProvider;
+
+export function createApiSportsProviderFactory(
+  options: Readonly<{
+    fetch?: ApiSportsFetch;
+    requestFence?: ApiSportsRequestFence;
+    nowMs?: () => number;
+    teamSeasonYear?: number;
+    bootstrapTeamCandidates?: boolean;
+  }> = {},
+): ApiSportsProviderFactory {
+  return ({ apiKey }) =>
+    new ApiSportsProvider({
+      ...options,
+      apiKey,
+    });
+}
 
 export type SportsDataProviderConfigurationErrorCode =
   | "missing_provider"

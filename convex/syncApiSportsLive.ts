@@ -38,10 +38,15 @@ import {
   recordPinnedProviderEvidence,
 } from "./lib/pinnedResultEvidence";
 import { lifecycleValidator } from "./lib/syncObservations";
-import { ApiSportsProvider } from "./providers/apiSports";
-import type { ApiSportsGame } from "./providers/apiSports";
 import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
-import { selectSportsDataProvider } from "./providers/sportsData/config";
+import {
+  createApiSportsProviderFactory,
+  selectSportsDataProvider,
+} from "./providers/sportsData/config";
+import type {
+  SportsDataGameObservation,
+  SportsDataProvider,
+} from "./providers/sportsData/types";
 import {
   correctionReconciliationSchedule,
   terminalEvidenceMatches,
@@ -217,7 +222,7 @@ async function enqueueCorrectionReconciliation(
     await ctx.db.insert("syncWorkItems", {
       surface: "correction",
       scopeKey,
-      priority: "confirmation",
+      priority: "recovery",
       status: "due",
       dueAtMs: item.dueAtMs,
       attemptCount: 0,
@@ -1537,8 +1542,6 @@ export const applyObservation = internalMutation({
         awayScore: terminal.result.awayScore,
         resultAuthority: "verified",
         verifiedResult: terminal.result,
-        provisionalTerminalAtMs: undefined,
-        confirmationObservations: undefined,
         lastObservedAtMs: observation.observedAtMs,
         kickoffLockReachedAtMs:
           game.kickoffLockReachedAtMs ?? observation.observedAtMs,
@@ -1561,8 +1564,6 @@ export const applyObservation = internalMutation({
           awayScore: terminal.result.awayScore,
           resultAuthority: "verified",
           verifiedResult: terminal.result,
-          provisionalTerminalAtMs: undefined,
-          confirmationObservations: undefined,
           kickoffLockReachedAtMs:
             game.kickoffLockReachedAtMs ??
             observation.observedAtMs,
@@ -2040,14 +2041,14 @@ export const reconcileSuccessfulSlate = internalMutation({
             await ctx.db.patch(existing._id, {
               status: "due",
               dueAtMs: args.nowMs,
-              priority: "confirmation",
+              priority: "recovery",
             });
           }
         } else {
           await ctx.db.insert("syncWorkItems", {
             surface: "live",
             scopeKey,
-            priority: "confirmation",
+            priority: "recovery",
             status: "due",
             dueAtMs: args.nowMs,
             attemptCount: 0,
@@ -2112,7 +2113,9 @@ export const applySuccessfulSlateBatch = internalAction({
   handler: (ctx, args) => applySuccessfulSlateBatchForCtx(ctx, args),
 });
 
-function liveInput(game: ApiSportsGame): LiveObservation | null {
+function liveInput(
+  game: SportsDataGameObservation,
+): LiveObservation | null {
   const alias = game.providerAliases.find(
     (candidate) => candidate.provider === "api-sports",
   );
@@ -2129,17 +2132,16 @@ function liveInput(game: ApiSportsGame): LiveObservation | null {
 
 function configuredProvider(
   requestFence?: ApiSportsRequestFence,
-): ApiSportsProvider {
+): SportsDataProvider {
   return selectSportsDataProvider({
     config: {
       provider: env.SPORTS_DATA_PROVIDER,
       apiSportsKey: env.API_SPORTS_KEY,
     },
     providers: {
-      "api-sports": ({ apiKey }) =>
-        new ApiSportsProvider({ apiKey, requestFence }),
+      "api-sports": createApiSportsProviderFactory({ requestFence }),
     },
-  }) as ApiSportsProvider;
+  });
 }
 
 /** Selected-provider action for the single global league-wide live request. */
@@ -2499,12 +2501,12 @@ export const runClaimedTargetedRecovery = internalAction({
       expectedSeasonId: target.seasonId,
     });
     try {
-      const game = (await runEffect(
+      const game = await runEffect(
         configuredProvider(reliable.fence).getGame({
           provider: "api-sports",
           id: externalId,
         }),
-      )) as ApiSportsGame | null;
+      );
       providerSucceeded = true;
       await reliable.recordOutcome({
         success: true,
@@ -2619,12 +2621,12 @@ export const runClaimedResultReconciliation = internalAction({
       expectedSeasonId: target.seasonId,
     });
     try {
-      const game = (await runEffect(
+      const game = await runEffect(
         configuredProvider(reliable.fence).getGame({
           provider: "api-sports",
           id: externalId,
         }),
-      )) as ApiSportsGame | null;
+      );
       providerSucceeded = true;
       await reliable.recordOutcome({
         success: true,

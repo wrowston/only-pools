@@ -1,8 +1,6 @@
 import type { SportsDataProviderName } from "./types";
 
-export type SportsDataAliasProviderName =
-  | SportsDataProviderName
-  | "the-sports-db";
+export type SportsDataAliasProviderName = SportsDataProviderName;
 
 export type ProviderAlias = Readonly<{
   provider: SportsDataAliasProviderName;

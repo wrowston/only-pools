@@ -1,347 +1,191 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { internal } from "../../_generated/api";
+
 import schema from "../../schema";
+import { CANONICAL_NFL_TEAMS } from "./catalog";
 import {
   attachNflGameAlias,
+  attachNflTeamAlias,
   inspectNflGameIdentityByAlias,
   inspectNflTeamIdentityByAlias,
-  LEGACY_SPORTS_DB_PROVIDER,
+  persistReconciledNflGame,
+  reconcileStoredNflGame,
+  reconcileStoredNflTeam,
+  recordNflGameSchedule,
+  SportsIdentityConflict,
 } from "./identityStore";
 
 const modules = import.meta.glob("../../**/*.ts");
-const actor = {
-  actorTokenIdentifier: "operator|identity-test",
-  actorClerkUserId: "operator_identity_test",
-};
+const PROVIDER = "api-sports";
 
-function legacyBootstrapInput(
-  sportsDbEventId: string,
-  scheduledKickoffMs: number,
-) {
-  return {
-    seasonLabel: "2026",
-    teams: [
-      {
-        stableKey: "nfl-team:134939",
-        name: "Detroit Lions",
-        abbreviation: "DET",
-        logoUrl: "https://example.test/det.png",
-        aliases: { sportsDbTeamId: "134939" },
-      },
-      {
-        stableKey: "nfl-team:134927",
-        name: "Green Bay Packers",
-        abbreviation: "GB",
-        logoUrl: "https://example.test/gb.png",
-        aliases: { sportsDbTeamId: "134927" },
-      },
-    ],
-    games: [
-      {
-        stableKey: `nfl-game:2026:${sportsDbEventId}`,
-        seasonLabel: "2026",
-        week: 4,
-        homeTeamStableKey: "nfl-team:134927",
-        awayTeamStableKey: "nfl-team:134939",
-        scheduledKickoffMs,
-        lifecycle: "scheduled" as const,
-        homeScore: null,
-        awayScore: null,
-        aliases: { sportsDbEventId },
-      },
-    ],
-    ...actor,
-  };
+async function seedGame(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) => {
+    const seasonId = await ctx.db.insert("poolSeasons", {
+      label: "2026",
+      year: 2026,
+      status: "available",
+      usableStartWeek: 1,
+    });
+    const homeTeamId = await ctx.db.insert("nflTeams", {
+      stableKey: CANONICAL_NFL_TEAMS.GB.stableKey,
+      name: CANONICAL_NFL_TEAMS.GB.name,
+      abbreviation: "GB",
+    });
+    const awayTeamId = await ctx.db.insert("nflTeams", {
+      stableKey: CANONICAL_NFL_TEAMS.DET.stableKey,
+      name: CANONICAL_NFL_TEAMS.DET.name,
+      abbreviation: "DET",
+    });
+    const scheduledKickoffMs = Date.parse("2026-09-27T17:00:00Z");
+    const gameId = await ctx.db.insert("nflGames", {
+      stableKey: "nfl-game:2026:w4:det@gb",
+      seasonId,
+      seasonLabel: "2026",
+      week: 4,
+      homeTeamId,
+      awayTeamId,
+      scheduledKickoffMs,
+      lifecycle: "scheduled",
+      homeScore: null,
+      awayScore: null,
+    });
+    await attachNflGameAlias(ctx, {
+      nflGameId: gameId,
+      alias: { provider: PROVIDER, externalId: "1001" },
+      observedAtMs: scheduledKickoffMs,
+    });
+    await recordNflGameSchedule(ctx, {
+      nflGameId: gameId,
+      seasonId,
+      week: 4,
+      homeTeamId,
+      awayTeamId,
+      scheduledKickoffMs,
+      observedAtMs: scheduledKickoffMs,
+    });
+    return {
+      seasonId,
+      homeTeamId,
+      awayTeamId,
+      gameId,
+      scheduledKickoffMs,
+    };
+  });
 }
 
 describe("generic sports identity storage", () => {
-  it("keeps one competitive NFL Game across provider-id and kickoff replacements", async () => {
+  it("keeps one NFL Game across provider alias and kickoff replacements", async () => {
     const t = convexTest(schema, modules);
-    const originalKickoffMs = Date.parse("2026-09-27T17:00:00Z");
+    const seeded = await seedGame(t);
     const movedKickoffMs = Date.parse("2026-09-27T20:25:00Z");
-
-    await t.mutation(
-      internal.bootstrap.applyNormalizedBootstrap,
-      legacyBootstrapInput("sportsdb-old", originalKickoffMs),
-    );
-    await t.mutation(
-      internal.bootstrap.applyNormalizedBootstrap,
-      legacyBootstrapInput("sportsdb-replacement", movedKickoffMs),
-    );
-    const historicalAliasGameId = await t.query(
-      internal.syncLive.findGameBySportsDbEventId,
-      { sportsDbEventId: "sportsdb-old" },
-    );
-    const oldIdentity = await t.run(async (ctx) =>
-      await inspectNflGameIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-old",
-      }),
-    );
-    const replacementIdentity = await t.run(async (ctx) =>
-      await inspectNflGameIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-replacement",
-      }),
-    );
-    const lionsIdentity = await t.run(async (ctx) =>
-      await inspectNflTeamIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "134939",
-      }),
-    );
-    const packersIdentity = await t.run(async (ctx) =>
-      await inspectNflTeamIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "134927",
-      }),
-    );
-
-    expect(lionsIdentity.stableKey).toBe("nfl-team:franchise-11");
-    expect(packersIdentity.stableKey).toBe("nfl-team:franchise-12");
-    expect(oldIdentity).toMatchObject({
-      stableKey: "nfl-game:2026:w4:franchise-11@franchise-12",
-      scheduledKickoffMs: movedKickoffMs,
-    });
-    expect(historicalAliasGameId).toBe(oldIdentity.nflGameId);
-    expect(replacementIdentity.nflGameId).toBe(oldIdentity.nflGameId);
-    expect(oldIdentity.aliases).toEqual([
-      {
-        provider: "the-sports-db",
-        externalId: "sportsdb-old",
-        isCurrent: false,
-      },
-      {
-        provider: "the-sports-db",
-        externalId: "sportsdb-replacement",
-        isCurrent: true,
-      },
-    ]);
-    expect(oldIdentity.scheduleHistoryMs).toEqual([
-      originalKickoffMs,
-      movedKickoffMs,
-    ]);
-  });
-
-  it("detects duplicate and four-row ambiguous alias ownership in Convex storage", async () => {
-    const t = convexTest(schema, modules);
-    const kickoffMs = Date.parse("2026-09-27T17:00:00Z");
-    await t.mutation(
-      internal.bootstrap.applyNormalizedBootstrap,
-      legacyBootstrapInput("sportsdb-original", kickoffMs),
-    );
 
     await t.run(async (ctx) => {
-      const [game] = await ctx.db.query("nflGames").take(1);
-      if (!game) throw new Error("Expected seeded NFL Game");
-      const secondGameId = await ctx.db.insert("nflGames", {
-        stableKey: `${game.stableKey}:duplicate`,
-        seasonId: game.seasonId,
-        seasonLabel: game.seasonLabel,
-        week: game.week,
-        homeTeamId: game.homeTeamId,
-        awayTeamId: game.awayTeamId,
-        scheduledKickoffMs: game.scheduledKickoffMs,
-        lifecycle: game.lifecycle,
-        homeScore: game.homeScore,
-        awayScore: game.awayScore,
-        sportsDbEventId: "legacy-duplicate",
+      const alias = { provider: PROVIDER, externalId: "1002" } as const;
+      const reconciliation = await reconcileStoredNflGame(ctx, {
+        alias,
+        seasonId: seeded.seasonId,
+        week: 4,
+        homeTeamId: seeded.homeTeamId,
+        awayTeamId: seeded.awayTeamId,
+        homeTeamStableKey: CANONICAL_NFL_TEAMS.GB.stableKey,
+        awayTeamStableKey: CANONICAL_NFL_TEAMS.DET.stableKey,
+        scheduledKickoffMs: movedKickoffMs,
       });
-      const atMs = Date.parse("2026-08-01T00:00:00Z");
-
-      await ctx.db.insert("nflGameAliases", {
-        nflGameId: game._id,
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "duplicate",
-        isCurrent: false,
-        firstObservedAtMs: atMs,
-        lastObservedAtMs: atMs,
+      expect(reconciliation).toEqual({
+        kind: "resolved",
+        nflGameId: seeded.gameId,
       });
-      await ctx.db.insert("nflGameAliases", {
-        nflGameId: game._id,
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "duplicate",
-        isCurrent: false,
-        firstObservedAtMs: atMs,
-        lastObservedAtMs: atMs,
+      await persistReconciledNflGame(ctx, {
+        reconciliation,
+        alias,
+        observedAtMs: movedKickoffMs,
+        fields: {
+          stableKey: "nfl-game:2026:w4:det@gb",
+          seasonId: seeded.seasonId,
+          seasonLabel: "2026",
+          week: 4,
+          homeTeamId: seeded.homeTeamId,
+          awayTeamId: seeded.awayTeamId,
+          scheduledKickoffMs: movedKickoffMs,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+        },
       });
-      await ctx.db.insert("nflGameAliases", {
-        nflGameId: game._id,
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "ambiguous",
-        isCurrent: false,
-        firstObservedAtMs: atMs,
-        lastObservedAtMs: atMs,
-      });
-      await ctx.db.insert("nflGameAliases", {
-        nflGameId: game._id,
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "ambiguous",
-        isCurrent: false,
-        firstObservedAtMs: atMs + 1,
-        lastObservedAtMs: atMs + 1,
-      });
-      await ctx.db.insert("nflGameAliases", {
-        nflGameId: game._id,
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "ambiguous",
-        isCurrent: false,
-        firstObservedAtMs: atMs + 2,
-        lastObservedAtMs: atMs + 2,
-      });
-      await ctx.db.insert("nflGameAliases", {
-        nflGameId: secondGameId,
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "ambiguous",
-        isCurrent: false,
-        firstObservedAtMs: atMs,
-        lastObservedAtMs: atMs,
-      });
-
     });
-    const ownership = {
-      duplicate: await t.run(async (ctx) =>
-        await inspectNflGameIdentityByAlias(ctx, {
-          provider: LEGACY_SPORTS_DB_PROVIDER,
-          externalId: "duplicate",
-        }),
-      ),
-      ambiguous: await t.run(async (ctx) =>
-        await inspectNflGameIdentityByAlias(ctx, {
-          provider: LEGACY_SPORTS_DB_PROVIDER,
-          externalId: "ambiguous",
-        }),
-      ),
-    };
 
-    expect(ownership.duplicate.ownership).toMatchObject({
-      kind: "duplicate",
-      rowCount: 2,
-    });
-    expect(ownership.ambiguous.ownership).toMatchObject({
-      kind: "ambiguous",
-    });
-    if (ownership.ambiguous.ownership.kind === "ambiguous") {
-      expect(
-        new Set(ownership.ambiguous.ownership.ownerIds).size,
-      ).toBe(2);
-    }
-  });
-
-  it("retires and restores a historical alias for its owner while rejecting reuse by another game", async () => {
-    const t = convexTest(schema, modules);
-    const originalKickoffMs = Date.parse("2026-09-27T17:00:00Z");
-    const movedKickoffMs = Date.parse("2026-09-27T20:25:00Z");
-
-    await t.mutation(
-      internal.bootstrap.applyNormalizedBootstrap,
-      legacyBootstrapInput("sportsdb-old", originalKickoffMs),
-    );
-    await t.mutation(
-      internal.bootstrap.applyNormalizedBootstrap,
-      legacyBootstrapInput("sportsdb-replacement", movedKickoffMs),
-    );
-    await t.mutation(
-      internal.bootstrap.applyNormalizedBootstrap,
-      legacyBootstrapInput("sportsdb-old", movedKickoffMs),
-    );
-
-    const restored = await t.run(async (ctx) =>
-      await inspectNflGameIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-old",
+    const original = await t.run((ctx) =>
+      inspectNflGameIdentityByAlias(ctx, {
+        provider: PROVIDER,
+        externalId: "1001",
       }),
     );
-    expect(restored.aliases).toEqual([
-      {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-old",
+    const replacement = await t.run((ctx) =>
+      inspectNflGameIdentityByAlias(ctx, {
+        provider: PROVIDER,
+        externalId: "1002",
+      }),
+    );
+    expect(original.nflGameId).toBe(seeded.gameId);
+    expect(replacement.nflGameId).toBe(seeded.gameId);
+    expect(replacement).toMatchObject({
+      scheduledKickoffMs: movedKickoffMs,
+      aliases: [
+        { externalId: "1001", isCurrent: false },
+        { externalId: "1002", isCurrent: true },
+      ],
+      scheduleHistoryMs: [seeded.scheduledKickoffMs, movedKickoffMs],
+    });
+  });
+
+  it("resolves team identity from canonical keys and provider aliases", async () => {
+    const t = convexTest(schema, modules);
+    const { homeTeamId } = await seedGame(t);
+    await t.run(async (ctx) => {
+      await attachNflTeamAlias(ctx, {
+        nflTeamId: homeTeamId,
+        alias: { provider: PROVIDER, externalId: "9" },
+        observedAtMs: 1,
+      });
+      await expect(
+        reconcileStoredNflTeam(ctx, {
+          alias: { provider: PROVIDER, externalId: "9" },
+          stableKey: CANONICAL_NFL_TEAMS.GB.stableKey,
+        }),
+      ).resolves.toEqual({ kind: "resolved", nflTeamId: homeTeamId });
+    });
+    const identity = await t.run((ctx) =>
+      inspectNflTeamIdentityByAlias(ctx, {
+        provider: PROVIDER,
+        externalId: "9",
+      }),
+    );
+    expect(identity).toMatchObject({
+      nflTeamId: homeTeamId,
+      stableKey: CANONICAL_NFL_TEAMS.GB.stableKey,
+    });
+  });
+
+  it("rejects duplicate alias rows for one owner", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId } = await seedGame(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nflGameAliases", {
+        nflGameId: gameId,
+        provider: PROVIDER,
+        externalId: "1001",
         isCurrent: true,
-      },
-      {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-replacement",
-        isCurrent: false,
-      },
-    ]);
-
-    await expect(
-      t.run(async (ctx) => {
-        if (restored.ownership.kind !== "owned") {
-          throw new Error("Expected restored alias owner");
-        }
-        const game = await ctx.db.get(restored.ownership.ownerId);
-        if (!game) throw new Error("Expected restored NFL Game");
-        const secondGameId = await ctx.db.insert("nflGames", {
-          stableKey: `${game.stableKey}:other-owner`,
-          seasonId: game.seasonId,
-          seasonLabel: game.seasonLabel,
-          week: game.week,
-          homeTeamId: game.homeTeamId,
-          awayTeamId: game.awayTeamId,
-          scheduledKickoffMs: game.scheduledKickoffMs,
-          lifecycle: game.lifecycle,
-          homeScore: game.homeScore,
-          awayScore: game.awayScore,
-          sportsDbEventId: "other-owner",
-        });
-        await attachNflGameAlias(ctx, {
-          nflGameId: secondGameId,
-          alias: {
-            provider: LEGACY_SPORTS_DB_PROVIDER,
-            externalId: "sportsdb-old",
-          },
-          observedAtMs: movedKickoffMs + 1,
-        });
-      }),
-    ).rejects.toMatchObject({
-      name: "SportsIdentityConflict",
-      code: "alias_owner_mismatch",
-    });
-  });
-
-  it("applies identical Season Bootstrap input idempotently", async () => {
-    const t = convexTest(schema, modules);
-    const kickoffMs = Date.parse("2026-09-27T17:00:00Z");
-    const input = legacyBootstrapInput("sportsdb-idempotent", kickoffMs);
-
-    await t.mutation(internal.bootstrap.applyNormalizedBootstrap, input);
-    const firstIdentity = await t.run(async (ctx) =>
-      await inspectNflGameIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-idempotent",
-      }),
-    );
-    await t.mutation(internal.bootstrap.applyNormalizedBootstrap, input);
-    const secondIdentity = await t.run(async (ctx) =>
-      await inspectNflGameIdentityByAlias(ctx, {
-        provider: LEGACY_SPORTS_DB_PROVIDER,
-        externalId: "sportsdb-idempotent",
-      }),
-    );
-    const counts = await t.run(async (ctx) => ({
-      teams: (await ctx.db.query("nflTeams").take(10)).length,
-      games: (await ctx.db.query("nflGames").take(10)).length,
-      teamAliases: (await ctx.db.query("nflTeamAliases").take(10))
-        .length,
-      gameAliases: (await ctx.db.query("nflGameAliases").take(10))
-        .length,
-      scheduleHistory: (
-        await ctx.db.query("nflGameScheduleHistory").take(10)
-      ).length,
-    }));
-
-    expect(secondIdentity.nflGameId).toBe(firstIdentity.nflGameId);
-    expect(secondIdentity.aliases).toHaveLength(1);
-    expect(secondIdentity.scheduleHistoryMs).toEqual([kickoffMs]);
-    expect(counts).toEqual({
-      teams: 2,
-      games: 1,
-      teamAliases: 2,
-      gameAliases: 1,
-      scheduleHistory: 1,
+        firstObservedAtMs: 2,
+        lastObservedAtMs: 2,
+      });
+      await expect(
+        attachNflGameAlias(ctx, {
+          nflGameId: gameId,
+          alias: { provider: PROVIDER, externalId: "1001" },
+          observedAtMs: 3,
+        }),
+      ).rejects.toBeInstanceOf(SportsIdentityConflict);
     });
   });
 });

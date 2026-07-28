@@ -99,5 +99,6 @@ setup("seed a deterministic available NFL slate", async () => {
     reset: true,
     poolCount: 1,
     fakeUserCount: 1,
+    includeApiSportsGameAliases: true,
   });
 });

@@ -43,13 +43,11 @@ async function seed(t: ReturnType<typeof convexTest>) {
       stableKey: "nfl-team:gb",
       name: "Green Bay Packers",
       abbreviation: "GB",
-      sportsDbTeamId: "legacy-gb",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl-team:det",
       name: "Detroit Lions",
       abbreviation: "DET",
-      sportsDbTeamId: "legacy-det",
     });
     const gameId = await ctx.db.insert("nflGames", {
       stableKey: "nfl:2026:w1:det@gb",
@@ -62,7 +60,6 @@ async function seed(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "legacy-game",
       resultAuthority: "none",
     });
     await ctx.db.insert("nflGameAliases", {
@@ -220,7 +217,7 @@ async function seedTargetedWork(
     return await ctx.db.insert("syncWorkItems", {
       surface: "live",
       scopeKey: `live-recovery:${gameId}`,
-      priority: "confirmation",
+      priority: "recovery",
       status: "claimed",
       dueAtMs: NOW_MS,
       claimedAtMs: NOW_MS,
@@ -727,7 +724,6 @@ describe("API-Sports live slate ingestion", () => {
           lifecycle: "scheduled",
           homeScore: null,
           awayScore: null,
-          sportsDbEventId: "legacy-game-week-2-without-picks",
           resultAuthority: "none",
         });
       });
@@ -829,7 +825,6 @@ describe("API-Sports live slate ingestion", () => {
           lifecycle: "scheduled",
           homeScore: null,
           awayScore: null,
-          sportsDbEventId: "legacy-game-week-2",
           resultAuthority: "none",
         });
       });
@@ -1180,7 +1175,6 @@ describe("API-Sports live slate ingestion", () => {
           lifecycle: "scheduled",
           homeScore: null,
           awayScore: null,
-          sportsDbEventId: "legacy-game-week-2-derived-lock",
           resultAuthority: "none",
         });
       });
@@ -1527,7 +1521,6 @@ describe("API-Sports live slate ingestion", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "legacy-pool-201-lock",
         resultAuthority: "none",
       });
       return {
@@ -1762,7 +1755,6 @@ describe("API-Sports live slate ingestion", () => {
           lifecycle: "scheduled",
           homeScore: null,
           awayScore: null,
-          sportsDbEventId: "evaluation-race-week-2",
           resultAuthority: "none",
         });
       });
@@ -1905,7 +1897,6 @@ describe("API-Sports live slate ingestion", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "same-candidate-cutoff-week-2",
         resultAuthority: "none",
       });
     });
@@ -2019,7 +2010,6 @@ describe("API-Sports live slate ingestion", () => {
           lifecycle: "scheduled",
           homeScore: null,
           awayScore: null,
-          sportsDbEventId: "small-season-later-dependency",
           resultAuthority: "none",
         });
         await ctx.db.insert("poolWeeks", {
@@ -2533,7 +2523,6 @@ describe("API-Sports live slate ingestion", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "legacy-other-game",
         resultAuthority: "none",
       });
       await ctx.db.insert("nflGameAliases", {
@@ -2547,7 +2536,7 @@ describe("API-Sports live slate ingestion", () => {
       const workItemId = await ctx.db.insert("syncWorkItems", {
         surface: "live",
         scopeKey: `live-recovery:${gameId}`,
-        priority: "confirmation",
+        priority: "recovery",
         status: "claimed",
         dueAtMs: NOW_MS,
         claimedAtMs: NOW_MS,

@@ -30,13 +30,11 @@ async function seedGame(t: ReturnType<typeof convexTest>) {
       stableKey: "denver-broncos",
       name: "Denver Broncos",
       abbreviation: "DEN",
-      sportsDbTeamId: "legacy-den",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "kansas-city-chiefs",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
-      sportsDbTeamId: "legacy-kc",
     });
     const gameId = await ctx.db.insert("nflGames", {
       stableKey: "nfl:2026:w1:kc@den",
@@ -49,7 +47,6 @@ async function seedGame(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "legacy-game",
       resultAuthority: "none",
     });
     return { seasonId, gameId };
@@ -85,6 +82,54 @@ describe("provider evidence retention", () => {
     } else {
       process.env.PRODUCTION_OPERATOR_CLERK_USER_ID = previousOperator;
     }
+  });
+
+  it("preserves provider-neutral historical authority while runtime writes stay constrained", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId } = await seedGame(t);
+    const historicalState = {
+      ...scheduledState,
+      resultAuthority: "historical_authority",
+    };
+
+    const evidenceId = await t.run(async (ctx) =>
+      ctx.db.insert("providerGameEvidence", {
+        nflGameId: gameId,
+        gameStableKey: "nfl:2026:w1:kc@den",
+        seasonLabel: "2026",
+        gameWeek: 1,
+        homeTeamAbbreviation: "DEN",
+        awayTeamAbbreviation: "KC",
+        provider: "historical-provider",
+        source: "historical-source",
+        transitionKind: "lifecycle",
+        changedFields: ["resultAuthority"],
+        before: scheduledState,
+        after: historicalState,
+        fingerprint: "historical-authority-fixture",
+        observedAtMs: NOW_MS,
+        recordedAtMs: NOW_MS,
+      }),
+    );
+
+    expect(await t.run(async (ctx) => ctx.db.get(evidenceId))).toMatchObject({
+      provider: "historical-provider",
+      source: "historical-source",
+      after: historicalState,
+    });
+    await expect(
+      t.mutation(
+        internal.providerEvidence.recordGameTransitionForTest,
+        {
+          gameId,
+          provider: "historical-provider",
+          source: "historical-source",
+          observedAtMs: NOW_MS,
+          before: scheduledState,
+          after: historicalState,
+        } as never,
+      ),
+    ).rejects.toThrow(/Validator/);
   });
 
   it("retains only normalized transitions and records a change away and back", async () => {

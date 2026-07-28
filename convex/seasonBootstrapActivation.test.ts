@@ -86,13 +86,11 @@ async function seedOverrideAuditEpisode(
       stableKey: "nfl-team:old-home",
       name: "Old Home",
       abbreviation: "OH",
-      sportsDbTeamId: "old-home",
     });
     const awayTeamId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl-team:old-away",
       name: "Old Away",
       abbreviation: "OA",
-      sportsDbTeamId: "old-away",
     });
     const gameId = await ctx.db.insert("nflGames", {
       stableKey: "nfl:2025:w1:oa@oh",
@@ -105,7 +103,6 @@ async function seedOverrideAuditEpisode(
       lifecycle: "terminal",
       homeScore: 30,
       awayScore: 24,
-      sportsDbEventId: "old-game",
       resultAuthority: "verified",
       verifiedResult: {
         homeScore: 30,
@@ -661,7 +658,6 @@ describe("audited clean Season Bootstrap activation", () => {
         stableKey: "old-team",
         name: "Old Team",
         abbreviation: "OLD",
-        sportsDbTeamId: "sports-db-old",
       });
       const oldGameId = await ctx.db.insert("nflGames", {
         stableKey: "old-game",
@@ -674,20 +670,19 @@ describe("audited clean Season Bootstrap activation", () => {
         lifecycle: "scheduled",
         homeScore: null,
         awayScore: null,
-        sportsDbEventId: "sports-db-old-game",
       });
       await ctx.db.insert("nflTeamAliases", {
         nflTeamId: oldTeamId,
-        provider: "sports-db",
-        externalId: "sports-db-old",
+        provider: "retired-provider",
+        externalId: "retired-team-old",
         isCurrent: true,
         firstObservedAtMs: 1,
         lastObservedAtMs: 1,
       });
       await ctx.db.insert("nflGameAliases", {
         nflGameId: oldGameId,
-        provider: "sports-db",
-        externalId: "sports-db-old-game",
+        provider: "retired-provider",
+        externalId: "retired-game-old",
         isCurrent: true,
         firstObservedAtMs: 1,
         lastObservedAtMs: 1,
@@ -795,33 +790,19 @@ describe("audited clean Season Bootstrap activation", () => {
     expect(database.gameAliases).toHaveLength(272);
     expect(database.history).toHaveLength(272);
     expect(
-      new Set(database.teams.map((team) => team.sportsDbTeamId)).size,
-    ).toBe(32);
-    expect(
-      database.teams.every((team) =>
-        team.sportsDbTeamId.startsWith(
-          "legacy-unset:api-sports-team:",
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      new Set(database.games.map((game) => game.sportsDbEventId)).size,
-    ).toBe(272);
-    expect(
-      database.games.every((game) =>
-        game.sportsDbEventId.startsWith(
-          "legacy-unset:api-sports-game:",
-        ),
-      ),
-    ).toBe(true);
-    expect(
       database.teamAliases.every(
-        (alias) => alias.provider === "api-sports",
+        (alias) =>
+          alias.provider === "api-sports" &&
+          alias.isCurrent &&
+          database.teams.some((team) => team._id === alias.nflTeamId),
       ),
     ).toBe(true);
     expect(
       database.gameAliases.every(
-        (alias) => alias.provider === "api-sports",
+        (alias) =>
+          alias.provider === "api-sports" &&
+          alias.isCurrent &&
+          database.games.some((game) => game._id === alias.nflGameId),
       ),
     ).toBe(true);
     expect(database.gate).toMatchObject({
@@ -837,27 +818,6 @@ describe("audited clean Season Bootstrap activation", () => {
         "season_bootstrap_clean_activated",
       ]),
     );
-    const legacySentinelLookups = await t.run(async (ctx) => {
-      const teamSentinel = database.teams[0]!.sportsDbTeamId;
-      const gameSentinel = database.games[0]!.sportsDbEventId;
-      return {
-        team: await ctx.db
-          .query("nflTeams")
-          .withIndex("by_sportsDbTeamId", (q) =>
-            q.eq("sportsDbTeamId", teamSentinel),
-          )
-          .unique(),
-        game: await ctx.db
-          .query("nflGames")
-          .withIndex("by_sportsDbEventId", (q) =>
-            q.eq("sportsDbEventId", gameSentinel),
-          )
-          .unique(),
-      };
-    });
-    expect(legacySentinelLookups.team?._id).toBe(database.teams[0]!._id);
-    expect(legacySentinelLookups.game?._id).toBe(database.games[0]!._id);
-
     const report = await asOperator.query(
       api.bootstrap.getCleanSeasonActivationReport,
       { requestId: request.requestId },

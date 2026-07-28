@@ -13,27 +13,11 @@ import {
 import { nflGameStableKey } from "../sportsData/identity";
 import type {
   NflGameLifecycle,
-  SportsDataGame,
+  SportsDataGameObservation,
+  SportsDataSeasonPhase,
+  SportsDataStatusObservation,
   SportsDataTeam,
 } from "../sportsData/types";
-
-export type ApiSportsStatusObservation = Readonly<{
-  rawShort: string;
-  rawLong: string;
-  recognized: boolean;
-  terminal: boolean;
-}>;
-
-export type ApiSportsGame = SportsDataGame &
-  Readonly<{
-    providerStatus: ApiSportsStatusObservation;
-    providerStage: string;
-    seasonPhase:
-      | "preseason"
-      | "regular_season"
-      | "postseason"
-      | "unknown";
-  }>;
 
 const abbreviationsByName = new Map(
   CANONICAL_NFL_TEAM_LIST.map((team) => [
@@ -88,7 +72,7 @@ function seasonYear(rawSeason: string | number): number | null {
 
 function seasonPhase(
   rawStage: string,
-): ApiSportsGame["seasonPhase"] {
+): SportsDataSeasonPhase {
   const normalized = rawStage.trim().toLowerCase();
   if (normalized === "pre season" || normalized === "preseason") {
     return "preseason";
@@ -105,7 +89,7 @@ function statusObservation(
   rawLong: string,
 ): {
   lifecycle: NflGameLifecycle;
-  providerStatus: ApiSportsStatusObservation;
+  providerStatus: SportsDataStatusObservation;
 } {
   const short = rawShort.trim().toUpperCase();
   let lifecycle: NflGameLifecycle;
@@ -225,7 +209,7 @@ export function normalizeApiSportsTeams(
 export function normalizeApiSportsGame(
   row: ApiSportsGameWire,
   observedAtMs: number,
-): Effect.Effect<ApiSportsGame, ApiSportsDecodeError> {
+): Effect.Effect<SportsDataGameObservation, ApiSportsDecodeError> {
   return Effect.gen(function* () {
     const season = seasonYear(row.league.season);
     const week = poolWeek(row.game.week);
@@ -288,7 +272,10 @@ export function normalizeApiSportsGame(
 export function normalizeApiSportsGames(
   rows: readonly ApiSportsGameWire[],
   observedAtMs: number,
-): Effect.Effect<readonly ApiSportsGame[], ApiSportsDecodeError> {
+): Effect.Effect<
+  readonly SportsDataGameObservation[],
+  ApiSportsDecodeError
+> {
   return Effect.all(
     rows.map((row) => normalizeApiSportsGame(row, observedAtMs)),
     { concurrency: "unbounded" },

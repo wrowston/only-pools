@@ -1,4 +1,4 @@
-import type { ApiSportsGame } from "../providers/apiSports";
+import type { SportsDataGameObservation } from "../providers/sportsData/types";
 
 export const QUALIFICATION_KICKOFF_TOLERANCE_MS = 30 * 60_000;
 
@@ -20,7 +20,7 @@ export function qualificationCandidateRejection(input: {
   expectedKickoffMs: number;
   expectedHomeTeam: string;
   expectedAwayTeam: string;
-  game: ApiSportsGame;
+  game: SportsDataGameObservation;
 }): QualificationCandidateRejection | null {
   const actualAlias = input.game.providerAliases.find(
     (alias) => alias.provider === "api-sports",

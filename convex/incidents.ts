@@ -130,13 +130,6 @@ const scoringDelayedTrigger = v.object({
   nowMs: v.number(),
 });
 
-const quarantineTrigger = v.object({
-  kind: v.literal("quarantine_past_confirmation"),
-  confirmationWindowEndsAtMs: v.number(),
-  nowMs: v.number(),
-  verificationBlocked: v.boolean(),
-});
-
 const capacityTrigger = v.object({
   kind: v.literal("convex_capacity"),
   utilizationRatio: v.number(),
@@ -150,7 +143,6 @@ const providerExceptionTrigger = v.object({
 const incidentTriggerValidator = v.union(
   freshnessTrigger,
   scoringDelayedTrigger,
-  quarantineTrigger,
   capacityTrigger,
   providerExceptionTrigger,
 );
@@ -252,7 +244,6 @@ export const evaluateAndOpenIncident = internalMutation({
     });
   },
 });
-
 /**
  * Auto-resolve open incidents for a dedupe key when the condition clears.
  */
@@ -262,7 +253,6 @@ export const autoResolveIncident = internalMutation({
       v.literal("provider_exception"),
       v.literal("stale_in_window"),
       v.literal("scoring_delayed"),
-      v.literal("quarantine_past_confirmation"),
       v.literal("convex_capacity"),
     ),
     surface: v.string(),
@@ -534,7 +524,6 @@ export const requestAuditedResync = mutation({
     surface: v.union(
       v.literal("schedule"),
       v.literal("live"),
-      v.literal("confirmation"),
       v.literal("correction"),
     ),
     scopeKey: v.string(),
@@ -717,7 +706,6 @@ export const openIncidentForTest = internalMutation({
       v.literal("provider_exception"),
       v.literal("stale_in_window"),
       v.literal("scoring_delayed"),
-      v.literal("quarantine_past_confirmation"),
       v.literal("convex_capacity"),
     ),
     surface: v.string(),
@@ -811,31 +799,5 @@ export const checkScoringDelayForGame = internalMutation({
       if (result.opened) opened += 1;
     }
     return { opened };
-  },
-});
-
-/**
- * Open a quarantine incident when verification remains blocked past confirmation.
- */
-export const checkQuarantinePastConfirmation = internalMutation({
-  args: {
-    gameId: v.id("nflGames"),
-    confirmationWindowEndsAtMs: v.number(),
-    verificationBlocked: v.boolean(),
-    nowMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const nowMs = args.nowMs ?? Date.now();
-    return await openFromTrigger(ctx, {
-      trigger: {
-        kind: "quarantine_past_confirmation",
-        confirmationWindowEndsAtMs: args.confirmationWindowEndsAtMs,
-        nowMs,
-        verificationBlocked: args.verificationBlocked,
-      },
-      surface: "confirmation",
-      scopeKey: `game:${args.gameId}`,
-      nowMs,
-    });
   },
 });

@@ -3,7 +3,7 @@
  * When OFF: new fetch claims are refused; locks and ordinary queries continue.
  */
 
-export type SyncSurface = "schedule" | "live" | "confirmation" | "bootstrap";
+export type SyncSurface = "schedule" | "live" | "bootstrap";
 
 export type SyncGateState = {
   enabled: boolean;

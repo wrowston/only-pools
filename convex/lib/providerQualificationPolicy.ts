@@ -1,6 +1,6 @@
 export const QUALIFICATION_FRESHNESS_LIMIT_MS = 2 * 60 * 1_000;
 
-export type AutomatedProvider = "api-sports" | "legacy";
+export type AutomatedProvider = "api-sports";
 export type QualificationProvider = "api-sports";
 export type QualificationEventKind = "score" | "final";
 export type QualificationTerminalStatus = "FT" | "AOT" | "CANC";
@@ -243,7 +243,6 @@ export type AutomatedProviderSyncDecision =
   | Readonly<{
       allowed: false;
       reason:
-        | "production_provider_not_allowed"
         | "qualification_required"
         | "qualification_run_required"
         | "deployment_not_allowed";
@@ -262,12 +261,6 @@ export function canRunAutomatedProviderSync(input: {
     input.deploymentKind !== "dev"
   ) {
     return { allowed: false, reason: "deployment_not_allowed" };
-  }
-  if (input.provider !== "api-sports") {
-    return {
-      allowed: false,
-      reason: "production_provider_not_allowed",
-    };
   }
   if (
     input.mode === "qualification" &&

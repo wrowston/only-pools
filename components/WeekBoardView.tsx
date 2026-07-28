@@ -824,7 +824,6 @@ export function WeekBoardView({
                       {game.projectedHomeScore !== null &&
                       game.projectedAwayScore !== null &&
                       (game.resultAuthority === "projected" ||
-                        game.resultAuthority === "confirmation_pending" ||
                         game.resultAuthority === "verified" ||
                         game.lifecycle === "in_progress" ||
                         game.lifecycle === "terminal") ? (

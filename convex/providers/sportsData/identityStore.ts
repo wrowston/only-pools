@@ -15,8 +15,6 @@ import {
 import type { NflTeamStableKey } from "./catalog";
 import { isNflTeamStableKey } from "./identity";
 
-export const LEGACY_SPORTS_DB_PROVIDER = "the-sports-db";
-
 type ReadCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
 
 export class SportsIdentityConflict extends Error {
@@ -104,8 +102,6 @@ export async function reconcileStoredNflTeam(
   input: {
     alias: ProviderAlias;
     stableKey: NflTeamStableKey;
-    /** Temporary bridge for rows created before generic alias storage. */
-    legacySportsDbTeamId?: string;
   },
 ): Promise<
   | Readonly<{ kind: "resolved"; nflTeamId: Id<"nflTeams"> }>
@@ -136,25 +132,9 @@ export async function reconcileStoredNflTeam(
     );
   }
 
-  const legacyMatches = input.legacySportsDbTeamId
-    ? await ctx.db
-        .query("nflTeams")
-        .withIndex("by_sportsDbTeamId", (q) =>
-          q.eq("sportsDbTeamId", input.legacySportsDbTeamId!),
-        )
-        .take(2)
-    : [];
-  if (legacyMatches.length > 1) {
-    throw new SportsIdentityConflict(
-      "ambiguous_alias",
-      `Ambiguous legacy NFL Team alias: ${input.legacySportsDbTeamId}`,
-    );
-  }
-
   const candidateIds = new Set<Id<"nflTeams">>();
   if (ownership.kind === "owned") candidateIds.add(ownership.ownerId);
   if (canonicalMatches[0]) candidateIds.add(canonicalMatches[0]._id);
-  if (legacyMatches[0]) candidateIds.add(legacyMatches[0]._id);
   if (candidateIds.size > 1) {
     throw new SportsIdentityConflict(
       "alias_owner_mismatch",

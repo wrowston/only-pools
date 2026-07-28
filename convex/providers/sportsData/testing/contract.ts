@@ -4,7 +4,7 @@ import { CANONICAL_NFL_TEAM_LIST } from "../catalog";
 import { nflGameStableKey } from "../identity";
 import type { InMemorySportsDataFixture } from "../inMemory";
 import type {
-  SportsDataGame,
+  SportsDataGameObservation,
   SportsDataProvider,
   SportsDataProviderHealth,
   SportsDataProviderName,
@@ -24,7 +24,7 @@ const teams: readonly SportsDataTeam[] = CANONICAL_NFL_TEAM_LIST.map(
   }),
 );
 
-const games: readonly SportsDataGame[] = [
+const games: readonly SportsDataGameObservation[] = [
   {
     stableKey: nflGameStableKey({
       seasonYear: 2026,
@@ -38,6 +38,14 @@ const games: readonly SportsDataGame[] = [
     homeTeamAbbreviation: "GB",
     scheduledKickoffMs: Date.parse("2026-09-11T00:20:00Z"),
     lifecycle: "scheduled",
+    seasonPhase: "regular_season",
+    providerStage: "Regular Season",
+    providerStatus: {
+      rawShort: "NS",
+      rawLong: "Not Started",
+      recognized: true,
+      terminal: false,
+    },
     awayScore: null,
     homeScore: null,
     observedAtMs,
@@ -56,6 +64,14 @@ const games: readonly SportsDataGame[] = [
     homeTeamAbbreviation: "KC",
     scheduledKickoffMs: Date.parse("2026-09-14T00:20:00Z"),
     lifecycle: "in_progress",
+    seasonPhase: "regular_season",
+    providerStage: "Regular Season",
+    providerStatus: {
+      rawShort: "Q2",
+      rawLong: "Second Quarter",
+      recognized: true,
+      terminal: false,
+    },
     awayScore: 14,
     homeScore: 10,
     observedAtMs,
@@ -74,6 +90,14 @@ const games: readonly SportsDataGame[] = [
     homeTeamAbbreviation: "SEA",
     scheduledKickoffMs: Date.parse("2026-01-04T21:25:00Z"),
     lifecycle: "terminal",
+    seasonPhase: "regular_season",
+    providerStage: "Regular Season",
+    providerStatus: {
+      rawShort: "FT",
+      rawLong: "Finished",
+      recognized: true,
+      terminal: true,
+    },
     awayScore: 27,
     homeScore: 21,
     observedAtMs,
@@ -185,7 +209,7 @@ export function defineSportsDataProviderContract(
       stableKey: "nfl-team:franchise-11",
       name: "Detroit Lions",
     });
-    expect(result[0]).not.toHaveProperty("sportsDbTeamId");
+    expect(result[0]).not.toHaveProperty("externalId");
 
     const replacementResult = await Effect.runPromise(
       createProvider(
@@ -215,6 +239,16 @@ export function defineSportsDataProviderContract(
       "scheduled",
       "in_progress",
     ]);
+    expect(result[0]).toMatchObject({
+      seasonPhase: "regular_season",
+      providerStage: "Regular Season",
+      providerStatus: {
+        rawShort: "NS",
+        rawLong: "Not Started",
+        recognized: true,
+        terminal: false,
+      },
+    });
 
     const replacementResult = await Effect.runPromise(
       createProvider(
@@ -247,6 +281,19 @@ export function defineSportsDataProviderContract(
       "nfl-game:2026:w1:franchise-4@franchise-16",
     ]);
     expect(result[0]?.lifecycle).toBe("in_progress");
+  });
+
+  it(`${label} reports partial live failures through the neutral interface`, async () => {
+    const provider = createProvider(fixture);
+
+    const result = await Effect.runPromise(
+      provider.listLiveGamesWithFailures(),
+    );
+
+    expect(result.games.map((game) => game.stableKey)).toEqual([
+      "nfl-game:2026:w1:franchise-4@franchise-16",
+    ]);
+    expect(result.failures).toEqual([]);
   });
 
   it(`${label} supports targeted lookup by replaceable provider alias`, async () => {

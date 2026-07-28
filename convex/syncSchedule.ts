@@ -28,8 +28,6 @@ import { isProductionOperator } from "./lib/operator";
 import { isGameKickoffLocked } from "./lib/pickLock";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import { lifecycleValidator } from "./lib/syncObservations";
-import { ApiSportsProvider } from "./providers/apiSports";
-import type { ApiSportsGame } from "./providers/apiSports";
 import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
 import {
   providerEvidenceState,
@@ -45,7 +43,11 @@ import {
   CANONICAL_NFL_TEAMS,
   type CanonicalNflTeamAbbreviation,
 } from "./providers/sportsData/catalog";
-import { selectSportsDataProvider } from "./providers/sportsData/config";
+import {
+  createApiSportsProviderFactory,
+  selectSportsDataProvider,
+} from "./providers/sportsData/config";
+import type { SportsDataGameObservation } from "./providers/sportsData/types";
 import {
   attachNflGameAlias,
   reconcileStoredNflGame,
@@ -480,7 +482,7 @@ export const applyScheduleObservationBatch = internalAction({
 
 function apiSportsScheduleInput(
   seasonId: Id<"poolSeasons">,
-  game: ApiSportsGame,
+  game: SportsDataGameObservation,
 ): BatchObservation | null {
   const providerAlias = game.providerAliases.find(
     (alias) => alias.provider === "api-sports",
@@ -590,11 +592,9 @@ export const runClaimedScheduleFetch = internalAction({
           apiSportsKey: env.API_SPORTS_KEY,
         },
         providers: {
-          "api-sports": ({ apiKey }) =>
-            new ApiSportsProvider({
-              apiKey,
-              requestFence: reliable.fence,
-            }),
+          "api-sports": createApiSportsProviderFactory({
+            requestFence: reliable.fence,
+          }),
         },
       });
       const games = await runEffect(provider.listSeasonGames(season.year));
@@ -605,9 +605,7 @@ export const runClaimedScheduleFetch = internalAction({
         nowMs: Date.now(),
       });
       const observations = games
-        .map((game) =>
-          apiSportsScheduleInput(args.seasonId, game as ApiSportsGame),
-        )
+        .map((game) => apiSportsScheduleInput(args.seasonId, game))
         .filter(
           (item): item is BatchObservation => item !== null,
         );

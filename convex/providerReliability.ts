@@ -29,9 +29,11 @@ import {
 } from "./lib/providerReliabilityPolicy";
 import { requireProductionOperatorIdentity } from "./lib/operatorAuth";
 import { runEffect } from "./effect/run";
-import { ApiSportsProvider } from "./providers/apiSports";
 import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
-import { selectSportsDataProvider } from "./providers/sportsData/config";
+import {
+  createApiSportsProviderFactory,
+  selectSportsDataProvider,
+} from "./providers/sportsData/config";
 import { internal } from "./_generated/api";
 
 const PROVIDER_KEY = "api-sports" as const;
@@ -398,11 +400,9 @@ export const runApiSportsRecoveryProbe = internalAction({
           apiSportsKey: env.API_SPORTS_KEY,
         },
         providers: {
-          "api-sports": ({ apiKey }) =>
-            new ApiSportsProvider({
-              apiKey,
-              requestFence: reliable.fence,
-            }),
+          "api-sports": createApiSportsProviderFactory({
+            requestFence: reliable.fence,
+          }),
         },
       });
       await runEffect(provider.getHealth());

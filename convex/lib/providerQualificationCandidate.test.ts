@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ApiSportsGame } from "../providers/apiSports";
+import type { SportsDataGameObservation } from "../providers/sportsData/types";
 import {
   QUALIFICATION_KICKOFF_TOLERANCE_MS,
   qualificationCandidateRejection,
@@ -9,8 +9,8 @@ import {
 const KICKOFF_MS = Date.UTC(2026, 7, 15, 20);
 
 function game(
-  overrides: Partial<ApiSportsGame> = {},
-): ApiSportsGame {
+  overrides: Partial<SportsDataGameObservation> = {},
+): SportsDataGameObservation {
   return {
     stableKey: "nfl-game:2026:w1:franchise-1@franchise-2",
     seasonYear: 2026,
@@ -32,10 +32,12 @@ function game(
       terminal: false,
     },
     ...overrides,
-  } as ApiSportsGame;
+  } as SportsDataGameObservation;
 }
 
-function rejection(overrides: Partial<ApiSportsGame> = {}) {
+function rejection(
+  overrides: Partial<SportsDataGameObservation> = {},
+) {
   return qualificationCandidateRejection({
     expectedExternalId: "fixture-1",
     expectedSeasonYear: 2026,
@@ -83,6 +85,8 @@ describe("qualification API-Sports candidate validation", () => {
       { providerStage: "Regular Season", seasonPhase: "regular_season" },
     ],
   ] as const)("rejects %s", (reason, overrides) => {
-    expect(rejection(overrides as Partial<ApiSportsGame>)).toBe(reason);
+    expect(
+      rejection(overrides as Partial<SportsDataGameObservation>),
+    ).toBe(reason);
   });
 });

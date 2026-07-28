@@ -6,12 +6,14 @@ import { action, env } from "./_generated/server";
 import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
 import { runEffect } from "./effect/run";
 import { qualificationCandidateRejection } from "./lib/providerQualificationCandidate";
-import { ApiSportsProvider } from "./providers/apiSports";
-import type { ApiSportsGame } from "./providers/apiSports";
-import { selectSportsDataProvider } from "./providers/sportsData/config";
+import {
+  createApiSportsProviderFactory,
+  selectSportsDataProvider,
+} from "./providers/sportsData/config";
+import type { SportsDataGameObservation } from "./providers/sportsData/types";
 
 function terminalStatus(
-  game: ApiSportsGame,
+  game: SportsDataGameObservation,
 ): "FT" | "AOT" | "CANC" | undefined {
   if (game.lifecycle === "canceled") return "CANC";
   if (game.lifecycle !== "terminal") return undefined;
@@ -90,19 +92,17 @@ export const pollQualificationGame = action({
           apiSportsKey: env.API_SPORTS_KEY,
         },
         providers: {
-          "api-sports": ({ apiKey }) =>
-            new ApiSportsProvider({
-              apiKey,
-              requestFence: reliable.fence,
-            }),
+          "api-sports": createApiSportsProviderFactory({
+            requestFence: reliable.fence,
+          }),
         },
-      }) as ApiSportsProvider;
-      const game = (await runEffect(
+      });
+      const game = await runEffect(
         provider.getGame({
           provider: "api-sports",
           id: target.game.apiSportsExternalId,
         }),
-      )) as ApiSportsGame | null;
+      );
       const rejectionReason = game
         ? qualificationCandidateRejection({
             expectedExternalId: target.game.apiSportsExternalId,

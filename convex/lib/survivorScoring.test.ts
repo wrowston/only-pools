@@ -86,26 +86,6 @@ describe("resolveSurvivorPickOutcome (scenario 32)", () => {
     ).toBe("missing_pick");
   });
 
-  it("stays pending when pick game is not yet Verified", () => {
-    expect(
-      resolveSurvivorPickOutcome({
-        pick: {
-          participantId: "p1",
-          week: 1,
-          nflTeamId: "kc",
-          gameId: "g1",
-          provenance: "authored",
-          provisional: false,
-        },
-        game: {
-          ...verifiedWin,
-          resultAuthority: "confirmation_pending",
-        },
-        weekFullyLocked: true,
-      }),
-    ).toBe("pending");
-  });
-
   it("never treats provisional authority as official", () => {
     expect(
       resolveSurvivorPickOutcome({

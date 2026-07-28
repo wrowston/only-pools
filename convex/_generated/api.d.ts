@@ -17,8 +17,6 @@ import type * as effect_apiSports_reliableFetch from "../effect/apiSports/reliab
 import type * as effect_apiSports_schemas from "../effect/apiSports/schemas.js";
 import type * as effect_errors from "../effect/errors.js";
 import type * as effect_run from "../effect/run.js";
-import type * as effect_sportsdb_client from "../effect/sportsdb/client.js";
-import type * as effect_sportsdb_schemas from "../effect/sportsdb/schemas.js";
 import type * as incidents from "../incidents.js";
 import type * as invites from "../invites.js";
 import type * as lib_abuseReportSanitize from "../lib/abuseReportSanitize.js";
@@ -27,7 +25,6 @@ import type * as lib_bootstrapAvailability from "../lib/bootstrapAvailability.js
 import type * as lib_cleanActivationPolicy from "../lib/cleanActivationPolicy.js";
 import type * as lib_confidenceScale from "../lib/confidenceScale.js";
 import type * as lib_confidenceScoring from "../lib/confidenceScoring.js";
-import type * as lib_confirmationPolicy from "../lib/confirmationPolicy.js";
 import type * as lib_freshness from "../lib/freshness.js";
 import type * as lib_identityClaims from "../lib/identityClaims.js";
 import type * as lib_incidents from "../lib/incidents.js";
@@ -93,8 +90,6 @@ import type * as providers_sportsData_seasonBootstrapValidation from "../provide
 import type * as providers_sportsData_testing_contract from "../providers/sportsData/testing/contract.js";
 import type * as providers_sportsData_testing_seasonBootstrapFixture from "../providers/sportsData/testing/seasonBootstrapFixture.js";
 import type * as providers_sportsData_types from "../providers/sportsData/types.js";
-import type * as providers_thesportsdb_adapter from "../providers/thesportsdb/adapter.js";
-import type * as providers_thesportsdb_client from "../providers/thesportsdb/client.js";
 import type * as resultOverrides from "../resultOverrides.js";
 import type * as scoringHolds from "../scoringHolds.js";
 import type * as seedDemo from "../seedDemo.js";
@@ -122,8 +117,6 @@ declare const fullApi: ApiFromModules<{
   "effect/apiSports/schemas": typeof effect_apiSports_schemas;
   "effect/errors": typeof effect_errors;
   "effect/run": typeof effect_run;
-  "effect/sportsdb/client": typeof effect_sportsdb_client;
-  "effect/sportsdb/schemas": typeof effect_sportsdb_schemas;
   incidents: typeof incidents;
   invites: typeof invites;
   "lib/abuseReportSanitize": typeof lib_abuseReportSanitize;
@@ -132,7 +125,6 @@ declare const fullApi: ApiFromModules<{
   "lib/cleanActivationPolicy": typeof lib_cleanActivationPolicy;
   "lib/confidenceScale": typeof lib_confidenceScale;
   "lib/confidenceScoring": typeof lib_confidenceScoring;
-  "lib/confirmationPolicy": typeof lib_confirmationPolicy;
   "lib/freshness": typeof lib_freshness;
   "lib/identityClaims": typeof lib_identityClaims;
   "lib/incidents": typeof lib_incidents;
@@ -198,8 +190,6 @@ declare const fullApi: ApiFromModules<{
   "providers/sportsData/testing/contract": typeof providers_sportsData_testing_contract;
   "providers/sportsData/testing/seasonBootstrapFixture": typeof providers_sportsData_testing_seasonBootstrapFixture;
   "providers/sportsData/types": typeof providers_sportsData_types;
-  "providers/thesportsdb/adapter": typeof providers_thesportsdb_adapter;
-  "providers/thesportsdb/client": typeof providers_thesportsdb_client;
   resultOverrides: typeof resultOverrides;
   scoringHolds: typeof scoringHolds;
   seedDemo: typeof seedDemo;
