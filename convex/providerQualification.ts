@@ -21,6 +21,10 @@ import {
 } from "./lib/operatorAuth";
 import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
 import {
+  assertLegacyContractionUnlocked,
+  isLegacyContractionLocked,
+} from "./lib/legacyContractionLock";
+import {
   CANONICAL_NFL_TEAM_ABBREVIATIONS,
 } from "./providers/sportsData/catalog";
 
@@ -675,6 +679,7 @@ export const createQualificationRun = mutation({
     seasonId: v.id("poolSeasons"),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const nowMs = Date.now();
     const actor = await requireProductionOperatorWithStepUp(
       ctx,
@@ -1728,6 +1733,11 @@ export const setProductionCompetitiveSyncEnabled = mutation({
     provider: v.literal("api-sports"),
   },
   handler: async (ctx, args) => {
+    if (args.enabled && (await isLegacyContractionLocked(ctx))) {
+      throw new Error(
+        "Legacy contract migration is locked; production sync cannot be enabled",
+      );
+    }
     const nowMs = Date.now();
     const actor = await requireProductionOperatorWithStepUp(
       ctx,
@@ -1825,6 +1835,7 @@ export const authorizeProductionProviderRequest = internalMutation({
     expectedSeasonId: v.optional(v.id("poolSeasons")),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const kind = deploymentKind();
     if (kind === "development" || kind === "dev") {
       return { allowed: true as const, fence: null };
@@ -1998,6 +2009,7 @@ export const claimQualificationProviderFetch = mutation({
     surface: qualificationSurfaceValidator,
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     await operatorActor(ctx);
     const run = await getQualificationRun(ctx, args.runId);
     if (!run || run.status !== "collecting") {

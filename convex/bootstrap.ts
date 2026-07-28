@@ -21,6 +21,10 @@ import {
   requireProductionOperatorWithStepUp,
 } from "./lib/operatorAuth";
 import {
+  assertLegacyContractionActionUnlocked,
+  assertLegacyContractionUnlocked,
+} from "./lib/legacyContractionLock";
+import {
   buildActivationPlan,
   cleanActivationConfirmationText,
   CLEAN_ACTIVATION_DELETE_ORDER,
@@ -305,6 +309,7 @@ export const persistSeasonBootstrapStage = internalMutation({
     nowMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<SeasonBootstrapStageResult> => {
+    await assertLegacyContractionUnlocked(ctx);
     const nowMs = args.nowMs ?? Date.now();
     const teams = args.teams as readonly SportsDataTeam[];
     const games = args.games as readonly SportsDataGame[];
@@ -477,6 +482,7 @@ export const stageSeasonBootstrap = action({
     seasonYear: v.number(),
   },
   handler: async (ctx, args): Promise<SeasonBootstrapStageResult> => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const actor: OperatorActor = await ctx.runMutation(
       internal.bootstrap.assertProductionOperator,
       {},
@@ -1021,6 +1027,7 @@ export const requestCleanSeasonActivation = mutation({
     seasonYear: v.number(),
   },
   handler: async (ctx, args): Promise<CleanActivationRequestResult> => {
+    await assertLegacyContractionUnlocked(ctx);
     const nowMs = Date.now();
     const activationEnv = cleanActivationEnvironment();
     const actor = await requireProductionOperatorWithStepUp(
@@ -1116,6 +1123,7 @@ export const activateCleanSeasonBootstrap = mutation({
     confirmationText: v.string(),
   },
   handler: async (ctx, args): Promise<CleanActivationResult> => {
+    await assertLegacyContractionUnlocked(ctx);
     const nowMs = Date.now();
     const activationEnv = cleanActivationEnvironment();
     const actor = await requireProductionOperatorWithStepUp(
@@ -1439,6 +1447,7 @@ export const applyNormalizedBootstrap = internalMutation({
     nowMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const nowMs = args.nowMs ?? Date.now();
     const year = yearFromSeasonLabel(args.seasonLabel);
 
@@ -1747,6 +1756,7 @@ export const runSeasonBootstrap = action({
     seasonLabel: v.string(),
   },
   handler: async (ctx, args): Promise<BootstrapApplyResult> => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const actor: OperatorActor = await ctx.runMutation(
       internal.bootstrap.assertProductionOperator,
       {},
@@ -1770,6 +1780,7 @@ export const runSeasonBootstrapCli = internalAction({
     seasonLabel: v.string(),
   },
   handler: async (ctx, args): Promise<BootstrapApplyResult> => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const clerkUserId =
       process.env.PRODUCTION_OPERATOR_CLERK_USER_ID?.trim() ||
       process.env.PRODUCTION_OPERATOR_TOKEN_IDENTIFIER?.trim();
@@ -1798,6 +1809,7 @@ export const runSeasonBootstrapNormalized = mutation({
     nowMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<BootstrapApplyResult> => {
+    await assertLegacyContractionUnlocked(ctx);
     const actor: OperatorActor = await ctx.runMutation(
       internal.bootstrap.assertProductionOperator,
       {},

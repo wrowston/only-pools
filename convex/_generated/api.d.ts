@@ -21,6 +21,7 @@ import type * as effect_sportsdb_client from "../effect/sportsdb/client.js";
 import type * as effect_sportsdb_schemas from "../effect/sportsdb/schemas.js";
 import type * as incidents from "../incidents.js";
 import type * as invites from "../invites.js";
+import type * as legacyContractionMigration from "../legacyContractionMigration.js";
 import type * as lib_abuseReportSanitize from "../lib/abuseReportSanitize.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_bootstrapAvailability from "../lib/bootstrapAvailability.js";
@@ -126,6 +127,7 @@ declare const fullApi: ApiFromModules<{
   "effect/sportsdb/schemas": typeof effect_sportsdb_schemas;
   incidents: typeof incidents;
   invites: typeof invites;
+  legacyContractionMigration: typeof legacyContractionMigration;
   "lib/abuseReportSanitize": typeof lib_abuseReportSanitize;
   "lib/auth": typeof lib_auth;
   "lib/bootstrapAvailability": typeof lib_bootstrapAvailability;

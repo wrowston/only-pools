@@ -799,7 +799,7 @@ describe("audited clean Season Bootstrap activation", () => {
     ).toBe(32);
     expect(
       database.teams.every((team) =>
-        team.sportsDbTeamId.startsWith(
+        team.sportsDbTeamId?.startsWith(
           "legacy-unset:api-sports-team:",
         ),
       ),
@@ -809,7 +809,7 @@ describe("audited clean Season Bootstrap activation", () => {
     ).toBe(272);
     expect(
       database.games.every((game) =>
-        game.sportsDbEventId.startsWith(
+        game.sportsDbEventId?.startsWith(
           "legacy-unset:api-sports-game:",
         ),
       ),

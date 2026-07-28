@@ -15,6 +15,7 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { resolveDeploymentKind } from "./lib/syncGate";
+import { assertLegacyContractionUnlocked } from "./lib/legacyContractionLock";
 import {
   canonicalNflTeam,
   nflGameStableKey,
@@ -203,6 +204,7 @@ export const seedDemoWorld = internalMutation({
     nowMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<SeedResult> => {
+    await assertLegacyContractionUnlocked(ctx);
     assertDevDeployment();
 
     const ownerClerkUserId =

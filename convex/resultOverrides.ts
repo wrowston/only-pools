@@ -15,6 +15,7 @@ import {
   requireProductionOperatorWithStepUp,
 } from "./lib/operatorAuth";
 import { latestPinnedResultEvidence } from "./lib/pinnedResultEvidence";
+import { assertLegacyContractionUnlocked } from "./lib/legacyContractionLock";
 import { confirmationScopeKey } from "./lib/syncObservations";
 import { retireCorrectionWorkflowForPinnedOverride } from "./syncApiSportsLive";
 import {
@@ -268,6 +269,7 @@ export const pinNflGameResultOverride = mutation({
     overrideResult: overrideResultValidator,
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const nowMs = Date.now();
     const actor = await requireProductionOperatorWithStepUp(
       ctx,

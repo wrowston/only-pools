@@ -26,6 +26,10 @@ import { runEffect } from "./effect/run";
 import { AuthError, requireParticipant } from "./lib/auth";
 import { isProductionOperator } from "./lib/operator";
 import { isGameKickoffLocked } from "./lib/pickLock";
+import {
+  assertLegacyContractionActionUnlocked,
+  assertLegacyContractionUnlocked,
+} from "./lib/legacyContractionLock";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import { lifecycleValidator } from "./lib/syncObservations";
 import { ApiSportsProvider } from "./providers/apiSports";
@@ -206,6 +210,7 @@ export const applyScheduleGameObservation = internalMutation({
     productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args): Promise<ScheduleApplyResult> => {
+    await assertLegacyContractionUnlocked(ctx);
     await requireCurrentProductionQualificationFence(
       ctx,
       args.productionFence as ProductionQualificationFence | undefined,
@@ -467,6 +472,7 @@ export const applyScheduleObservationBatch = internalAction({
     productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionActionUnlocked(ctx);
     if (args.observations.length > 300) {
       throw new Error("Schedule batch exceeds the regular-season bound");
     }
@@ -525,6 +531,7 @@ export const rescheduleScheduleWork = internalMutation({
     deferredReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const item = await ctx.db.get(args.workItemId);
     if (!item) return false;
     await ctx.db.patch(item._id, {
@@ -555,6 +562,7 @@ export const runClaimedScheduleFetch = internalAction({
     seasonId: v.id("poolSeasons"),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const attempt = await ctx.runQuery(
       internal.providerReliability.getWorkAttemptCount,
       { workItemId: args.workItemId },

@@ -28,6 +28,7 @@ import {
   withLiveOperatorDetails,
 } from "./lib/liveIngestionOperatorDetails";
 import { createLogger } from "./lib/log";
+import { isLegacyContractionLocked } from "./lib/legacyContractionLock";
 import { isProductionOperator } from "./lib/operator";
 import { captureIncidentSignal } from "./lib/sentry";
 import { resolveDeploymentKind } from "./lib/syncGate";
@@ -172,6 +173,14 @@ async function openFromTrigger(
   const decision = shouldOpenIncident(args.trigger);
   if (!decision.open || decision.type === null) {
     return { opened: false as const, incidentId: null };
+  }
+  if (
+    decision.type === "quarantine_past_confirmation" &&
+    (await isLegacyContractionLocked(ctx))
+  ) {
+    throw new IncidentError(
+      "Legacy contract migration is locked; confirmation incidents are disabled",
+    );
   }
 
   const dedupeKey = incidentDedupeKey(
@@ -727,6 +736,14 @@ export const openIncidentForTest = internalMutation({
     nowMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    if (
+      args.type === "quarantine_past_confirmation" &&
+      (await isLegacyContractionLocked(ctx))
+    ) {
+      throw new IncidentError(
+        "Legacy contract migration is locked; confirmation incidents are disabled",
+      );
+    }
     const nowMs = args.nowMs ?? Date.now();
     const type = args.type as IncidentType;
     const dedupeKey = incidentDedupeKey(type, args.surface, args.scopeKey);

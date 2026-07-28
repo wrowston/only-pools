@@ -17,14 +17,6 @@ const providerEvidenceTerminalStatus = v.union(
   v.literal("CANC"),
 );
 
-const providerEvidenceResultAuthority = v.union(
-  v.literal("none"),
-  v.literal("projected"),
-  v.literal("confirmation_pending"),
-  v.literal("verified"),
-  v.literal("correction_candidate"),
-);
-
 const providerEvidenceResult = v.object({
   homeScore: v.number(),
   awayScore: v.number(),
@@ -38,7 +30,12 @@ const providerGameEvidenceState = v.object({
   lifecycle: nflGameLifecycle,
   homeScore: v.union(v.number(), v.null()),
   awayScore: v.union(v.number(), v.null()),
-  resultAuthority: providerEvidenceResultAuthority,
+  /**
+   * Historical evidence is immutable across provider contractions. Runtime
+   * writers retain their exact validator; storage accepts prior authority
+   * labels such as confirmation_pending until the evidence ages naturally.
+   */
+  resultAuthority: v.string(),
   verifiedResult: v.union(providerEvidenceResult, v.null()),
   correctionCandidate: v.union(providerEvidenceResult, v.null()),
   pinned: v.boolean(),
@@ -114,7 +111,8 @@ export default defineSchema({
     name: v.string(),
     abbreviation: v.string(),
     logoUrl: v.optional(v.string()),
-    sportsDbTeamId: v.string(),
+    /** Compatibility-only owner field removed by the contraction migration. */
+    sportsDbTeamId: v.optional(v.string()),
   })
     .index("by_stableKey", ["stableKey"])
     .index("by_sportsDbTeamId", ["sportsDbTeamId"]),
@@ -137,7 +135,8 @@ export default defineSchema({
     /** Last observed / projected scores — never official until verified. */
     homeScore: v.union(v.number(), v.null()),
     awayScore: v.union(v.number(), v.null()),
-    sportsDbEventId: v.string(),
+    /** Compatibility-only owner field removed by the contraction migration. */
+    sportsDbEventId: v.optional(v.string()),
     /**
      * Result authority. Absent / "none" until live or terminal evidence arrives.
      * Provisional finals are confirmation_pending — never official.
@@ -217,6 +216,8 @@ export default defineSchema({
   })
     .index("by_stableKey", ["stableKey"])
     .index("by_seasonId_and_week", ["seasonId", "week"])
+    .index("by_resultAuthority", ["resultAuthority"])
+    .index("by_provisionalTerminalAtMs", ["provisionalTerminalAtMs"])
     .index(
       "by_seasonId_and_week_and_homeTeamId_and_awayTeamId",
       ["seasonId", "week", "homeTeamId", "awayTeamId"],
@@ -352,16 +353,17 @@ export default defineSchema({
       v.literal("pinned_matching"),
       v.literal("pinned_conflicting"),
     ),
-    source: v.union(
-      v.literal("api_sports_live"),
-      v.literal("api_sports_targeted"),
-      v.literal("legacy_live"),
-      v.literal("legacy_confirmation"),
-    ),
-  }).index(
-    "by_overrideId_and_disposition_and_observedAtMs",
-    ["overrideId", "disposition", "observedAtMs"],
-  ),
+    /**
+     * Immutable historical label. Runtime writers remain constrained by
+     * PinnedEvidenceSource rather than widening their emission contract.
+     */
+    source: v.string(),
+  })
+    .index(
+      "by_overrideId_and_disposition_and_observedAtMs",
+      ["overrideId", "disposition", "observedAtMs"],
+    )
+    .index("by_source", ["source"]),
 
   /**
    * Replaceable provider aliases. Legacy SportsDB columns remain temporarily
@@ -458,11 +460,11 @@ export default defineSchema({
     gameWeek: v.number(),
     homeTeamAbbreviation: v.string(),
     awayTeamAbbreviation: v.string(),
-    provider: v.union(
-      v.literal("api-sports"),
-      v.literal("legacy"),
-      v.literal("operator"),
-    ),
+    /**
+     * Immutable historical label. Runtime mutation validators retain the
+     * current finite provider set and cannot emit arbitrary values.
+     */
+    provider: v.string(),
     externalId: v.optional(v.string()),
     source: v.union(
       v.literal("schedule"),
@@ -499,7 +501,8 @@ export default defineSchema({
     .index("by_incidentId_and_recordedAtMs", [
       "incidentId",
       "recordedAtMs",
-    ]),
+    ])
+    .index("by_provider", ["provider"]),
 
   /**
    * Thirty-day, server-sanitized request and no-op poll diagnostics. This
@@ -879,7 +882,9 @@ export default defineSchema({
     actorClerkUserId: v.string(),
     atMs: v.number(),
     detailsJson: v.optional(v.string()),
-  }).index("by_atMs", ["atMs"]),
+  })
+    .index("by_atMs", ["atMs"])
+    .index("by_action_and_atMs", ["action", "atMs"]),
 
   /**
    * Pool-specific gate created when corrected terminal evidence would rewrite
@@ -1240,7 +1245,9 @@ export default defineSchema({
   })
     .index("by_claimedAtMs", ["claimedAtMs"])
     .index("by_expiresAtMs", ["expiresAtMs"])
-    .index("by_status_and_claimedAtMs", ["status", "claimedAtMs"]),
+    .index("by_status_and_claimedAtMs", ["status", "claimedAtMs"])
+    .index("by_surface", ["surface"])
+    .index("by_priority", ["priority"]),
 
   /**
    * Durable sync work queue — schedule, live, confirmation, correction, operator.
@@ -1295,7 +1302,9 @@ export default defineSchema({
       "dueAtMs",
     ])
     .index("by_scopeKey", ["scopeKey"])
-    .index("by_gameId", ["gameId"]),
+    .index("by_gameId", ["gameId"])
+    .index("by_surface", ["surface"])
+    .index("by_priority", ["priority"]),
 
   /**
    * Per-surface sync health for freshness derivation (Late / Stale / Exception).
@@ -1394,7 +1403,8 @@ export default defineSchema({
     .index("by_participantVisible_and_status", [
       "participantVisible",
       "status",
-    ]),
+    ])
+    .index("by_type", ["type"]),
 
   /**
    * Survivor Pick — one team per entry per included week.

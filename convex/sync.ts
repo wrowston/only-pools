@@ -7,6 +7,10 @@ import {
   type SyncSurface,
 } from "./lib/syncGate";
 import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
+import {
+  assertLegacyContractionUnlocked,
+  isLegacyContractionLocked,
+} from "./lib/legacyContractionLock";
 
 const SYNC_GATE_KEY = "deployment" as const;
 
@@ -37,6 +41,7 @@ export const claimProviderFetch = mutation({
     surface: surfaceValidator,
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new AuthError("Unauthenticated");
@@ -73,6 +78,11 @@ export const ensureSyncGate = internalMutation({
     actorTokenIdentifier: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (args.enabled && (await isLegacyContractionLocked(ctx))) {
+      throw new Error(
+        "Legacy contract migration is locked; Sync Gate cannot be enabled",
+      );
+    }
     if (
       args.enabled &&
       process.env.DEPLOYMENT_KIND?.trim().toLowerCase() === "production"

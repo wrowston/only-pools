@@ -43,6 +43,11 @@ import { providerDiagnosticExpiry } from "./lib/providerEvidencePolicy";
 import { createLogger, errorMessage } from "./lib/log";
 import { captureException } from "./lib/sentry";
 import { canClaimProviderFetch } from "./lib/syncGate";
+import {
+  assertLegacyContractionActionUnlocked,
+  assertLegacyContractionUnlocked,
+  isLegacyContractionLocked,
+} from "./lib/legacyContractionLock";
 import { isCompetitiveProviderSyncAuthorized } from "./providerQualification";
 import { enqueueSentryDelivery } from "./sentry";
 import {
@@ -122,6 +127,7 @@ export const applyLiveObservation = internalMutation({
     observation: liveObservationValidator,
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const { observation } = args;
     const game = await ctx.db.get(observation.gameId);
     if (!game) {
@@ -333,6 +339,7 @@ export const applyConfirmationObservationMutation = internalMutation({
     observation: confirmationObservationValidator,
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const { observation } = args;
     const game = await ctx.db.get(observation.gameId);
     if (!game) {
@@ -556,6 +563,7 @@ export const applyScheduleObservation = internalMutation({
     observation: scheduleObservationValidator,
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const { observation } = args;
     const game = await ctx.db.get(observation.gameId);
     if (!game) {
@@ -798,6 +806,7 @@ export const enqueueSyncWork = internalMutation({
     purpose: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const existing = await ctx.db
       .query("syncWorkItems")
       .withIndex("by_scopeKey", (q) => q.eq("scopeKey", args.scopeKey))
@@ -965,6 +974,20 @@ export const dispatchSyncWork = internalMutation({
   handler: async (ctx, args) => {
     const nowMs = args.nowMs ?? Date.now();
     const maxClaims = args.maxClaims ?? 20;
+    if (await isLegacyContractionLocked(ctx)) {
+      return {
+        gateEnabled: false,
+        claimed: [] as Array<{
+          workItemId: Id<"syncWorkItems">;
+          surface: string;
+          priority: BudgetPriority;
+          scopeKey: string;
+          gameId?: Id<"nflGames">;
+          purpose?: string;
+        }>,
+        denied: "legacy_contract_locked",
+      };
+    }
     const gateEnabled = await loadSyncGateEnabled(ctx);
     const effectiveAuthorized =
       gateEnabled && (await isCompetitiveProviderSyncAuthorized(ctx));
@@ -1257,6 +1280,7 @@ export const runClaimedFetch = internalAction({
     purpose: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const kind =
       process.env.DEPLOYMENT_KIND?.trim().toLowerCase() ?? "";
     if (kind !== "development" && kind !== "dev") {
@@ -1823,6 +1847,7 @@ export const claimProviderFetchWithBudget = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new Error("Unauthenticated");

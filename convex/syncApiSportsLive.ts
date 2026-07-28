@@ -20,6 +20,10 @@ import { runEffect } from "./effect/run";
 import type { ApiSportsRequestFence } from "./effect/apiSports/client";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
 import {
+  assertLegacyContractionActionUnlocked,
+  assertLegacyContractionUnlocked,
+} from "./lib/legacyContractionLock";
+import {
   computeWeeklyCutoffMs,
   isGameKickoffLocked,
 } from "./lib/pickLock";
@@ -1238,6 +1242,7 @@ export const recordUnresolvedRecovery = internalMutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     return await openLiveIncident(ctx, {
       scopeKey: `recovery:${args.gameId}`,
       summary: `Targeted live-score recovery did not resolve (${args.reason}); the last trusted state was preserved.`,
@@ -1253,6 +1258,7 @@ export const recordCorrectionFailure = internalMutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     return await openLiveIncident(ctx, {
       scopeKey: `correction:${args.gameId}`,
       summary: `API-Sports result reconciliation failed (${args.reason}); the current Verified Result was preserved.`,
@@ -1267,6 +1273,7 @@ export const recordMalformedLiveRows = internalMutation({
     failureCount: v.number(),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     if (args.failureCount <= 0) return null;
     return await openLiveIncident(ctx, {
       scopeKey: "malformed-live-slate-row",
@@ -1283,6 +1290,7 @@ export const applyObservation = internalMutation({
     productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     await requireCurrentProductionQualificationFence(
       ctx,
       args.productionFence as ProductionQualificationFence | undefined,
@@ -1673,6 +1681,7 @@ export const applyReconciliationObservation = internalMutation({
     productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     await requireCurrentProductionQualificationFence(
       ctx,
       args.productionFence as ProductionQualificationFence | undefined,
@@ -1981,6 +1990,7 @@ export const reconcileSuccessfulSlate = internalMutation({
     productionFence: v.optional(productionQualificationFenceValidator),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const productionFence = args.productionFence as
       | ProductionQualificationFence
       | undefined;
@@ -2066,6 +2076,7 @@ async function applySuccessfulSlateBatchForCtx(
   ctx: ActionCtx,
   args: SuccessfulSlateBatchInput,
 ): Promise<SuccessfulSlateBatchResult> {
+  await assertLegacyContractionActionUnlocked(ctx);
   const results: ApplyResult[] = [];
   const seenGameIds: Id<"nflGames">[] = [];
   for (const observation of args.observations) {
@@ -2149,6 +2160,7 @@ export const runClaimedLiveFetch = internalAction({
     ctx,
     args,
   ): Promise<{ ok: boolean; applied?: number; reason?: string }> => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const nowMs = Date.now();
     const attempt = await ctx.runQuery(
       internal.providerReliability.getWorkAttemptCount,
@@ -2288,6 +2300,7 @@ async function applyTargetedLookupForCtx(
     productionFence?: ProductionQualificationFence;
   },
 ): Promise<{ ok: boolean; reason?: string }> {
+  await assertLegacyContractionActionUnlocked(ctx);
   if (input.observation === null) {
     return await failTargetedLookupForCtx(ctx, {
       ...input,
@@ -2395,6 +2408,7 @@ async function applyReconciliationLookupForCtx(
     | "pin_episode_ended";
   reason?: string;
 }> {
+  await assertLegacyContractionActionUnlocked(ctx);
   if (input.observation === null) {
     return await failReconciliationForCtx(ctx, {
       ...input,
@@ -2467,6 +2481,7 @@ export const runClaimedTargetedRecovery = internalAction({
     ctx,
     args,
   ): Promise<{ ok: boolean; reason?: string }> => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const nowMs = Date.now();
     const attempt = await ctx.runQuery(
       internal.providerReliability.getWorkAttemptCount,
@@ -2570,6 +2585,7 @@ export const runClaimedResultReconciliation = internalAction({
       | "pin_episode_ended";
     reason?: string;
   }> => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const nowMs = Date.now();
     const attempt = await ctx.runQuery(
       internal.providerReliability.getWorkAttemptCount,

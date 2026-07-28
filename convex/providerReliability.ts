@@ -28,6 +28,10 @@ import {
   type ProviderTraffic,
 } from "./lib/providerReliabilityPolicy";
 import { requireProductionOperatorIdentity } from "./lib/operatorAuth";
+import {
+  assertLegacyContractionActionUnlocked,
+  assertLegacyContractionUnlocked,
+} from "./lib/legacyContractionLock";
 import { runEffect } from "./effect/run";
 import { ApiSportsProvider } from "./providers/apiSports";
 import { createReliableApiSportsFetch } from "./effect/apiSports/reliableFetch";
@@ -191,6 +195,7 @@ export const admitApiSportsRequest = internalMutation({
     nowMs: v.number(),
   },
   handler: async (ctx, args) => {
+    await assertLegacyContractionUnlocked(ctx);
     const row = await loadState(ctx);
     const decision = admitProviderRequest({
       state: currentState(row, args.nowMs),
@@ -380,6 +385,7 @@ export const recordApiSportsOutcome = internalMutation({
 export const runApiSportsRecoveryProbe = internalAction({
   args: { workItemId: v.id("syncWorkItems") },
   handler: async (ctx, args) => {
+    await assertLegacyContractionActionUnlocked(ctx);
     const attempt: number = await ctx.runQuery(
       internal.providerReliability.getWorkAttemptCount,
       { workItemId: args.workItemId },
