@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { currentSurvivorStandingsWeek } from "@/lib/survivorStandings";
 import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
 import { usePoolChromeName } from "./PoolChrome";
@@ -28,24 +29,7 @@ export function SurvivorStandingsView({
 
   const currentWeek = useMemo(() => {
     if (!standings || standings.weeks.length === 0) return 1;
-    // Prefer the earliest week that still has an unlocked authored pick —
-    // that is the live board week once prior weeks have locked.
-    for (const week of standings.weeks) {
-      const hasOpenPick = standings.rows.some((row) =>
-        row.cells.some(
-          (c) => c.week === week && c.hasPick && !c.locked,
-        ),
-      );
-      if (hasOpenPick) return week;
-    }
-    for (let i = standings.weeks.length - 1; i >= 0; i--) {
-      const week = standings.weeks[i]!;
-      const hasLocked = standings.rows.some((row) =>
-        row.cells.some((c) => c.week === week && c.locked),
-      );
-      if (hasLocked) return week;
-    }
-    return standings.weeks[standings.weeks.length - 1]!;
+    return currentSurvivorStandingsWeek(standings);
   }, [standings]);
 
   const [focusWeek, setFocusWeek] = useState<number | null>(null);

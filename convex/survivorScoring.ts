@@ -1296,7 +1296,6 @@ export const getSurvivorStandingsGrid = query({
 
     const pickByEntryWeek = new Map<string, Doc<"survivorPicks">>();
     const outcomeByEntryWeek = new Map<string, Doc<"survivorPickOutcomes">>();
-    let maxActivityWeek = pool.startWeek;
 
     for (let week = pool.startWeek; week <= SURVIVOR_FINAL_WEEK; week++) {
       const weekPicks = await ctx.db
@@ -1308,7 +1307,6 @@ export const getSurvivorStandingsGrid = query({
       for (const pick of weekPicks) {
         if (pick.entryId === undefined) continue;
         pickByEntryWeek.set(`${pick.entryId}:${week}`, pick);
-        if (week > maxActivityWeek) maxActivityWeek = week;
       }
 
       const weekOutcomes = await ctx.db
@@ -1320,21 +1318,11 @@ export const getSurvivorStandingsGrid = query({
       for (const outcome of weekOutcomes) {
         if (outcome.entryId === undefined) continue;
         outcomeByEntryWeek.set(`${outcome.entryId}:${week}`, outcome);
-        if (week > maxActivityWeek) maxActivityWeek = week;
       }
     }
 
-    if (pool.completedWeek != null && pool.completedWeek > maxActivityWeek) {
-      maxActivityWeek = pool.completedWeek;
-    }
-
-    // Show through activity (and at least a short runway for new pools).
-    const endWeek = Math.min(
-      SURVIVOR_FINAL_WEEK,
-      Math.max(maxActivityWeek, Math.min(pool.startWeek + 3, SURVIVOR_FINAL_WEEK)),
-    );
     const weeks: number[] = [];
-    for (let w = pool.startWeek; w <= endWeek; w++) weeks.push(w);
+    for (let w = pool.startWeek; w <= SURVIVOR_FINAL_WEEK; w++) weeks.push(w);
 
     const teamCache = new Map<
       Id<"nflTeams">,

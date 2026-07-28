@@ -760,6 +760,40 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
     expect(denied).toBeNull();
   });
 
+  it("standings grid includes every remaining Survivor week", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t, { includeWeek2: false });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w5:buf@kc",
+        seasonId: seeded.seasonId,
+        seasonLabel: "2025",
+        week: 5,
+        homeTeamId: seeded.kc,
+        awayTeamId: seeded.buf,
+        scheduledKickoffMs: Date.now() + 35 * 24 * 60 * 60 * 1000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        resultAuthority: "none",
+      });
+    });
+    const { asAlex, poolId } = await createPoolWithMembers(t, {
+      startWeek: 5,
+    });
+
+    const grid = await asAlex.query(
+      api.survivorScoring.getSurvivorStandingsGrid,
+      { poolId },
+    );
+
+    const expectedWeeks = Array.from({ length: 14 }, (_, index) => index + 5);
+    expect(grid?.weeks).toEqual(expectedWeeks);
+    for (const row of grid?.rows ?? []) {
+      expect(row.cells.map((cell) => cell.week)).toEqual(expectedWeeks);
+    }
+  });
+
   it("standings grid reveals locked picks with outcomes and hides unlocked", async () => {
     const t = convexTest(schema, modules);
     const seeded = await seedSurvivorWorld(t, { includeWeek2: false });
