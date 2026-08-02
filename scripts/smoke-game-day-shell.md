@@ -30,7 +30,7 @@ Automated seams already covered:
 
 - [ ] Successful autosave shows quiet inline **Saved** (no toast)
 - [ ] Failed save shows inline error + retry path on the control
-- [ ] `aria-live="polite"` only on SaveTrust and StatusBanner (`data-live-region`)
+- [ ] `aria-live="polite"` only on SaveTrust (`data-live-region`)
 - [ ] Live score ticks do **not** announce via aria-live
 
 ## 48 — Scoped loads / interactivity

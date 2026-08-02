@@ -65,10 +65,7 @@ describe("game-day shell navigation contract", () => {
     expect(COMPACT_CONTROL_CLASS).toBe("h-8");
   });
 
-  it("allows polite aria-live only on SaveTrust and StatusBanner", () => {
-    expect([...LIVE_REGION_ALLOWLIST].sort()).toEqual([
-      "SaveTrust",
-      "StatusBanner",
-    ]);
+  it("allows polite aria-live only on SaveTrust", () => {
+    expect([...LIVE_REGION_ALLOWLIST]).toEqual(["SaveTrust"]);
   });
 });

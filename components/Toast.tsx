@@ -85,7 +85,7 @@ export function Toast({
     <div
       role="alert"
       data-toast="true"
-      className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+      className="pointer-events-none fixed inset-x-0 top-6 z-[60] flex justify-center px-4 animate-in fade-in-0 slide-in-from-top-2 duration-200"
     >
       <div
         className={[
