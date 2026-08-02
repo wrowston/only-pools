@@ -17,7 +17,7 @@ export const COMPACT_CONTROL_CLASS = "h-8";
 export const SHELL_BREAKPOINT_CLASS = "min-[900px]:";
 
 /** Polite aria-live is allowed only on these production surfaces. */
-export const LIVE_REGION_ALLOWLIST = ["SaveTrust", "StatusBanner"] as const;
+export const LIVE_REGION_ALLOWLIST = ["SaveTrust"] as const;
 
 export type PoolSection = "board" | "standings" | "pool";
 
