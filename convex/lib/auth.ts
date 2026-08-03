@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { isRegularPoolSeason } from "./poolSeason";
 import {
   emailFromIdentity,
   emailVerifiedFromIdentity,
@@ -259,9 +260,9 @@ export async function ensureParticipant(
 }
 
 export async function hasAvailableSeason(ctx: AuthCtx): Promise<boolean> {
-  const season = await ctx.db
+  const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .take(1);
-  return season.length > 0;
+    .take(20);
+  return seasons.some(isRegularPoolSeason);
 }

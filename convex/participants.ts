@@ -13,6 +13,7 @@ import {
   loadEarliestKickoffByWeek,
   resolveBoardWeek,
 } from "./lib/myPoolsStatus";
+import { resolveSurvivorFinalWeek } from "./lib/survivorScoring";
 
 const log = createLogger("participants");
 
@@ -150,6 +151,10 @@ export const myPools = query({
       }
       const boardWeek = resolveBoardWeek({
         startWeek: pool.startWeek,
+        finalWeek:
+          pool.type === "survivor"
+            ? resolveSurvivorFinalWeek(pool)
+            : undefined,
         earliestKickoffByWeek: earliestByWeek,
         nowMs,
       });

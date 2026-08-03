@@ -1,20 +1,23 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repository live as GitHub issues in `wrowston/only-pools`. Use the `gh` CLI for tracker operations from inside this clone so the repository is inferred from `origin`.
+Issues and PRDs for this repository live as GitHub issues. Use the `gh` CLI
+from this repository so it resolves `wrowston/only-pools` from the Git remote.
 
 ## Conventions
 
 - Create an issue with `gh issue create`.
 - Read an issue and its discussion with `gh issue view <number> --comments`.
-- List issues with `gh issue list`, requesting structured JSON when filtering by labels or state.
-- Comment with `gh issue comment <number>`.
-- Apply or remove labels with `gh issue edit <number> --add-label <label>` or `--remove-label <label>`.
-- Close an issue with `gh issue close <number>`.
+- List issues with `gh issue list`, including labels and comments when a skill
+  needs to evaluate status.
+- Apply or remove labels with `gh issue edit`.
+- Comment with `gh issue comment`.
+- Close with `gh issue close`.
 
 ## Pull requests as a triage surface
 
-Pull requests are not treated as incoming feature requests. An explicitly named pull request may still be inspected when the user asks.
+**PRs as a request surface: no.**
 
 ## Publishing
 
-When an engineering skill says to publish a specification, plan, ticket, or other artifact to the issue tracker, create a GitHub issue in `wrowston/only-pools`.
+When an engineering skill says to publish to the issue tracker, create a
+GitHub issue in `wrowston/only-pools`.

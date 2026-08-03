@@ -3,7 +3,7 @@
  *
  * Late alone never opens an incident or participant banner.
  * Stale-in-window, Provider Exception, scoring delayed, quarantine past
- * confirmation, and Convex capacity do.
+ * provider failures, scoring delay, and Convex capacity do.
  */
 
 import type { FreshnessState } from "./freshness";
@@ -12,7 +12,6 @@ export type IncidentType =
   | "provider_exception"
   | "stale_in_window"
   | "scoring_delayed"
-  | "quarantine_past_confirmation"
   | "convex_capacity";
 
 export type IncidentStatus =
@@ -31,7 +30,7 @@ export type IncidentTriggerInput =
   | {
       kind: "freshness";
       freshnessState: FreshnessState;
-      /** Live or confirmation work during an active game window. */
+      /** Live work during an active game window. */
       activeGameWindow: boolean;
     }
   | {
@@ -40,12 +39,6 @@ export type IncidentTriggerInput =
       /** Latest Scoring Revision publish time for the affected Pool Week. */
       latestRevisionAtMs: number | null;
       nowMs: number;
-    }
-  | {
-      kind: "quarantine_past_confirmation";
-      confirmationWindowEndsAtMs: number;
-      nowMs: number;
-      verificationBlocked: boolean;
     }
   | {
       kind: "convex_capacity";
@@ -116,20 +109,6 @@ export function shouldOpenIncident(
       return { open: false, type: null, participantVisible: false };
     }
 
-    case "quarantine_past_confirmation": {
-      if (
-        input.verificationBlocked &&
-        input.nowMs > input.confirmationWindowEndsAtMs
-      ) {
-        return {
-          open: true,
-          type: "quarantine_past_confirmation",
-          participantVisible: true,
-        };
-      }
-      return { open: false, type: null, participantVisible: false };
-    }
-
     case "convex_capacity": {
       if (
         input.utilizationRatio >= CAPACITY_UTILIZATION_THRESHOLD ||
@@ -153,7 +132,6 @@ export function participantBannerSummary(type: IncidentType): string {
     case "provider_exception":
     case "stale_in_window":
     case "scoring_delayed":
-    case "quarantine_past_confirmation":
       return "Some live scores or standings may be temporarily delayed.";
     case "convex_capacity":
       return "Some live scores or standings may be temporarily delayed.";

@@ -5,6 +5,13 @@
 
 export const SURVIVOR_FINAL_WEEK = 18;
 
+/** Pool-specific Survivor boundary; legacy pools run through Week 18. */
+export function resolveSurvivorFinalWeek(pool: {
+  finalWeek?: number;
+}): number {
+  return pool.finalWeek ?? SURVIVOR_FINAL_WEEK;
+}
+
 export type SurvivorPickOutcomeKind =
   | "win"
   | "loss"
@@ -17,6 +24,10 @@ export type SurvivorPickOutcomeKind =
 export type EliminationReason = "loss" | "tie" | "missing_pick";
 
 export type SurvivorEligibility = "alive" | "eliminated" | "winner";
+
+export type SurvivorPickInvalidationReason =
+  | "earlier_elimination"
+  | "pre_lock_cancellation";
 
 export type VerifiedGameInput = {
   gameId: string;
@@ -37,6 +48,7 @@ export type SurvivorPickInput = {
   provenance: "authored" | "omission";
   provisional: boolean;
   invalidated?: boolean;
+  invalidationReason?: SurvivorPickInvalidationReason;
   /** True when Pick Lock has been reached for this pick. */
   locked?: boolean;
 };
@@ -53,6 +65,13 @@ export function resolveSurvivorPickOutcome(args: {
   weekFullyLocked: boolean;
 }): SurvivorPickOutcomeKind {
   const { pick, game, weekFullyLocked } = args;
+
+  if (
+    pick?.invalidated &&
+    pick.invalidationReason === "pre_lock_cancellation"
+  ) {
+    return weekFullyLocked ? "missing_pick" : "pending";
+  }
 
   if (pick?.invalidated) {
     return "invalidated";
@@ -175,6 +194,7 @@ export function buildSurvivorWeekFingerprint(args: {
     gameId?: string;
     provenance: string;
     invalidated?: boolean;
+    invalidationReason?: SurvivorPickInvalidationReason;
   }>;
   verifiedGames: Array<{
     gameId: string;
@@ -192,7 +212,7 @@ export function buildSurvivorWeekFingerprint(args: {
     .sort((a, b) => a.participantId.localeCompare(b.participantId))
     .map(
       (p) =>
-        `${p.participantId}:${p.provenance}:${p.nflTeamId ?? ""}:${p.gameId ?? ""}:${p.invalidated === true ? "1" : "0"}`,
+        `${p.participantId}:${p.provenance}:${p.nflTeamId ?? ""}:${p.gameId ?? ""}:${p.invalidated === true ? "1" : "0"}:${p.invalidationReason ?? ""}`,
     )
     .join(",");
   const games = [...args.verifiedGames]

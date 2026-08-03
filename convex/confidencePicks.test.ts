@@ -60,25 +60,21 @@ async function seedConfidenceSlate(
       stableKey: "nfl:kc",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
-      sportsDbTeamId: "134934",
     });
     const buf = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
-      sportsDbTeamId: "134918",
     });
     const phi = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:phi",
       name: "Philadelphia Eagles",
       abbreviation: "PHI",
-      sportsDbTeamId: "134936",
     });
     const dal = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:dal",
       name: "Dallas Cowboys",
       abbreviation: "DAL",
-      sportsDbTeamId: "134925",
     });
 
     const game1Id = await ctx.db.insert("nflGames", {
@@ -92,7 +88,6 @@ async function seedConfidenceSlate(
       lifecycle,
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1a",
     });
 
     const game2Id = await ctx.db.insert("nflGames", {
@@ -106,7 +101,6 @@ async function seedConfidenceSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1b",
     });
 
     return {

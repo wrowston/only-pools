@@ -5,10 +5,11 @@
 
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import { env, internalAction } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { createLogger } from "./lib/log";
 import type { SentryCapture, SentryLevel } from "./lib/sentry";
+import { resolveDeploymentKind } from "./lib/syncGate";
 
 const log = createLogger("sentry");
 
@@ -135,6 +136,9 @@ export const deliverCapture = internalAction({
     atMs: v.number(),
   },
   handler: async (_ctx, args) => {
+    // Scheduling-time gating is not enough: a direct invocation or a delayed
+    // job after an environment change must still be unable to page production.
+    if (resolveDeploymentKind(env) !== "production") return;
     const dsn =
       process.env.SENTRY_DSN?.trim() ||
       process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();

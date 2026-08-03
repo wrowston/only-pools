@@ -22,6 +22,7 @@ import {
   MAX_OWNED_POOLS,
   MAX_POOL_ENTRIES,
 } from "./lib/quotas";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   assertValidMaxEntriesPerUser,
   countActivePoolEntries,
@@ -40,6 +41,12 @@ import {
   loadEarliestKickoffByWeek,
   resolveBoardWeek,
 } from "./lib/myPoolsStatus";
+import { normalizePoolDescription } from "./lib/poolDescription";
+import { isRegularPoolSeason } from "./lib/poolSeason";
+import {
+  resolveSurvivorFinalWeek,
+  SURVIVOR_FINAL_WEEK,
+} from "./lib/survivorScoring";
 
 const log = createLogger("pools");
 
@@ -65,8 +72,8 @@ async function requireAvailableSeason(
   const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .take(1);
-  const season = seasons[0];
+    .take(20);
+  const season = seasons.find(isRegularPoolSeason);
   if (!season) {
     throw new PoolError("No Available Season — Create Pool is disabled");
   }
@@ -113,6 +120,42 @@ async function requirePoolOwner(
   }
 }
 
+async function requirePoolOwnerOrAdmin(
+  ctx: QueryCtx | MutationCtx,
+  poolId: Id<"pools">,
+  participantId: Id<"participants">,
+): Promise<Doc<"poolMemberships">> {
+  const membership = await requirePoolMembership(ctx, poolId, participantId);
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new AuthError(
+      "Only the Pool Owner or Pool Admin may update the Pool description",
+    );
+  }
+  return membership;
+}
+
+/** Patch description, or replace to clear when undefined. */
+async function writePoolDescription(
+  ctx: MutationCtx,
+  pool: Doc<"pools">,
+  description: string | undefined,
+): Promise<void> {
+  if (description === undefined) {
+    if (pool.description === undefined) return;
+    const {
+      _id,
+      _creationTime: _ct,
+      description: _cleared,
+      ...rest
+    } = pool;
+    void _ct;
+    void _cleared;
+    await ctx.db.replace(_id, rest);
+    return;
+  }
+  await ctx.db.patch(pool._id, { description });
+}
+
 /**
  * Create an immediately Active Survivor or Confidence Pool for the Available
  * Season. Caller becomes Pool Owner via membership — never trust client role.
@@ -124,6 +167,7 @@ export const createPool = mutation({
     startWeek: v.number(),
     pickLockMode: pickLockModeValidator,
     maxEntriesPerUser: v.optional(v.number()),
+    description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
@@ -135,6 +179,14 @@ export const createPool = mutation({
     }
     if (args.startWeek < 1 || args.startWeek > 18) {
       throw new PoolError("Start Week must be a regular-season week 1–18");
+    }
+
+    let description: string | undefined;
+    try {
+      description = normalizePoolDescription(args.description);
+    } catch (err) {
+      if (err instanceof Error) throw new PoolError(err.message);
+      throw err;
     }
 
     const maxEntriesPerUser = args.maxEntriesPerUser ?? 1;
@@ -182,6 +234,7 @@ export const createPool = mutation({
 
     const poolId = await ctx.db.insert("pools", {
       name: trimmed,
+      ...(description !== undefined ? { description } : {}),
       type: args.type,
       seasonId: season._id,
       startWeek: args.startWeek,
@@ -193,6 +246,7 @@ export const createPool = mutation({
       createdAtMs: nowMs,
       maxEntriesPerUser,
     });
+    await recordScoringDependencyEvent(ctx, season._id);
 
     const membershipId = await ctx.db.insert("poolMemberships", {
       poolId,
@@ -223,6 +277,7 @@ export const createPool = mutation({
       ownerParticipantId: participant._id,
       maxEntriesPerUser,
       pickLockMode: args.pickLockMode,
+      hasDescription: description !== undefined,
     });
 
     await markOwnerPoolCreated(ctx, participant._id, nowMs);
@@ -560,7 +615,54 @@ export const updatePoolRules = mutation({
     }
 
     await ctx.db.patch(pool._id, patch);
+    if (outcomeAffecting) {
+      await recordScoringDependencyEvent(ctx, pool.seasonId);
+    }
     return { poolId: pool._id };
+  },
+});
+
+/**
+ * Owner or Admin may set/clear the member-visible Pool description.
+ * Not outcome-affecting — allowed after rules freeze; blocked while archived.
+ */
+export const updatePoolDescription = mutation({
+  args: {
+    poolId: v.id("pools"),
+    description: v.string(),
+  },
+  returns: v.object({
+    poolId: v.id("pools"),
+    description: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) {
+      throw new PoolError("Pool not found");
+    }
+
+    await requirePoolOwnerOrAdmin(ctx, pool._id, participant._id);
+
+    if (isPoolArchived(pool)) {
+      throw new PoolError(
+        "Archived Pools are read-only — restore before editing",
+      );
+    }
+
+    let description: string | undefined;
+    try {
+      description = normalizePoolDescription(args.description);
+    } catch (err) {
+      if (err instanceof Error) throw new PoolError(err.message);
+      throw err;
+    }
+
+    await writePoolDescription(ctx, pool, description);
+    return {
+      poolId: pool._id,
+      description: description ?? null,
+    };
   },
 });
 
@@ -590,8 +692,8 @@ export const listAvailableStartWeeks = query({
     const seasons = await ctx.db
       .query("poolSeasons")
       .withIndex("by_status", (q) => q.eq("status", "available"))
-      .take(1);
-    const season = seasons[0];
+      .take(20);
+    const season = seasons.find(isRegularPoolSeason);
     if (!season) {
       return { seasonId: null, weeks: [] as number[] };
     }
@@ -669,19 +771,27 @@ export const getWeekBoard = query({
       ctx,
       pool.seasonId,
     );
+    const finalWeek =
+      pool.type === "survivor"
+        ? resolveSurvivorFinalWeek(pool)
+        : SURVIVOR_FINAL_WEEK;
     const week =
       args.week ??
       resolveBoardWeek({
         startWeek: pool.startWeek,
+        finalWeek,
         earliestKickoffByWeek,
         nowMs,
       });
+    if (week < pool.startWeek || week > finalWeek) {
+      throw new PoolError("Week is outside this Pool's included weeks");
+    }
     const games = await loadWeekGames(ctx, pool.seasonId, week);
     const season = await ctx.db.get(pool.seasonId);
 
     const availableWeekSet = new Set<number>();
     for (const weekNumber of earliestKickoffByWeek.keys()) {
-      if (weekNumber >= pool.startWeek && weekNumber <= 18) {
+      if (weekNumber >= pool.startWeek && weekNumber <= finalWeek) {
         availableWeekSet.add(weekNumber);
       }
     }
@@ -1068,6 +1178,7 @@ export const getWeekBoard = query({
         name: pool.name,
         type: pool.type,
         startWeek: pool.startWeek,
+        finalWeek,
         pickLockMode: pool.pickLockMode,
         rulesFrozen: pool.rulesFrozen,
         status: pool.status,

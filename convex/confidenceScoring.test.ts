@@ -53,25 +53,21 @@ async function seedConfidenceWorld(t: ReturnType<typeof convexTest>) {
       stableKey: "nfl:kc",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
-      sportsDbTeamId: "134934",
     });
     const buf = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
-      sportsDbTeamId: "134918",
     });
     const phi = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:phi",
       name: "Philadelphia Eagles",
       abbreviation: "PHI",
-      sportsDbTeamId: "134936",
     });
     const dal = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:dal",
       name: "Dallas Cowboys",
       abbreviation: "DAL",
-      sportsDbTeamId: "134925",
     });
 
     const game1Id = await ctx.db.insert("nflGames", {
@@ -85,7 +81,6 @@ async function seedConfidenceWorld(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1a",
       resultAuthority: "none",
     });
 
@@ -100,7 +95,6 @@ async function seedConfidenceWorld(t: ReturnType<typeof convexTest>) {
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1b",
       resultAuthority: "none",
     });
 
@@ -174,6 +168,91 @@ async function createPoolWithBlake(t: ReturnType<typeof convexTest>) {
 }
 
 describe("Confidence scoring (scenarios 15–18, 32–33)", () => {
+  it("does not create future revisions solely because games are scheduled", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedConfidenceWorld(t);
+    const { poolId } = await createPoolWithBlake(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w2:buf@kc",
+        seasonId: s.seasonId,
+        seasonLabel: "2025",
+        week: 2,
+        homeTeamId: s.kc,
+        awayTeamId: s.buf,
+        scheduledKickoffMs: s.week1Kickoff + 7 * 24 * 60 * 60_000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+        resultAuthority: "none",
+      });
+    });
+    await verifyGame(t, s.game1Id, 27, 24);
+
+    await t.mutation(
+      internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+      {
+        gameId: s.game1Id,
+        replayLaterWeeks: true,
+      },
+    );
+
+    const revisions = await t.run(async (ctx) =>
+      ctx.db
+        .query("scoringRevisions")
+        .filter((q) => q.eq(q.field("poolId"), poolId))
+        .collect(),
+    );
+    expect(revisions.map((revision) => revision.week)).toEqual([1]);
+  });
+
+  it("replays only existing dependent Pool Weeks in order for a corrected result", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedConfidenceWorld(t);
+    const { poolId } = await createPoolWithBlake(t);
+    await t.run(async (ctx) => {
+      for (const week of [2, 3]) {
+        await ctx.db.insert("nflGames", {
+          stableKey: `nfl:2025:w${week}:buf@kc`,
+          seasonId: s.seasonId,
+          seasonLabel: "2025",
+          week,
+          homeTeamId: s.kc,
+          awayTeamId: s.buf,
+          scheduledKickoffMs:
+            s.week1Kickoff + (week - 1) * 7 * 24 * 60 * 60_000,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          resultAuthority: "none",
+        });
+        await ctx.db.insert("poolWeeks", {
+          poolId,
+          week,
+          settled: false,
+          updatedAtMs: Date.now(),
+        });
+      }
+    });
+    await verifyGame(t, s.game1Id, 27, 24);
+
+    await t.mutation(
+      internal.confidenceScoring.scoreConfidencePoolsForVerifiedGame,
+      {
+        gameId: s.game1Id,
+        replayLaterWeeks: true,
+      },
+    );
+
+    const revisions = await t.run(async (ctx) =>
+      ctx.db
+        .query("scoringRevisions")
+        .filter((q) => q.eq(q.field("poolId"), poolId))
+        .collect(),
+    );
+    expect(revisions.map((revision) => revision.week)).toEqual([1, 2, 3]);
+  });
+
   it("scores unique values correctly without redistributing (scenario 15)", async () => {
     const t = convexTest(schema, modules);
     const s = await seedConfidenceWorld(t);

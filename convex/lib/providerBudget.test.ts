@@ -21,61 +21,61 @@ describe("provider budget non-starvation (scenario 31)", () => {
     });
   });
 
-  it("routine cannot consume confirmation or operator reserves", () => {
+  it("routine cannot consume recovery or operator reserves", () => {
     let usage: BudgetUsage = {
       routine: PROVIDER_BUDGET.routineMax,
-      confirmation: 0,
+      recovery: 0,
       operator: 0,
     };
     expect(admitProviderFetch(usage, "routine").ok).toBe(false);
 
-    // Reserves remain available for confirmation / operator.
-    expect(admitProviderFetch(usage, "confirmation")).toEqual({
+    // Protected reserves remain available for recovery / operator work.
+    expect(admitProviderFetch(usage, "recovery")).toEqual({
       ok: true,
-      priority: "confirmation",
+      priority: "recovery",
     });
     expect(admitProviderFetch(usage, "operator")).toEqual({
       ok: true,
       priority: "operator",
     });
 
-    // Fill confirmation reserve — still cannot be taken by routine.
-    for (let i = 0; i < PROVIDER_BUDGET.confirmationReserve; i++) {
-      usage = recordAdmission(usage, "confirmation");
+    // Fill recovery reserve — still cannot be taken by routine.
+    for (let i = 0; i < PROVIDER_BUDGET.recoveryReserve; i++) {
+      usage = recordAdmission(usage, "recovery");
     }
     expect(admitProviderFetch(usage, "routine").ok).toBe(false);
-    // Routine saturated + confirmation reserve full → confirmation exhausted.
-    expect(admitProviderFetch(usage, "confirmation")).toEqual({
+    // Routine saturated + recovery reserve full → recovery exhausted.
+    expect(admitProviderFetch(usage, "recovery")).toEqual({
       ok: false,
-      reason: "confirmation_exhausted",
+      reason: "recovery_exhausted",
     });
   });
 
-  it("confirmation may borrow unused routine capacity", () => {
+  it("recovery may borrow unused routine capacity", () => {
     const usage = emptyBudgetUsage();
-    // With unused routine, confirmation can exceed its 10 reserve.
+    // With unused routine, recovery can exceed its 10-request reserve.
     let u = usage;
-    for (let i = 0; i < PROVIDER_BUDGET.confirmationReserve + 5; i++) {
-      const d = admitProviderFetch(u, "confirmation");
+    for (let i = 0; i < PROVIDER_BUDGET.recoveryReserve + 5; i++) {
+      const d = admitProviderFetch(u, "recovery");
       expect(d.ok).toBe(true);
-      u = recordAdmission(u, "confirmation");
+      u = recordAdmission(u, "recovery");
     }
-    expect(u.confirmation).toBe(PROVIDER_BUDGET.confirmationReserve + 5);
+    expect(u.recovery).toBe(PROVIDER_BUDGET.recoveryReserve + 5);
   });
 
-  it("when routine is saturated, confirmation still has its reserve", () => {
+  it("when routine is saturated, recovery still has its reserve", () => {
     let usage = emptyBudgetUsage();
     for (let i = 0; i < PROVIDER_BUDGET.routineMax; i++) {
       usage = recordAdmission(usage, "routine");
     }
-    for (let i = 0; i < PROVIDER_BUDGET.confirmationReserve; i++) {
-      const d = admitProviderFetch(usage, "confirmation");
+    for (let i = 0; i < PROVIDER_BUDGET.recoveryReserve; i++) {
+      const d = admitProviderFetch(usage, "recovery");
       expect(d.ok).toBe(true);
-      usage = recordAdmission(usage, "confirmation");
+      usage = recordAdmission(usage, "recovery");
     }
-    expect(admitProviderFetch(usage, "confirmation")).toEqual({
+    expect(admitProviderFetch(usage, "recovery")).toEqual({
       ok: false,
-      reason: "confirmation_exhausted",
+      reason: "recovery_exhausted",
     });
     // Operator reserve still protected.
     expect(admitProviderFetch(usage, "operator").ok).toBe(true);

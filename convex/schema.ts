@@ -11,6 +11,33 @@ const nflGameLifecycle = v.union(
   v.literal("unknown"),
 );
 
+const providerEvidenceTerminalStatus = v.union(
+  v.literal("FT"),
+  v.literal("AOT"),
+  v.literal("CANC"),
+);
+
+const providerEvidenceResult = v.object({
+  homeScore: v.number(),
+  awayScore: v.number(),
+  status: providerEvidenceTerminalStatus,
+  observedAtMs: v.number(),
+});
+
+const providerGameEvidenceState = v.object({
+  scheduledKickoffMs: v.number(),
+  kickoffLockReachedAtMs: v.union(v.number(), v.null()),
+  lifecycle: nflGameLifecycle,
+  homeScore: v.union(v.number(), v.null()),
+  awayScore: v.union(v.number(), v.null()),
+  // Permanent evidence preserves the authority value observed at write time.
+  // Runtime writers enforce the current authority union at their boundary.
+  resultAuthority: v.string(),
+  verifiedResult: v.union(providerEvidenceResult, v.null()),
+  correctionCandidate: v.union(providerEvidenceResult, v.null()),
+  pinned: v.boolean(),
+});
+
 const poolType = v.union(v.literal("survivor"), v.literal("confidence"));
 const pickLockMode = v.union(
   v.literal("gameKickoff"),
@@ -53,6 +80,10 @@ export default defineSchema({
      * in invite retrieve/rotate helpers.
      */
     stepUpVerifiedAtMs: v.optional(v.number()),
+    /** Clerk-verified Production Operator reverification marker. */
+    operatorStepUpVerifiedAtMs: v.optional(v.number()),
+    /** Marker is valid only for this exact authenticated Clerk session. */
+    operatorStepUpSessionId: v.optional(v.string()),
   })
     .index("by_tokenIdentifier", ["tokenIdentifier"])
     .index("by_clerkUserId", ["clerkUserId"]),
@@ -65,22 +96,23 @@ export default defineSchema({
     label: v.string(),
     year: v.number(),
     status: v.union(v.literal("bootstrapping"), v.literal("available")),
+    /** Absent on legacy rows and interpreted as regular season. */
+    competitionPhase: v.optional(
+      v.union(v.literal("regular_season"), v.literal("preseason")),
+    ),
     usableStartWeek: v.optional(v.number()),
     bootstrappedAtMs: v.optional(v.number()),
   })
     .index("by_status", ["status"])
     .index("by_label", ["label"]),
 
-  /** Provider-independent NFL Team identity. SportsDB ids are aliases only. */
+  /** Provider-independent NFL Team identity. Provider ids live in aliases. */
   nflTeams: defineTable({
     stableKey: v.string(),
     name: v.string(),
     abbreviation: v.string(),
     logoUrl: v.optional(v.string()),
-    sportsDbTeamId: v.string(),
-  })
-    .index("by_stableKey", ["stableKey"])
-    .index("by_sportsDbTeamId", ["sportsDbTeamId"]),
+  }).index("by_stableKey", ["stableKey"]),
 
   /** Provider-independent NFL Game identity for a Pool Season. */
   nflGames: defineTable({
@@ -100,33 +132,16 @@ export default defineSchema({
     /** Last observed / projected scores — never official until verified. */
     homeScore: v.union(v.number(), v.null()),
     awayScore: v.union(v.number(), v.null()),
-    sportsDbEventId: v.string(),
     /**
      * Result authority. Absent / "none" until live or terminal evidence arrives.
-     * Provisional finals are confirmation_pending — never official.
+     * A coherent terminal provider observation is immediately verified.
      */
     resultAuthority: v.optional(
       v.union(
         v.literal("none"),
         v.literal("projected"),
-        v.literal("confirmation_pending"),
         v.literal("verified"),
         v.literal("correction_candidate"),
-      ),
-    ),
-    provisionalTerminalAtMs: v.optional(v.number()),
-    confirmationObservations: v.optional(
-      v.array(
-        v.object({
-          observedAtMs: v.number(),
-          homeScore: v.number(),
-          awayScore: v.number(),
-          status: v.union(
-            v.literal("FT"),
-            v.literal("AOT"),
-            v.literal("CANC"),
-          ),
-        }),
       ),
     ),
     verifiedResult: v.optional(
@@ -157,13 +172,546 @@ export default defineSchema({
         supersededAtMs: v.number(),
       }),
     ),
+    /** Changed terminal evidence retained when downstream dependencies block auto-apply. */
+    correctionCandidate: v.optional(
+      v.object({
+        homeScore: v.number(),
+        awayScore: v.number(),
+        observedAtMs: v.number(),
+        status: v.union(
+          v.literal("FT"),
+          v.literal("AOT"),
+          v.literal("CANC"),
+        ),
+      }),
+    ),
+    /**
+     * Active Production Operator override. While present, this pinned result
+     * remains authoritative and provider observations are evidence-only.
+     */
+    pinnedResultOverrideId: v.optional(v.id("nflGameResultOverrides")),
     lastObservedAtMs: v.optional(v.number()),
     revision: v.optional(v.number()),
   })
     .index("by_stableKey", ["stableKey"])
     .index("by_seasonId_and_week", ["seasonId", "week"])
-    .index("by_sportsDbEventId", ["sportsDbEventId"])
+    .index(
+      "by_seasonId_and_week_and_homeTeamId_and_awayTeamId",
+      ["seasonId", "week", "homeTeamId", "awayTeamId"],
+    )
+    .index(
+      "by_seasonId_and_lifecycle_and_scheduledKickoffMs",
+      ["seasonId", "lifecycle", "scheduledKickoffMs"],
+    )
     .index("by_seasonId", ["seasonId"]),
+
+  /** Immutable history: one row for every Verified Result superseded by correction. */
+  nflGameResultHistory: defineTable({
+    nflGameId: v.id("nflGames"),
+    homeScore: v.number(),
+    awayScore: v.number(),
+    status: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    verifiedAtMs: v.number(),
+    supersededAtMs: v.number(),
+  })
+    .index("by_nflGameId", ["nflGameId"])
+    .index("by_nflGameId_and_supersededAtMs", [
+      "nflGameId",
+      "supersededAtMs",
+    ]),
+
+  /** Immutable provider evidence from every coherent correction lookup. */
+  nflGameResultReconciliationObservations: defineTable({
+    nflGameId: v.id("nflGames"),
+    /** Present when evidence was received during a specific pin episode. */
+    pinnedOverrideId: v.optional(v.id("nflGameResultOverrides")),
+    observedAtMs: v.number(),
+    homeScore: v.number(),
+    awayScore: v.number(),
+    status: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    matchesVerified: v.boolean(),
+    disposition: v.union(
+      v.literal("unchanged"),
+      v.literal("candidate"),
+      v.literal("corrected"),
+      v.literal("stale"),
+      v.literal("pinned_matching"),
+      v.literal("pinned_conflicting"),
+    ),
+  })
+    .index("by_nflGameId", ["nflGameId"])
+    .index("by_nflGameId_and_observedAtMs", [
+      "nflGameId",
+      "observedAtMs",
+    ])
+    .index("by_pinnedOverrideId_and_observedAtMs", [
+      "pinnedOverrideId",
+      "observedAtMs",
+    ])
+    .index(
+      "by_pinnedOverrideId_and_disposition_and_observedAtMs",
+      ["pinnedOverrideId", "disposition", "observedAtMs"],
+    ),
+
+  /** Append-only audit history for Production Operator result overrides. */
+  nflGameResultOverrides: defineTable({
+    /** Present only while the override is active in the live sports dataset. */
+    nflGameId: v.optional(v.id("nflGames")),
+    /** Denormalized permanent identity survives clean sports-data activation. */
+    gameStableKey: v.string(),
+    seasonLabel: v.string(),
+    gameWeek: v.number(),
+    homeTeamAbbreviation: v.string(),
+    awayTeamAbbreviation: v.string(),
+    status: v.union(v.literal("active"), v.literal("released")),
+    reason: v.string(),
+    replacedResult: v.object({
+      homeScore: v.number(),
+      awayScore: v.number(),
+      verifiedAtMs: v.number(),
+      status: v.union(
+        v.literal("FT"),
+        v.literal("AOT"),
+        v.literal("CANC"),
+      ),
+    }),
+    overrideResult: v.object({
+      homeScore: v.number(),
+      awayScore: v.number(),
+      verifiedAtMs: v.number(),
+      status: v.union(
+        v.literal("FT"),
+        v.literal("AOT"),
+        v.literal("CANC"),
+      ),
+    }),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    pinnedAtMs: v.number(),
+    /** Pending superseded-hold cleanup must complete before release. */
+    workflowCleanupId: v.optional(v.id("scoringHoldCleanups")),
+    releaseReason: v.optional(v.string()),
+    releasedAtMs: v.optional(v.number()),
+    releasedByTokenIdentifier: v.optional(v.string()),
+    releasedByClerkUserId: v.optional(v.string()),
+  })
+    .index("by_nflGameId_and_status", ["nflGameId", "status"])
+    .index("by_gameStableKey_and_pinnedAtMs", [
+      "gameStableKey",
+      "pinnedAtMs",
+    ])
+    .index("by_status_and_pinnedAtMs", ["status", "pinnedAtMs"])
+    .index("by_pinnedAtMs", ["pinnedAtMs"]),
+
+  /**
+   * Permanent, self-contained provider evidence for exactly one override
+   * episode. No transient sports-data document IDs are retained here.
+   */
+  nflGameResultOverrideEvidence: defineTable({
+    overrideId: v.id("nflGameResultOverrides"),
+    observedAtMs: v.number(),
+    homeScore: v.number(),
+    awayScore: v.number(),
+    status: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    disposition: v.union(
+      v.literal("pinned_matching"),
+      v.literal("pinned_conflicting"),
+    ),
+    // Permanent historical provenance is intentionally provider-neutral.
+    // Runtime writers remain constrained at their API boundary.
+    source: v.string(),
+  }).index(
+    "by_overrideId_and_disposition_and_observedAtMs",
+    ["overrideId", "disposition", "observedAtMs"],
+  ),
+
+  /**
+   * Replaceable provider aliases keep external identity off owning rows.
+   */
+  nflTeamAliases: defineTable({
+    nflTeamId: v.id("nflTeams"),
+    provider: v.string(),
+    externalId: v.string(),
+    isCurrent: v.boolean(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+  })
+    .index(
+      "by_provider_and_externalId_and_nflTeamId",
+      ["provider", "externalId", "nflTeamId"],
+    )
+    .index(
+      "by_nflTeamId_and_provider_and_isCurrent",
+      ["nflTeamId", "provider", "isCurrent"],
+    ),
+
+  nflGameAliases: defineTable({
+    nflGameId: v.id("nflGames"),
+    provider: v.string(),
+    externalId: v.string(),
+    isCurrent: v.boolean(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+  })
+    .index(
+      "by_provider_and_externalId_and_nflGameId",
+      ["provider", "externalId", "nflGameId"],
+    )
+    .index(
+      "by_nflGameId_and_provider_and_isCurrent",
+      ["nflGameId", "provider", "isCurrent"],
+    ),
+
+  /** Historical schedule facts used to reconcile replacement provider rows. */
+  nflGameScheduleHistory: defineTable({
+    nflGameId: v.id("nflGames"),
+    seasonId: v.id("poolSeasons"),
+    week: v.number(),
+    homeTeamId: v.id("nflTeams"),
+    awayTeamId: v.id("nflTeams"),
+    scheduledKickoffMs: v.number(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+  })
+    .index(
+      "by_nflGameId_and_scheduledKickoffMs",
+      ["nflGameId", "scheduledKickoffMs"],
+    )
+    .index("by_seasonId_and_week", ["seasonId", "week"]),
+
+  /**
+   * Raw provider status evidence for contract changes. Unknown statuses never
+   * replace the NFL Game's last trusted lifecycle.
+   */
+  sportsDataStatusEvidence: defineTable({
+    provider: v.string(),
+    externalId: v.string(),
+    nflGameId: v.optional(v.id("nflGames")),
+    rawShort: v.string(),
+    rawLong: v.string(),
+    recognized: v.boolean(),
+    firstObservedAtMs: v.number(),
+    lastObservedAtMs: v.number(),
+    observationCount: v.number(),
+    expiresAtMs: v.optional(v.number()),
+  })
+    .index(
+      "by_provider_and_externalId_and_rawShort_and_rawLong",
+      ["provider", "externalId", "rawShort", "rawLong"],
+    )
+    .index("by_lastObservedAtMs", ["lastObservedAtMs"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
+    .index("by_nflGameId_and_lastObservedAtMs", [
+      "nflGameId",
+      "lastObservedAtMs",
+    ]),
+
+  /**
+   * Permanent, append-only normalized transitions. Rows are self-contained so
+   * operational clean activation cannot erase the evidence needed to explain
+   * a historical competitive result.
+   */
+  providerGameEvidence: defineTable({
+    nflGameId: v.optional(v.id("nflGames")),
+    incidentId: v.optional(v.id("operatorIncidents")),
+    gameStableKey: v.string(),
+    seasonLabel: v.string(),
+    gameWeek: v.number(),
+    homeTeamAbbreviation: v.string(),
+    awayTeamAbbreviation: v.string(),
+    // Preserve exact historical provenance across provider contractions.
+    // Runtime writers remain constrained at their API boundary.
+    provider: v.string(),
+    externalId: v.optional(v.string()),
+    source: v.string(),
+    transitionKind: v.union(
+      v.literal("kickoff"),
+      v.literal("kickoff_lock"),
+      v.literal("lifecycle"),
+      v.literal("score"),
+      v.literal("terminal"),
+      v.literal("correction"),
+      v.literal("override"),
+    ),
+    changedFields: v.array(v.string()),
+    before: v.union(providerGameEvidenceState, v.null()),
+    after: providerGameEvidenceState,
+    fingerprint: v.string(),
+    observedAtMs: v.number(),
+    recordedAtMs: v.number(),
+  })
+    .index("by_fingerprint", ["fingerprint"])
+    .index("by_nflGameId_and_recordedAtMs", [
+      "nflGameId",
+      "recordedAtMs",
+    ])
+    .index("by_gameStableKey_and_recordedAtMs", [
+      "gameStableKey",
+      "recordedAtMs",
+    ])
+    .index("by_incidentId_and_recordedAtMs", [
+      "incidentId",
+      "recordedAtMs",
+    ]),
+
+  /**
+   * Thirty-day, server-sanitized request and no-op poll diagnostics. This
+   * table and the legacy diagnostic-only claims/exceptions/status tables are
+   * the only evidence storage retention cleanup may delete.
+   */
+  providerRequestDiagnostics: defineTable({
+    fingerprint: v.string(),
+    provider: v.literal("api-sports"),
+    surface: v.union(
+      v.literal("bootstrap"),
+      v.literal("schedule"),
+      v.literal("live"),
+      v.literal("correction"),
+      v.literal("operator"),
+    ),
+    scopeKey: v.optional(v.string()),
+    incidentId: v.optional(v.id("operatorIncidents")),
+    nflGameId: v.optional(v.id("nflGames")),
+    gameStableKey: v.optional(v.string()),
+    endpoint: v.union(
+      v.literal("/games"),
+      v.literal("/teams"),
+      v.literal("/status"),
+      v.literal("/unknown"),
+    ),
+    requestLeague: v.optional(v.number()),
+    requestSeason: v.optional(v.number()),
+    requestPage: v.optional(v.number()),
+    requestDate: v.optional(v.string()),
+    requestLive: v.optional(v.string()),
+    requestExternalId: v.optional(v.string()),
+    statusShortPreview: v.optional(v.string()),
+    statusLongPreview: v.optional(v.string()),
+    statusFingerprint: v.optional(v.string()),
+    statusRedacted: v.optional(v.boolean()),
+    outcome: v.union(
+      v.literal("success"),
+      v.literal("http_error"),
+      v.literal("rate_limited"),
+      v.literal("transport_error"),
+      v.literal("malformed"),
+      v.literal("no_change"),
+      v.literal("quarantined"),
+    ),
+    httpStatus: v.optional(v.number()),
+    bodyBytes: v.optional(v.number()),
+    responseFingerprint: v.optional(v.string()),
+    resultCount: v.optional(v.number()),
+    pagingCurrent: v.optional(v.number()),
+    pagingTotal: v.optional(v.number()),
+    quotaDailyLimit: v.optional(v.number()),
+    quotaDailyRemaining: v.optional(v.number()),
+    quotaMinuteLimit: v.optional(v.number()),
+    quotaMinuteRemaining: v.optional(v.number()),
+    firstRecordedAtMs: v.number(),
+    lastRecordedAtMs: v.number(),
+    observationCount: v.number(),
+    expiresAtMs: v.number(),
+    retentionClass: v.literal("diagnostic_30d"),
+  })
+    .index("by_fingerprint", ["fingerprint"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
+    .index("by_nflGameId_and_lastRecordedAtMs", [
+      "nflGameId",
+      "lastRecordedAtMs",
+    ])
+    .index("by_nflGameId_and_surface_and_lastRecordedAtMs", [
+      "nflGameId",
+      "surface",
+      "lastRecordedAtMs",
+    ])
+    .index("by_gameStableKey_and_lastRecordedAtMs", [
+      "gameStableKey",
+      "lastRecordedAtMs",
+    ])
+    .index("by_surface_and_scopeKey_and_lastRecordedAtMs", [
+      "surface",
+      "scopeKey",
+      "lastRecordedAtMs",
+    ])
+    .index("by_incidentId_and_lastRecordedAtMs", [
+      "incidentId",
+      "lastRecordedAtMs",
+    ]),
+
+  /** Durable fixed-cutoff progress for interruption-safe diagnostic cleanup. */
+  providerDiagnosticCleanupRuns: defineTable({
+    key: v.literal("provider-diagnostics"),
+    generation: v.number(),
+    cutoffMs: v.number(),
+    status: v.union(v.literal("running"), v.literal("complete")),
+    deletedCount: v.number(),
+    batchesCompleted: v.number(),
+    startedAtMs: v.number(),
+    updatedAtMs: v.number(),
+    completedAtMs: v.optional(v.number()),
+  }).index("by_key", ["key"]),
+
+  /** Per-game idempotency and successful-slate absence state for live sync. */
+  liveGameIngestionState: defineTable({
+    nflGameId: v.id("nflGames"),
+    lastFingerprint: v.optional(v.string()),
+    lastAppliedObservedAtMs: v.optional(v.number()),
+    consecutiveSuccessfulSlateMisses: v.number(),
+    lastSuccessfulSlateAtMs: v.optional(v.number()),
+  }).index("by_nflGameId", ["nflGameId"]),
+
+  /**
+   * Immutable parent report for a fetched Season Bootstrap candidate.
+   * A staged row is not an Available Season and cannot affect active domain
+   * data. Ticket #36 may activate only rows with activationEligible=true.
+   */
+  seasonBootstrapStages: defineTable({
+    seasonYear: v.number(),
+    sourceProvider: v.literal("api-sports"),
+    invariantsVersion: v.string(),
+    validationStatus: v.union(
+      v.literal("valid"),
+      v.literal("invalid"),
+    ),
+    activationEligible: v.boolean(),
+    teamCount: v.number(),
+    gameCount: v.number(),
+    weekCount: v.number(),
+    teamAliasCount: v.number(),
+    gameAliasCount: v.number(),
+    failureCount: v.number(),
+    storedFailureCount: v.number(),
+    failuresTruncated: v.boolean(),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    stagedAtMs: v.number(),
+  })
+    .index("by_seasonYear_and_stagedAtMs", [
+      "seasonYear",
+      "stagedAtMs",
+    ])
+    .index("by_validationStatus_and_stagedAtMs", [
+      "validationStatus",
+      "stagedAtMs",
+    ]),
+
+  /** Bounded child rows for a staged candidate's canonical NFL Teams. */
+  seasonBootstrapStagedTeams: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    stableKey: v.string(),
+    abbreviation: v.string(),
+    name: v.string(),
+    logoUrl: v.string(),
+  }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
+
+  /** Bounded child rows for a staged candidate's regular-season NFL Games. */
+  seasonBootstrapStagedGames: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    stableKey: v.string(),
+    seasonYear: v.number(),
+    week: v.number(),
+    homeTeamAbbreviation: v.string(),
+    awayTeamAbbreviation: v.string(),
+    homeTeamProviderAliasId: v.optional(v.string()),
+    awayTeamProviderAliasId: v.optional(v.string()),
+    scheduledKickoffMs: v.number(),
+    lifecycle: nflGameLifecycle,
+    homeScore: v.union(v.number(), v.null()),
+    awayScore: v.union(v.number(), v.null()),
+    observedAtMs: v.number(),
+  }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
+
+  /**
+   * Provider aliases remain replaceable child identities. Arrays are not
+   * embedded in stage/team/game documents.
+   */
+  seasonBootstrapStagedAliases: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    entityType: v.union(v.literal("team"), v.literal("game")),
+    entityStableKey: v.string(),
+    provider: v.string(),
+    externalId: v.string(),
+  })
+    .index("by_stageId_and_ordinal", ["stageId", "ordinal"])
+    .index("by_stageId_and_entityType_and_entityStableKey", [
+      "stageId",
+      "entityType",
+      "entityStableKey",
+    ]),
+
+  /** Actionable validation details stored separately from the parent report. */
+  seasonBootstrapValidationFailures: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    ordinal: v.number(),
+    code: v.string(),
+    scope: v.union(
+      v.literal("season"),
+      v.literal("team"),
+      v.literal("game"),
+      v.literal("alias"),
+    ),
+    entityKey: v.optional(v.string()),
+    message: v.string(),
+  }).index("by_stageId_and_ordinal", ["stageId", "ordinal"]),
+
+  /**
+   * One explicit, deployment-bound confirmation request for a clean Season
+   * Bootstrap activation. These rows are operational audit support and are
+   * preserved by clean activation.
+   */
+  seasonBootstrapActivationRequests: defineTable({
+    stageId: v.id("seasonBootstrapStages"),
+    seasonYear: v.number(),
+    deploymentKind: v.union(
+      v.literal("development"),
+      v.literal("production"),
+    ),
+    deploymentId: v.string(),
+    confirmationText: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("activated"),
+      v.literal("expired"),
+    ),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    requestedAtMs: v.number(),
+    expiresAtMs: v.number(),
+    activatedAtMs: v.optional(v.number()),
+    deletedCountsJson: v.optional(v.string()),
+    rebuiltCountsJson: v.optional(v.string()),
+    preservedCategories: v.array(v.string()),
+    protectedOperatorAuditBoundaryAtMs: v.optional(v.number()),
+    protectedOperatorAuditCount: v.optional(v.number()),
+    protectedOperatorAuditFingerprint: v.optional(v.string()),
+  })
+    .index("by_stageId_and_requestedAtMs", ["stageId", "requestedAtMs"])
+    .index("by_stageId_and_deploymentKind_and_deploymentId_and_status", [
+      "stageId",
+      "deploymentKind",
+      "deploymentId",
+      "status",
+    ])
+    .index("by_deploymentKind_and_requestedAtMs", [
+      "deploymentKind",
+      "requestedAtMs",
+    ]),
 
   /**
    * Active Pool competitive container. Pool Type and Pool Season are immutable
@@ -173,9 +721,19 @@ export default defineSchema({
    */
   pools: defineTable({
     name: v.string(),
+    /**
+     * Optional blurb visible to all members. Owner/Admin may edit anytime
+     * (not outcome-affecting). Absent/empty = no description.
+     */
+    description: v.optional(v.string()),
     type: poolType,
     seasonId: v.id("poolSeasons"),
     startWeek: v.number(),
+    /**
+     * Last included Survivor week. Absent means the regular-season default
+     * (Week 18) for legacy and ordinary pools.
+     */
+    finalWeek: v.optional(v.number()),
     pickLockMode: pickLockMode,
     status: v.union(v.literal("active"), v.literal("completed")),
     /** True after first accepted competitive edit or first Pick Lock. */
@@ -278,7 +836,7 @@ export default defineSchema({
 
   /**
    * Deployment Sync Gate singleton (key = "deployment").
-   * Dev defaults OFF; Production defaults ON after Season Bootstrap.
+   * Defaults OFF; production requires a current explicit qualification pass.
    */
   syncGate: defineTable({
     key: v.literal("deployment"),
@@ -295,6 +853,221 @@ export default defineSchema({
     atMs: v.number(),
     detailsJson: v.optional(v.string()),
   }).index("by_atMs", ["atMs"]),
+
+  /**
+   * Pool-specific gate created when corrected terminal evidence would rewrite
+   * scoring after a later competitive dependency has become official.
+   */
+  scoringHolds: defineTable({
+    evaluationId: v.optional(v.id("scoringHoldEvaluations")),
+    poolId: v.id("pools"),
+    gameId: v.id("nflGames"),
+    poolType: v.union(v.literal("survivor"), v.literal("confidence")),
+    gameWeek: v.number(),
+    dependency: v.union(
+      v.literal("later_game_lock"),
+      v.literal("later_weekly_cutoff"),
+      v.literal("settled_pool_week"),
+      v.literal("locked_survivor_pick"),
+      v.literal("non_provisional_survivor_pick"),
+      v.literal("locked_confidence_pick"),
+      v.literal("bounded_scope_exceeded"),
+    ),
+    candidateKey: v.string(),
+    dedupeKey: v.string(),
+    candidateHomeScore: v.number(),
+    candidateAwayScore: v.number(),
+    candidateObservedAtMs: v.number(),
+    candidateStatus: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    officialHomeScore: v.number(),
+    officialAwayScore: v.number(),
+    officialVerifiedAtMs: v.number(),
+    officialStatus: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAtMs: v.number(),
+    resolvedAtMs: v.optional(v.number()),
+    resolution: v.optional(
+      v.union(
+        v.literal("accepted_correction"),
+        v.literal("superseded_candidate"),
+        v.literal("withdrawn_candidate"),
+      ),
+    ),
+    resolvedByTokenIdentifier: v.optional(v.string()),
+    resolvedByClerkUserId: v.optional(v.string()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_poolId_and_status", ["poolId", "status"])
+    .index("by_poolId_and_status_and_gameWeek", [
+      "poolId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_poolId_and_gameId_and_status", [
+      "poolId",
+      "gameId",
+      "status",
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"])
+    .index("by_gameId_and_candidateKey", ["gameId", "candidateKey"])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ])
+    .index("by_status_and_createdAtMs", ["status", "createdAtMs"]),
+
+  /** Append-only watermark for writes that can create correction dependencies. */
+  scoringDependencyEvents: defineTable({
+    seasonId: v.id("poolSeasons"),
+    dependencyWeek: v.optional(v.number()),
+    recordedAtMs: v.number(),
+  }).index("by_seasonId", ["seasonId"]),
+
+  /** Cursor-batched, fail-closed evaluation of one semantic correction. */
+  scoringHoldEvaluations: defineTable({
+    seasonId: v.id("poolSeasons"),
+    gameId: v.id("nflGames"),
+    gameWeek: v.number(),
+    candidateKey: v.string(),
+    candidateHomeScore: v.number(),
+    candidateAwayScore: v.number(),
+    candidateObservedAtMs: v.number(),
+    candidateStatus: v.union(
+      v.literal("FT"),
+      v.literal("AOT"),
+      v.literal("CANC"),
+    ),
+    status: v.union(
+      v.literal("building"),
+      v.literal("complete"),
+      v.literal("incomplete"),
+      v.literal("abandoned"),
+      v.literal("applied"),
+    ),
+    cursor: v.optional(v.string()),
+    processedPools: v.number(),
+    holdCount: v.number(),
+    /** Latest append-only dependency event captured for the current full scan. */
+    dependencyEventId: v.optional(v.id("scoringDependencyEvents")),
+    startedAtMs: v.number(),
+    completedAtMs: v.optional(v.number()),
+    abandonedAtMs: v.optional(v.number()),
+  })
+    .index("by_seasonId_and_status", ["seasonId", "status"])
+    .index("by_seasonId_and_status_and_gameWeek", [
+      "seasonId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_gameId_and_candidateKey", ["gameId", "candidateKey"])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"]),
+
+  /** Durable retirement of superseded or withdrawn correction episodes. */
+  scoringHoldCleanups: defineTable({
+    seasonId: v.id("poolSeasons"),
+    gameId: v.id("nflGames"),
+    gameWeek: v.number(),
+    candidateKey: v.string(),
+    reason: v.union(
+      v.literal("superseded_candidate"),
+      v.literal("withdrawn_candidate"),
+    ),
+    status: v.union(v.literal("pending"), v.literal("complete")),
+    phase: v.union(v.literal("evaluations"), v.literal("holds")),
+    evaluationCursor: v.optional(v.string()),
+    holdCursor: v.optional(v.string()),
+    abandonedEvaluations: v.number(),
+    resolvedHolds: v.number(),
+    startedAtMs: v.number(),
+    completedAtMs: v.optional(v.number()),
+  })
+    .index("by_seasonId_and_status", ["seasonId", "status"])
+    .index("by_seasonId_and_status_and_gameWeek", [
+      "seasonId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"]),
+
+  /** Durable, fail-closed validation and application of an accepted result. */
+  scoringHoldAcceptances: defineTable({
+    seasonId: v.id("poolSeasons"),
+    gameId: v.id("nflGames"),
+    gameWeek: v.number(),
+    candidateKey: v.string(),
+    status: v.union(
+      v.literal("validating_evaluations"),
+      v.literal("validating_holds"),
+      v.literal("resolving_holds"),
+      v.literal("applying_evaluations"),
+      v.literal("complete"),
+      v.literal("abandoned"),
+      v.literal("rejected"),
+    ),
+    cursor: v.optional(v.string()),
+    validatedHolds: v.number(),
+    processedHolds: v.number(),
+    actorTokenIdentifier: v.string(),
+    actorClerkUserId: v.string(),
+    startedAtMs: v.number(),
+    appliedAtMs: v.optional(v.number()),
+    completedAtMs: v.optional(v.number()),
+    abandonedAtMs: v.optional(v.number()),
+  })
+    .index("by_seasonId_and_status", ["seasonId", "status"])
+    .index("by_seasonId_and_status_and_gameWeek", [
+      "seasonId",
+      "status",
+      "gameWeek",
+    ])
+    .index("by_gameId_and_candidateKey", ["gameId", "candidateKey"])
+    .index("by_gameId_and_candidateKey_and_status", [
+      "gameId",
+      "candidateKey",
+      "status",
+    ])
+    .index("by_gameId_and_status", ["gameId", "status"]),
+
+  /** Deduplicated scoring work suppressed while a correction gate is open. */
+  scoringBlockedWork: defineTable({
+    poolId: v.id("pools"),
+    kind: v.union(v.literal("survivor"), v.literal("confidence")),
+    week: v.number(),
+    dedupeKey: v.string(),
+    status: v.union(v.literal("pending"), v.literal("replayed")),
+    candidateKey: v.string(),
+    holdId: v.optional(v.id("scoringHolds")),
+    evaluationId: v.optional(v.id("scoringHoldEvaluations")),
+    cleanupId: v.optional(v.id("scoringHoldCleanups")),
+    acceptanceId: v.optional(v.id("scoringHoldAcceptances")),
+    blockedAtMs: v.number(),
+    replayedAtMs: v.optional(v.number()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_poolId_and_kind_and_status", [
+      "poolId",
+      "kind",
+      "status",
+    ]),
 
   /**
    * Ordinary Pool Invite — at most one active per Pool. Accept lookup uses
@@ -376,6 +1149,50 @@ export default defineSchema({
     .index("by_atMs", ["atMs"]),
 
   /**
+   * Authoritative API-Sports quota and circuit state. This singleton is
+   * intentionally aggregate-only; per-request diagnostics are a later concern.
+   */
+  providerReliabilityState: defineTable({
+    key: v.literal("api-sports"),
+    dailyWindowStartedAtMs: v.number(),
+    dailyResetAtMs: v.number(),
+    dailyUsed: v.number(),
+    routineDailyUsed: v.number(),
+    protectedDailyUsed: v.number(),
+    providerDailyLimit: v.optional(v.number()),
+    providerDailyRemaining: v.optional(v.number()),
+    minuteAdmissionTimestampsMs: v.array(v.number()),
+    providerMinuteWindowStartedAtMs: v.number(),
+    providerMinuteResetAtMs: v.number(),
+    providerMinuteUsed: v.number(),
+    providerMinuteLimit: v.optional(v.number()),
+    providerMinuteRemaining: v.optional(v.number()),
+    headerInconsistencyCount: v.number(),
+    staleHeaderCount: v.number(),
+    circuitStatus: v.union(
+      v.literal("closed"),
+      v.literal("open"),
+      v.literal("half_open"),
+    ),
+    circuitGeneration: v.number(),
+    consecutiveFailures: v.number(),
+    circuitOpenedAtMs: v.optional(v.number()),
+    circuitOpenUntilMs: v.optional(v.number()),
+    probeToken: v.optional(v.string()),
+    probeExpiresAtMs: v.optional(v.number()),
+    lastAttemptAtMs: v.optional(v.number()),
+    lastSuccessAtMs: v.optional(v.number()),
+    lastFailureAtMs: v.optional(v.number()),
+    recoveredAtMs: v.optional(v.number()),
+    deferredRoutineCount: v.number(),
+    rejectedRequestCount: v.number(),
+    circuitBlockedCount: v.number(),
+    lastDeferredAtMs: v.optional(v.number()),
+    lastFailureReason: v.optional(v.string()),
+    updatedAtMs: v.number(),
+  }).index("by_key", ["key"]),
+
+  /**
    * Provider fetch claim attempts — Sync Gate deny/allow + budget admission.
    * Used by the dispatcher and tests; clients never call the provider.
    */
@@ -387,29 +1204,32 @@ export default defineSchema({
     priority: v.optional(
       v.union(
         v.literal("routine"),
-        v.literal("confirmation"),
+        v.literal("recovery"),
         v.literal("operator"),
       ),
     ),
     workItemId: v.optional(v.id("syncWorkItems")),
-  }).index("by_claimedAtMs", ["claimedAtMs"]),
+    expiresAtMs: v.optional(v.number()),
+  })
+    .index("by_claimedAtMs", ["claimedAtMs"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
+    .index("by_status_and_claimedAtMs", ["status", "claimedAtMs"]),
 
   /**
-   * Durable sync work queue — schedule, live, confirmation, correction, operator.
+   * Durable sync work queue — schedule, live, correction, and operator work.
    * Coalesced by surface + scopeKey; dispatcher claims due items under budget.
    */
   syncWorkItems: defineTable({
     surface: v.union(
       v.literal("schedule"),
       v.literal("live"),
-      v.literal("confirmation"),
       v.literal("correction"),
       v.literal("operator"),
     ),
     scopeKey: v.string(),
     priority: v.union(
       v.literal("routine"),
-      v.literal("confirmation"),
+      v.literal("recovery"),
       v.literal("operator"),
     ),
     status: v.union(
@@ -423,10 +1243,29 @@ export default defineSchema({
     leaseExpiresAtMs: v.optional(v.number()),
     attemptCount: v.number(),
     gameId: v.optional(v.id("nflGames")),
+    /** Exact pin episode expected by targeted evidence work. */
+    pinnedResultOverrideId: v.optional(v.id("nflGameResultOverrides")),
     seasonId: v.optional(v.id("poolSeasons")),
     purpose: v.optional(v.string()),
+    deferredReason: v.optional(v.string()),
+    deferredAtMs: v.optional(v.number()),
+    isProviderDeferred: v.optional(v.boolean()),
   })
     .index("by_status_and_dueAtMs", ["status", "dueAtMs"])
+    .index("by_status_and_leaseExpiresAtMs", [
+      "status",
+      "leaseExpiresAtMs",
+    ])
+    .index("by_status_and_priority_and_dueAtMs", [
+      "status",
+      "priority",
+      "dueAtMs",
+    ])
+    .index("by_status_and_isProviderDeferred_and_dueAtMs", [
+      "status",
+      "isProviderDeferred",
+      "dueAtMs",
+    ])
     .index("by_scopeKey", ["scopeKey"])
     .index("by_gameId", ["gameId"]),
 
@@ -445,6 +1284,19 @@ export default defineSchema({
   }).index("by_surface_and_scopeKey", ["surface", "scopeKey"]),
 
   /**
+   * One durable episode anchor for the global API-Sports live feed watchdog.
+   * This is dataset freshness state and is reset by clean activation.
+   */
+  liveIngestionWatchdogState: defineTable({
+    key: v.literal("live:nfl"),
+    active: v.boolean(),
+    activeWindowStartedAtMs: v.optional(v.number()),
+    lastSuccessfulExpectedIngestionAtMs: v.optional(v.number()),
+    lastEvaluatedAtMs: v.number(),
+    updatedAtMs: v.number(),
+  }).index("by_key", ["key"]),
+
+  /**
    * Provider Exception records — distinguishable from Late / Stale freshness.
    * Opening an Operator Incident is handled by the incidents module (ticket 13).
    */
@@ -455,8 +1307,11 @@ export default defineSchema({
     message: v.string(),
     createdAtMs: v.number(),
     resolvedAtMs: v.optional(v.number()),
+    expiresAtMs: v.optional(v.number()),
   })
     .index("by_createdAtMs", ["createdAtMs"])
+    .index("by_expiresAtMs", ["expiresAtMs"])
+    .index("by_scopeKey_and_createdAtMs", ["scopeKey", "createdAtMs"])
     .index("by_gameId", ["gameId"]),
 
   /**
@@ -468,7 +1323,6 @@ export default defineSchema({
       v.literal("provider_exception"),
       v.literal("stale_in_window"),
       v.literal("scoring_delayed"),
-      v.literal("quarantine_past_confirmation"),
       v.literal("convex_capacity"),
     ),
     status: v.union(
@@ -481,17 +1335,33 @@ export default defineSchema({
     scopeKey: v.string(),
     dedupeKey: v.string(),
     participantVisible: v.boolean(),
+    severity: v.optional(
+      v.union(v.literal("warning"), v.literal("critical")),
+    ),
     summary: v.string(),
     openedAtMs: v.number(),
+    criticalAtMs: v.optional(v.number()),
+    lastSuccessfulIngestionAtMs: v.optional(v.number()),
+    watchdogReferenceAtMs: v.optional(v.number()),
     acknowledgedAtMs: v.optional(v.number()),
     resolvedAtMs: v.optional(v.number()),
     resolutionNote: v.optional(v.string()),
+    resolutionCause: v.optional(
+      v.union(
+        v.literal("healthy_ingestion"),
+        v.literal("window_ended"),
+      ),
+    ),
     resolvedAutomatically: v.optional(v.boolean()),
     /** Never true while an incident is open — picking continues. */
     maintenanceLock: v.literal(false),
   })
     .index("by_dedupeKey_and_status", ["dedupeKey", "status"])
     .index("by_status_and_openedAtMs", ["status", "openedAtMs"])
+    .index(
+      "by_status_and_surface_and_openedAtMs",
+      ["status", "surface", "openedAtMs"],
+    )
     .index("by_participantVisible_and_status", [
       "participantVisible",
       "status",
@@ -516,11 +1386,17 @@ export default defineSchema({
     /** Advance / future-week pick while earlier weeks are unsettled. */
     provisional: v.boolean(),
     /**
-     * Set when earlier elimination invalidates a later Provisional Survivor
-     * Pick — team reservation is released and the team is not consumed.
+     * Set when an earlier elimination or pre-lock cancellation invalidates a
+     * Survivor Pick — reservation is released and the team is not consumed.
      */
     invalidated: v.optional(v.boolean()),
     invalidatedAtMs: v.optional(v.number()),
+    invalidationReason: v.optional(
+      v.union(
+        v.literal("earlier_elimination"),
+        v.literal("pre_lock_cancellation"),
+      ),
+    ),
     updatedAtMs: v.number(),
   })
     .index("by_poolId_and_participantId_and_week", [
@@ -530,6 +1406,12 @@ export default defineSchema({
     ])
     .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
     .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_locked_and_week", ["poolId", "locked", "week"])
+    .index("by_poolId_and_provisional_and_week", [
+      "poolId",
+      "provisional",
+      "week",
+    ])
     .index("by_poolId_and_participantId", ["poolId", "participantId"])
     .index("by_entryId", ["entryId"]),
 
@@ -635,6 +1517,7 @@ export default defineSchema({
     .index("by_poolId_and_entryId_and_week", ["poolId", "entryId", "week"])
     .index("by_poolId_and_week_and_gameId", ["poolId", "week", "gameId"])
     .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_locked_and_week", ["poolId", "locked", "week"])
     .index("by_entryId", ["entryId"]),
 
   /**
@@ -649,7 +1532,9 @@ export default defineSchema({
     currentScoringRevisionId: v.optional(v.id("scoringRevisions")),
     currentRevisionNumber: v.optional(v.number()),
     updatedAtMs: v.number(),
-  }).index("by_poolId_and_week", ["poolId", "week"]),
+  })
+    .index("by_poolId_and_week", ["poolId", "week"])
+    .index("by_poolId_and_settled_and_week", ["poolId", "settled", "week"]),
 
   /**
    * Immutable official Scoring Revision for one Pool Week.

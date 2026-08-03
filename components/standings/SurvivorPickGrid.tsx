@@ -121,7 +121,7 @@ export function SurvivorPickGrid({
           <thead>
             <tr className="bg-op-control">
               <th
-                className={`sticky left-0 z-20 overflow-hidden border-r border-op-border bg-op-control px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5 ${PLAYER_COL} ${uiType.eyebrow}`}
+                className={`op-sticky-control sticky left-0 z-20 overflow-hidden border-r border-op-border px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5 ${PLAYER_COL} ${uiType.eyebrow}`}
               >
                 Player
               </th>
@@ -163,7 +163,7 @@ export function SurvivorPickGrid({
                 );
               })}
               <th
-                className={`sticky right-0 z-20 overflow-hidden border-l border-op-border bg-op-control px-2 py-2.5 text-right min-[900px]:px-5 min-[900px]:py-3.5 ${STATUS_COL} ${uiType.eyebrow}`}
+                className={`op-sticky-control sticky right-0 z-20 overflow-hidden border-l border-op-border px-2 py-2.5 text-right min-[900px]:px-5 min-[900px]:py-3.5 ${STATUS_COL} ${uiType.eyebrow}`}
               >
                 Status
               </th>
@@ -175,7 +175,7 @@ export function SurvivorPickGrid({
                 index === firstEliminatedIndex && firstEliminatedIndex > 0;
               const isLastRow = index === rows.length - 1;
               const playerBg = row.isViewer
-                ? "bg-op-selected"
+                ? "op-sticky-selected"
                 : "bg-op-surface group-hover:bg-op-canvas";
               return (
                 <Fragment key={row.entryId ?? row.participantId}>

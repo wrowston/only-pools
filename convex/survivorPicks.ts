@@ -12,12 +12,14 @@ import {
 } from "./lib/pickLock";
 import { isPoolArchived } from "./lib/poolArchive";
 import { SURVIVOR_ONE_USE_MESSAGE } from "./lib/survivorMessages";
+import { resolveSurvivorFinalWeek } from "./lib/survivorScoring";
 import {
   ensurePrimaryEntryIfMissing,
   listActivePoolEntries,
   requireOwnedActiveEntry,
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 
 const log = createLogger("survivorPicks");
 
@@ -225,7 +227,10 @@ export const autosaveSurvivorPick = mutation({
       );
     }
 
-    if (args.week < pool.startWeek || args.week > 18) {
+    if (
+      args.week < pool.startWeek ||
+      args.week > resolveSurvivorFinalWeek(pool)
+    ) {
       throw new SurvivorPickError("Week is outside this Pool's included weeks");
     }
 
@@ -300,6 +305,9 @@ export const autosaveSurvivorPick = mutation({
     }
 
     const provisional = args.week > pool.startWeek;
+    const createsNonProvisionalDependency =
+      !provisional &&
+      (!existingPick || existingPick.provisional === true);
 
     if (existingPick) {
       const previousTeamId = existingPick.nflTeamId;
@@ -337,6 +345,7 @@ export const autosaveSurvivorPick = mutation({
         provenance: "authored",
         invalidated: undefined,
         invalidatedAtMs: undefined,
+        invalidationReason: undefined,
         updatedAtMs: nowMs,
       });
     } else {
@@ -364,6 +373,13 @@ export const autosaveSurvivorPick = mutation({
 
     if (!pool.rulesFrozen) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
+    }
+    if (createsNonProvisionalDependency) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
     }
 
     await writeSanitizedAudit(ctx, {
@@ -424,6 +440,12 @@ export const materializeSurvivorLocks = mutation({
     if (pool.type !== "survivor") {
       return { lockedCount: 0, omissionCount: 0 };
     }
+    if (
+      args.week < pool.startWeek ||
+      args.week > resolveSurvivorFinalWeek(pool)
+    ) {
+      throw new SurvivorPickError("Week is outside this Pool's included weeks");
+    }
 
     const nowMs = Date.now();
     const games = await loadWeekGames(ctx, pool.seasonId, args.week);
@@ -448,6 +470,7 @@ export const materializeSurvivorLocks = mutation({
       }),
     );
 
+    let kickoffLatchCount = 0;
     for (const g of games) {
       if (
         g.kickoffLockReachedAtMs == null &&
@@ -461,6 +484,7 @@ export const materializeSurvivorLocks = mutation({
         await ctx.db.patch(g._id, {
           kickoffLockReachedAtMs: Math.min(nowMs, g.scheduledKickoffMs),
         });
+        kickoffLatchCount += 1;
       }
     }
 
@@ -523,6 +547,17 @@ export const materializeSurvivorLocks = mutation({
     if ((lockedCount > 0 || omissionCount > 0) && !pool.rulesFrozen) {
       await ctx.db.patch(pool._id, { rulesFrozen: true });
     }
+    if (
+      kickoffLatchCount > 0 ||
+      lockedCount > 0 ||
+      omissionCount > 0
+    ) {
+      await recordScoringDependencyEvent(
+        ctx,
+        pool.seasonId,
+        args.week,
+      );
+    }
 
     log.info("survivor_locks_materialized", {
       poolId: pool._id,
@@ -551,6 +586,15 @@ export const getMySurvivorPick = query({
       throw new SurvivorPickError("Pool not found");
     }
     await requirePoolMembership(ctx, pool._id, participant._id);
+    if (pool.type !== "survivor") {
+      throw new SurvivorPickError("Survivor picks only apply to Survivor Pools");
+    }
+    if (
+      args.week < pool.startWeek ||
+      args.week > resolveSurvivorFinalWeek(pool)
+    ) {
+      throw new SurvivorPickError("Week is outside this Pool's included weeks");
+    }
 
     const entry = await requireOwnedActiveEntry(ctx, {
       poolId: pool._id,

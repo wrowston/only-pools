@@ -1,23 +1,21 @@
-# Domain docs
+# Domain Docs
 
-How engineering skills should consume this repository's domain documentation.
+This is a single-context repository.
 
-## Before exploring
+## Required reading
 
-- Read the root `CONTEXT.md` glossary.
+Before exploring or changing the domain:
+
+- Read `CONTEXT.md` at the repository root.
 - Read relevant ADRs under `docs/adr/` when that directory exists.
-- Proceed silently when a referenced domain document or ADR directory does not exist.
 
-## Layout
-
-This is a single-context repository. Its shared glossary lives at the repository root, and system-wide architectural decisions belong under `docs/adr/`.
+Proceed silently when a referenced documentation location does not exist.
 
 ## Vocabulary
 
-Use the canonical terms defined in `CONTEXT.md` in specifications, issues, test names, and implementation notes. Do not substitute synonyms that the glossary explicitly marks as avoided.
+Use the terms defined in `CONTEXT.md` in specifications, issues, tests, and
+implementation. Do not replace them with synonyms that the glossary marks as
+avoided.
 
-If a needed concept is absent, reconsider whether existing vocabulary already covers it. When it represents a genuine domain gap, note it for later domain modeling rather than silently inventing competing language.
-
-## ADR conflicts
-
-Surface any conflict with an existing ADR explicitly instead of silently overriding the recorded decision.
+If a proposed change contradicts an ADR, surface the conflict explicitly
+instead of silently overriding it.

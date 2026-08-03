@@ -30,15 +30,6 @@ export const liveObservationValidator = v.object({
   terminalStatus: v.optional(terminalStatusValidator),
 });
 
-export const confirmationObservationValidator = v.object({
-  gameId: v.id("nflGames"),
-  observedAtMs: v.number(),
-  homeScore: v.number(),
-  awayScore: v.number(),
-  status: terminalStatusValidator,
-  lookupFailed: v.optional(v.boolean()),
-});
-
 export const scheduleObservationValidator = v.object({
   gameId: v.id("nflGames"),
   observedAtMs: v.number(),
@@ -47,15 +38,6 @@ export const scheduleObservationValidator = v.object({
 });
 
 export const LEASE_MS = 90_000;
-export const CONFIRMATION_15_MS = 15 * 60 * 1000;
-export const CONFIRMATION_60_MS = 60 * 60 * 1000;
-
-export function confirmationScopeKey(
-  gameId: string,
-  purpose: "confirmation_15" | "confirmation_60",
-): string {
-  return `confirmation:${gameId}:${purpose}`;
-}
 
 export function liveScopeKey(seasonId: string): string {
   return `live:${seasonId}`;

@@ -2,7 +2,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { hashInviteCredential } from "./lib/inviteCrypto";
 import { INVITE_UNAVAILABLE } from "./lib/inviteThrottle";
@@ -55,13 +54,11 @@ async function seedAvailableSeasonWithSlate(
       stableKey: "nfl:kc",
       name: "Kansas City Chiefs",
       abbreviation: "KC",
-      sportsDbTeamId: "134934",
     });
     const awayId = await ctx.db.insert("nflTeams", {
       stableKey: "nfl:buf",
       name: "Buffalo Bills",
       abbreviation: "BUF",
-      sportsDbTeamId: "134918",
     });
 
     const gameId = await ctx.db.insert("nflGames", {
@@ -75,7 +72,6 @@ async function seedAvailableSeasonWithSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w1",
     });
 
     await ctx.db.insert("nflGames", {
@@ -89,7 +85,6 @@ async function seedAvailableSeasonWithSlate(
       lifecycle: "scheduled",
       homeScore: null,
       awayScore: null,
-      sportsDbEventId: "evt_w2",
     });
 
     return { seasonId, homeId, awayId, week1Kickoff, week2Kickoff, gameId };

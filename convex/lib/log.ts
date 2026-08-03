@@ -82,11 +82,12 @@ export function sanitizeLogFields(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Strip TheSportsDB API keys from URLs before logging. */
+/** Strip provider API keys from URL query strings before logging. */
 export function redactProviderUrl(url: string): string {
-  return url
-    .replace(/\/api\/v1\/json\/[^/?#]+/gi, "/api/v1/json/[redacted]")
-    .replace(/([?&](?:api_?key|key)=)[^&]*/gi, "$1[redacted]");
+  return url.replace(
+    /([?&](?:api_?key|key)=)[^&]*/gi,
+    "$1[redacted]",
+  );
 }
 
 export function errorMessage(error: unknown): string {

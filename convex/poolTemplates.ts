@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { isRegularPoolSeason } from "./lib/poolSeason";
 import { AuthError, requireParticipant } from "./lib/auth";
 import { markOwnerPoolCreated } from "./helpPrompt";
 import {
@@ -22,6 +23,7 @@ import {
   MAX_OWNED_POOLS,
   MAX_POOL_ENTRIES,
 } from "./lib/quotas";
+import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   assertValidMaxEntriesPerUser,
   countActivePoolEntries,
@@ -53,8 +55,8 @@ async function requireAvailableSeason(
   const seasons = await ctx.db
     .query("poolSeasons")
     .withIndex("by_status", (q) => q.eq("status", "available"))
-    .take(1);
-  const season = seasons[0];
+    .take(20);
+  const season = seasons.find(isRegularPoolSeason);
   if (!season) {
     throw new TemplateError("No Available Season — Create Pool is disabled");
   }
@@ -190,8 +192,8 @@ export const listMyTemplates = query({
     const available = await ctx.db
       .query("poolSeasons")
       .withIndex("by_status", (q) => q.eq("status", "available"))
-      .take(1);
-    const availableSeason = available[0];
+      .take(20);
+    const availableSeason = available.find(isRegularPoolSeason);
     if (!availableSeason) {
       return [];
     }
@@ -321,6 +323,9 @@ export const createPoolFromTemplate = mutation({
 
     const poolId = await ctx.db.insert("pools", {
       name,
+      ...(source.description !== undefined
+        ? { description: source.description }
+        : {}),
       type: source.type,
       seasonId: availableSeason._id,
       startWeek,
@@ -332,6 +337,7 @@ export const createPoolFromTemplate = mutation({
       createdAtMs: nowMs,
       maxEntriesPerUser,
     });
+    await recordScoringDependencyEvent(ctx, availableSeason._id);
 
     const membershipId = await ctx.db.insert("poolMemberships", {
       poolId,

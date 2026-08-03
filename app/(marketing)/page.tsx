@@ -58,7 +58,7 @@ export default function Home() {
         <div className="op-marketing-enter relative mx-auto flex max-w-[900px] flex-col items-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-op-border-strong bg-op-surface/85 px-3 py-1.5 text-[11px] font-medium text-op-secondary backdrop-blur-sm sm:text-xs">
             <span className="h-1.5 w-1.5 rounded-full bg-op-heat" />
-            Built to replace Splash Sports
+            Beta testing is now open
           </div>
 
           <h1 className="mt-7 max-w-[15ch] text-[clamp(2.75rem,5.5vw,4.25rem)] font-medium leading-[1] tracking-[-0.04em] text-op-text">

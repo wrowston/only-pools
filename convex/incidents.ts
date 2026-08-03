@@ -22,6 +22,11 @@ import {
   type IncidentTriggerInput,
   type IncidentType,
 } from "./lib/incidents";
+import { LIVE_INGESTION_WATCHDOG } from "./lib/liveIngestionWatchdog";
+import {
+  loadLiveOperatorContext,
+  withLiveOperatorDetails,
+} from "./lib/liveIngestionOperatorDetails";
 import { createLogger } from "./lib/log";
 import { isProductionOperator } from "./lib/operator";
 import { captureIncidentSignal } from "./lib/sentry";
@@ -125,13 +130,6 @@ const scoringDelayedTrigger = v.object({
   nowMs: v.number(),
 });
 
-const quarantineTrigger = v.object({
-  kind: v.literal("quarantine_past_confirmation"),
-  confirmationWindowEndsAtMs: v.number(),
-  nowMs: v.number(),
-  verificationBlocked: v.boolean(),
-});
-
 const capacityTrigger = v.object({
   kind: v.literal("convex_capacity"),
   utilizationRatio: v.number(),
@@ -145,7 +143,6 @@ const providerExceptionTrigger = v.object({
 const incidentTriggerValidator = v.union(
   freshnessTrigger,
   scoringDelayedTrigger,
-  quarantineTrigger,
   capacityTrigger,
   providerExceptionTrigger,
 );
@@ -247,7 +244,6 @@ export const evaluateAndOpenIncident = internalMutation({
     });
   },
 });
-
 /**
  * Auto-resolve open incidents for a dedupe key when the condition clears.
  */
@@ -257,7 +253,6 @@ export const autoResolveIncident = internalMutation({
       v.literal("provider_exception"),
       v.literal("stale_in_window"),
       v.literal("scoring_delayed"),
-      v.literal("quarantine_past_confirmation"),
       v.literal("convex_capacity"),
     ),
     surface: v.string(),
@@ -304,6 +299,9 @@ export const autoResolveIncident = internalMutation({
 export const getParticipantStatusBanner = query({
   args: {},
   handler: async (ctx) => {
+    if ((await ctx.auth.getUserIdentity()) === null) {
+      throw new AuthError("Unauthenticated");
+    }
     // Prefer most recent open → acknowledged → in_progress among visible.
     const candidates: Doc<"operatorIncidents">[] = [];
     for (const status of OPEN_STATUSES) {
@@ -312,6 +310,7 @@ export const getParticipantStatusBanner = query({
         .withIndex("by_participantVisible_and_status", (q) =>
           q.eq("participantVisible", true).eq("status", status),
         )
+        .order("desc")
         .take(20);
       candidates.push(...rows);
     }
@@ -320,15 +319,25 @@ export const getParticipantStatusBanner = query({
 
     candidates.sort((a, b) => b.openedAtMs - a.openedAtMs);
     const top = candidates[0]!;
-    return {
-      incidentId: top._id,
-      type: top.type,
+    const base = {
       status: top.status,
+      severity: top.severity ?? "critical",
       summary: top.summary,
-      openedAtMs: top.openedAtMs,
       /** Always false — no Pool-wide maintenance lock during repair. */
       maintenanceLock: false as const,
     };
+    if (
+      top.surface === LIVE_INGESTION_WATCHDOG.surface &&
+      top.scopeKey === LIVE_INGESTION_WATCHDOG.scopeKey
+    ) {
+      return {
+        ...base,
+        summary: "Scores are delayed.",
+        lastSuccessfulUpdateAtMs:
+          top.lastSuccessfulIngestionAtMs ?? null,
+      };
+    }
+    return base;
   },
 });
 
@@ -348,19 +357,30 @@ export const listOperatorIncidents = query({
       const rows = await ctx.db
         .query("operatorIncidents")
         .withIndex("by_status_and_openedAtMs", (q) => q.eq("status", status))
+        .order("desc")
         .take(100);
       open.push(...rows);
     }
+    const operatorContext = await loadLiveOperatorContext(ctx);
 
     if (!includeResolved) {
-      return open.sort((a, b) => b.openedAtMs - a.openedAtMs);
+      return open
+        .sort((a, b) => b.openedAtMs - a.openedAtMs)
+        .map((incident) =>
+          withLiveOperatorDetails(incident, operatorContext),
+        );
     }
 
     const resolved = await ctx.db
       .query("operatorIncidents")
       .withIndex("by_status_and_openedAtMs", (q) => q.eq("status", "resolved"))
+      .order("desc")
       .take(100);
-    return [...open, ...resolved].sort((a, b) => b.openedAtMs - a.openedAtMs);
+    return [...open, ...resolved]
+      .sort((a, b) => b.openedAtMs - a.openedAtMs)
+      .map((incident) =>
+        withLiveOperatorDetails(incident, operatorContext),
+      );
   },
 });
 
@@ -504,7 +524,6 @@ export const requestAuditedResync = mutation({
     surface: v.union(
       v.literal("schedule"),
       v.literal("live"),
-      v.literal("confirmation"),
       v.literal("correction"),
     ),
     scopeKey: v.string(),
@@ -687,7 +706,6 @@ export const openIncidentForTest = internalMutation({
       v.literal("provider_exception"),
       v.literal("stale_in_window"),
       v.literal("scoring_delayed"),
-      v.literal("quarantine_past_confirmation"),
       v.literal("convex_capacity"),
     ),
     surface: v.string(),
@@ -781,31 +799,5 @@ export const checkScoringDelayForGame = internalMutation({
       if (result.opened) opened += 1;
     }
     return { opened };
-  },
-});
-
-/**
- * Open a quarantine incident when verification remains blocked past confirmation.
- */
-export const checkQuarantinePastConfirmation = internalMutation({
-  args: {
-    gameId: v.id("nflGames"),
-    confirmationWindowEndsAtMs: v.number(),
-    verificationBlocked: v.boolean(),
-    nowMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const nowMs = args.nowMs ?? Date.now();
-    return await openFromTrigger(ctx, {
-      trigger: {
-        kind: "quarantine_past_confirmation",
-        confirmationWindowEndsAtMs: args.confirmationWindowEndsAtMs,
-        nowMs,
-        verificationBlocked: args.verificationBlocked,
-      },
-      surface: "confirmation",
-      scopeKey: `game:${args.gameId}`,
-      nowMs,
-    });
   },
 });
