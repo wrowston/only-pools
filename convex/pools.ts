@@ -728,6 +728,50 @@ export const listAvailableStartWeeks = query({
  * see completion (hasPick) without Hidden Pick team identity.
  * Confidence: own predictions/values visible; opponents Hidden until lock.
  */
+/**
+ * Thin pool chrome payload: name + type for shell / standings routing.
+ * Avoids loading the full week board just to detect Pool Type.
+ */
+export const getPoolShell = query({
+  args: {
+    poolId: v.id("pools"),
+  },
+  returns: v.union(
+    v.object({
+      poolId: v.id("pools"),
+      name: v.string(),
+      type: poolTypeValidator,
+      status: v.union(v.literal("active"), v.literal("completed")),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    let participant;
+    try {
+      participant = await requireParticipant(ctx);
+    } catch (error) {
+      if (error instanceof AuthError) return null;
+      throw error;
+    }
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) return null;
+
+    try {
+      await requirePoolMembership(ctx, pool._id, participant._id);
+    } catch (error) {
+      if (error instanceof AuthError) return null;
+      throw error;
+    }
+
+    return {
+      poolId: pool._id,
+      name: pool.name,
+      type: pool.type,
+      status: pool.status,
+    };
+  },
+});
+
 export const getWeekBoard = query({
   args: {
     poolId: v.id("pools"),

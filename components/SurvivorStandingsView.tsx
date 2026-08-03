@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 import { currentSurvivorStandingsWeek } from "@/lib/survivorStandings";
 import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
@@ -22,9 +23,13 @@ export function SurvivorStandingsView({
   poolId: Id<"pools">;
 }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const standings = useQuery(
+  const liveStandings = useQuery(
     api.survivorScoring.getSurvivorStandingsGrid,
     isAuthenticated ? { poolId } : "skip",
+  );
+  const { value: standings, isPrevious } = resolveKeepPrevious(
+    `survivorStandings:${poolId}`,
+    liveStandings,
   );
 
   const currentWeek = useMemo(() => {
@@ -58,7 +63,10 @@ export function SurvivorStandingsView({
   }
 
   return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 min-[900px]:max-w-none min-[900px]:px-8 min-[900px]:py-10">
+      <div
+        className={`mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 min-[900px]:max-w-none min-[900px]:px-8 min-[900px]:py-10 ${isPrevious ? "opacity-90" : ""}`}
+        aria-busy={isPrevious || undefined}
+      >
         <header className="flex flex-col gap-1">
           <h1 className={`${uiType.title} min-[900px]:text-3xl`}>Standings</h1>
           <p className="text-sm text-op-secondary min-[900px]:text-[15px]">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth, useUser } from "@clerk/nextjs";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowUpRightIcon, LayersIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -29,7 +29,11 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { prewarmPoolSection } from "@/lib/convexRouteData";
+import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
+import { useRoutePrewarmIntent } from "@/lib/useRoutePrewarmIntent";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
 import type { FunctionReturnType } from "convex/server";
 
@@ -89,13 +93,25 @@ function actionChip(m: Membership): { tone: StatusChipTone; label: string } {
 }
 
 function MembershipRow({ m }: { m: Membership }) {
+  const convex = useConvex();
+  const { isAuthenticated } = useConvexAuth();
   const action = actionChip(m);
+  const prewarmHandlers = useRoutePrewarmIntent(() => {
+    if (!isAuthenticated) return;
+    prewarmPoolSection(
+      convex,
+      m.poolId as Id<"pools">,
+      "board",
+      m.type,
+    );
+  });
+
   return (
     <Item
       variant="default"
       size="sm"
       className="rounded-none border-0 px-4 py-3.5"
-      render={<Link href={`/pools/${m.poolId}`} />}
+      render={<Link href={`/pools/${m.poolId}`} {...prewarmHandlers} />}
     >
       <ItemContent className="gap-1.5">
         <ItemTitle className="text-op-text">{m.name}</ItemTitle>
@@ -134,9 +150,13 @@ function MyPoolsHome() {
   const searchParams = useSearchParams();
   const includeArchived = searchParams.get("archived") === "1";
   const ensureMyParticipant = useMutation(api.participants.ensureMyParticipant);
-  const myPools = useQuery(
+  const liveMyPools = useQuery(
     api.participants.myPools,
     isAuthenticated ? { includeArchived } : "skip",
+  );
+  const { value: myPools, isPrevious } = resolveKeepPrevious(
+    `myPools:${includeArchived ? "archived" : "active"}`,
+    liveMyPools,
   );
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [ensured, setEnsured] = useState(false);
@@ -295,7 +315,10 @@ function MyPoolsHome() {
   }
 
   return (
-    <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
+    <div
+      className={`op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12 ${isPrevious ? "opacity-90" : ""}`}
+      aria-busy={isPrevious || undefined}
+    >
       <header className="flex flex-col gap-2">
         <h1 className="text-3xl font-medium tracking-tight text-op-text">
           My Pools
@@ -369,9 +392,9 @@ export default function MyPoolsPage() {
 
 function MyPoolsGate() {
   const { isLoaded, isSignedIn } = useAuth();
-  const { isLoaded: userLoaded } = useUser();
 
-  if (!isLoaded || !userLoaded) {
+  // Do not also wait on useUser — avatar sync can finish after first paint.
+  if (!isLoaded) {
     return <MyPoolsSkeleton />;
   }
 
