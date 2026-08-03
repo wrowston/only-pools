@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as applyStagedSchedule from "../applyStagedSchedule.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as confidencePicks from "../confidencePicks.js";
 import type * as confidenceScoring from "../confidenceScoring.js";
@@ -127,6 +128,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  applyStagedSchedule: typeof applyStagedSchedule;
   bootstrap: typeof bootstrap;
   confidencePicks: typeof confidencePicks;
   confidenceScoring: typeof confidenceScoring;
