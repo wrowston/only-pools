@@ -122,10 +122,7 @@ describe("Help delivery durability (issue #23)", () => {
     await t.finishInProgressScheduledFunctions();
   }
 
-  async function runDueDelivery(
-    t: HelpTest,
-    intakeId: Id<"helpIntake">,
-  ) {
+  async function runDueDelivery(t: HelpTest, intakeId: Id<"helpIntake">) {
     await t.run(async (ctx) => {
       const doc = await ctx.db.get("helpIntake", intakeId);
       if (!doc) return;
@@ -157,10 +154,7 @@ describe("Help delivery durability (issue #23)", () => {
     await finishDelivery(t);
   }
 
-  async function getIntakeByReference(
-    t: HelpTest,
-    reference: string,
-  ) {
+  async function getIntakeByReference(t: HelpTest, reference: string) {
     return await t.run(async (ctx) => {
       return await ctx.db
         .query("helpIntake")
@@ -217,7 +211,10 @@ describe("Help delivery durability (issue #23)", () => {
 
   it("shows partial success when receipt succeeds and mailbox fails transiently then succeeds", async () => {
     const t = createHelpTest();
-    resendSink.failOnSendNumber(1, { status: 503, failureClass: "provider_5xx" });
+    resendSink.failOnSendNumber(1, {
+      status: 503,
+      failureClass: "provider_5xx",
+    });
 
     const json = await acceptSupport(t, {
       idempotencyKey: "del-partial-mailbox-retry",
@@ -238,7 +235,10 @@ describe("Help delivery durability (issue #23)", () => {
 
   it("does not retry permanent provider failures", async () => {
     const t = createHelpTest();
-    resendSink.failPermanently({ status: 400, failureClass: "invalid_request" });
+    resendSink.failPermanently({
+      status: 400,
+      failureClass: "invalid_request",
+    });
 
     const json = await acceptSupport(t, {
       idempotencyKey: "del-permanent-fail",
@@ -259,6 +259,27 @@ describe("Help delivery durability (issue #23)", () => {
 
     const afterReplay = await getIntakeByReference(t, json.reference);
     expect(afterReplay!.mailboxDelivery.attemptCount).toBe(1);
+    expect(resendSink.emails).toHaveLength(0);
+  });
+
+  it("records terminal config failures when delivery mailbox env is missing", async () => {
+    const t = createHelpTest();
+    const json = await acceptSupport(t, {
+      idempotencyKey: "del-config-missing",
+    });
+
+    delete process.env.HELP_SUPPORT_MAILBOX;
+    delete process.env.HELP_FROM_EMAIL;
+
+    await finishDelivery(t);
+
+    const stored = await getIntakeByReference(t, json.reference);
+    expect(stored!.mailboxDelivery.status).toBe("failed");
+    expect(stored!.mailboxDelivery.failureClass).toBe("config");
+    expect(stored!.mailboxDelivery.nextAttemptAtMs).toBeUndefined();
+    expect(stored!.receiptDelivery.status).toBe("failed");
+    expect(stored!.receiptDelivery.failureClass).toBe("config");
+    expect(stored!.receiptDelivery.nextAttemptAtMs).toBeUndefined();
     expect(resendSink.emails).toHaveLength(0);
   });
 
@@ -346,12 +367,8 @@ describe("Help delivery durability (issue #23)", () => {
     await finishDelivery(t);
 
     const stored = await getIntakeByReference(t, json.reference);
-    expect(resendSink.emails[0]?.idempotencyKey).toBe(
-      `${stored!._id}:mailbox`,
-    );
-    expect(resendSink.emails[1]?.idempotencyKey).toBe(
-      `${stored!._id}:receipt`,
-    );
+    expect(resendSink.emails[0]?.idempotencyKey).toBe(`${stored!._id}:mailbox`);
+    expect(resendSink.emails[1]?.idempotencyKey).toBe(`${stored!._id}:receipt`);
   });
 
   it("skips receipt for anonymous feedback and only delivers mailbox", async () => {

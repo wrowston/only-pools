@@ -61,32 +61,30 @@ export function FeedbackPrompt() {
 
   const calmPage = isCalmPageForHelpPrompt(pathname);
   const canShow =
-    featureEnabled &&
-    isSignedIn &&
-    calmPage &&
-    promptState?.canShow === true;
+    featureEnabled && isSignedIn && calmPage && promptState?.canShow === true;
 
   useEffect(() => {
     if (!canShow || shownRef.current || recordingRef.current) return;
 
     recordingRef.current = true;
-    shownRef.current = true;
-
-    const frame = window.requestAnimationFrame(() => {
-      setOpen(true);
-    });
 
     void recordShown({ nowMs: Date.now() })
+      .then((result) => {
+        // Server may return success without incrementing when eligibility
+        // raced between getPromptState and recordPromptShown.
+        if (!result.recorded) {
+          return;
+        }
+        shownRef.current = true;
+        setOpen(true);
+        posthog.capture("help_prompt_shown");
+      })
       .catch(() => {
-        shownRef.current = false;
-        setOpen(false);
+        // Leave shownRef false so a later eligibility tick can retry.
       })
       .finally(() => {
         recordingRef.current = false;
       });
-
-    posthog.capture("help_prompt_shown");
-    return () => window.cancelAnimationFrame(frame);
   }, [canShow, recordShown]);
 
   const handleSentiment = useCallback(

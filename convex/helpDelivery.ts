@@ -11,10 +11,7 @@ import {
 } from "./lib/helpDeliveryPolicy";
 import { createLogger } from "./lib/log";
 import { runEffect } from "./effect/run";
-import {
-  resolveSupportFromEmail,
-  sendEmail,
-} from "./effect/resend/client";
+import { resolveSupportFromEmail, sendEmail } from "./effect/resend/client";
 
 const log = createLogger("helpDelivery");
 
@@ -137,7 +134,10 @@ function formatFeedbackReceiptBody(args: {
   return lines.join("\n");
 }
 
-function idempotencyKey(intakeId: Id<"helpIntake">, recipient: DeliveryRecipient): string {
+function idempotencyKey(
+  intakeId: Id<"helpIntake">,
+  recipient: DeliveryRecipient,
+): string {
   return `${intakeId}:${recipient}`;
 }
 
@@ -241,11 +241,52 @@ export const deliverIntake = internalAction({
       return null;
     }
 
-    const configEffect = resolveSupportFromEmail();
-    const config = await runEffect(configEffect);
     const nowMs = Date.now();
 
     try {
+      const configResult = await runEffect(
+        resolveSupportFromEmail().pipe(
+          Effect.match({
+            onFailure: (error) => ({ ok: false as const, error }),
+            onSuccess: (value) => ({ ok: true as const, value }),
+          }),
+        ),
+      );
+      if (!configResult.ok) {
+        const classified = classifyDeliveryError(configResult.error);
+        log.error("help_delivery_config_failed", {
+          intakeId: args.intakeId,
+          failureClass: classified.failureClass,
+          retryable: classified.retryable,
+        });
+        if (shouldAttemptDelivery(intake.mailboxDelivery, nowMs)) {
+          await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+            intakeId: args.intakeId,
+            channel: "mailbox",
+            outcome: {
+              kind: "failure",
+              failureClass: classified.failureClass,
+              retryable: classified.retryable,
+              attemptAtMs: nowMs,
+            },
+          });
+        }
+        if (shouldAttemptDelivery(intake.receiptDelivery, nowMs)) {
+          await ctx.runMutation(internal.helpIntake.recordDeliveryAttempt, {
+            intakeId: args.intakeId,
+            channel: "receipt",
+            outcome: {
+              kind: "failure",
+              failureClass: classified.failureClass,
+              retryable: classified.retryable,
+              attemptAtMs: nowMs,
+            },
+          });
+        }
+        return null;
+      }
+      const config = configResult.value;
+
       if (intake.lane === "feedback") {
         const feedbackType = intake.feedbackType ?? "problem";
         const sentiment = intake.sentiment ?? "neutral";
@@ -319,7 +360,12 @@ export const deliverIntake = internalAction({
           });
         }
         if (shouldAttemptDelivery(intake.receiptDelivery, skippedAtMs)) {
-          await markReceiptSkipped(ctx, args.intakeId, "unsupported_lane", skippedAtMs);
+          await markReceiptSkipped(
+            ctx,
+            args.intakeId,
+            "unsupported_lane",
+            skippedAtMs,
+          );
         }
         return null;
       }
@@ -341,7 +387,12 @@ export const deliverIntake = internalAction({
           });
         }
         if (shouldAttemptDelivery(intake.receiptDelivery, failedAtMs)) {
-          await markReceiptSkipped(ctx, args.intakeId, "missing_reply_email", failedAtMs);
+          await markReceiptSkipped(
+            ctx,
+            args.intakeId,
+            "missing_reply_email",
+            failedAtMs,
+          );
         }
         return null;
       }

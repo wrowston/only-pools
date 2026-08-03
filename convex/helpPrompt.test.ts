@@ -145,7 +145,9 @@ describe("helpPrompt owner milestone", () => {
     await asOwner.mutation(api.participants.ensureMyParticipant, {});
 
     const now = Date.now();
-    let state = await asOwner.query(api.helpPrompt.getPromptState, { nowMs: now });
+    let state = await asOwner.query(api.helpPrompt.getPromptState, {
+      nowMs: now,
+    });
     expect(state.eligible).toBe(false);
     expect(state.canShow).toBe(false);
 
@@ -184,7 +186,9 @@ describe("helpPrompt member milestones", () => {
     });
 
     const now = Date.now();
-    let state = await asAlex.query(api.helpPrompt.getPromptState, { nowMs: now });
+    let state = await asAlex.query(api.helpPrompt.getPromptState, {
+      nowMs: now,
+    });
     expect(state.eligible).toBe(false);
 
     await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
@@ -216,7 +220,9 @@ describe("helpPrompt member milestones", () => {
     });
 
     const now = Date.now();
-    let state = await asAlex.query(api.helpPrompt.getPromptState, { nowMs: now });
+    let state = await asAlex.query(api.helpPrompt.getPromptState, {
+      nowMs: now,
+    });
     expect(state.eligible).toBe(false);
 
     await asAlex.mutation(api.confidencePicks.autosaveConfidence, {
@@ -281,7 +287,9 @@ describe("helpPrompt member milestones", () => {
       await maybeMarkSurvivorPlayingMilestone(ctx, participantId, now);
     });
 
-    const state = await asAlex.query(api.helpPrompt.getPromptState, { nowMs: now });
+    const state = await asAlex.query(api.helpPrompt.getPromptState, {
+      nowMs: now,
+    });
     expect(state.eligible).toBe(true);
     expect(state.canShow).toBe(true);
   });
@@ -314,6 +322,7 @@ describe("helpPrompt display, snooze, and retirement", () => {
     const result = await asAlex.mutation(api.helpPrompt.recordPromptShown, {
       nowMs: now,
     });
+    expect(result.recorded).toBe(false);
     expect(result.displayCount).toBe(0);
     expect(result.eligible).toBe(false);
     expect(result.canShow).toBe(false);
@@ -383,15 +392,24 @@ describe("helpPrompt display, snooze, and retirement", () => {
     const first = await asAlex.mutation(api.helpPrompt.recordPromptShown, {
       nowMs: now,
     });
+    expect(first.recorded).toBe(true);
     expect(first.displayCount).toBe(1);
     expect(first.retired).toBe(false);
 
     const second = await asAlex.mutation(api.helpPrompt.recordPromptShown, {
       nowMs: now + 1,
     });
+    expect(second.recorded).toBe(true);
     expect(second.displayCount).toBe(2);
     expect(second.retired).toBe(true);
     expect(second.canShow).toBe(false);
+
+    const third = await asAlex.mutation(api.helpPrompt.recordPromptShown, {
+      nowMs: now + 2,
+    });
+    expect(third.recorded).toBe(false);
+    expect(third.displayCount).toBe(2);
+    expect(third.canShow).toBe(false);
 
     const asOther = t.withIdentity(blakeIdentity());
     await asOther.mutation(api.participants.ensureMyParticipant, {});

@@ -15,6 +15,15 @@ const promptStateReturnValidator = v.object({
   eligible: v.boolean(),
 });
 
+const recordPromptShownReturnValidator = v.object({
+  recorded: v.boolean(),
+  canShow: v.boolean(),
+  displayCount: v.number(),
+  snoozeUntilMs: v.union(v.number(), v.null()),
+  retired: v.boolean(),
+  eligible: v.boolean(),
+});
+
 type PromptCtx = QueryCtx | MutationCtx;
 
 function inertPromptState() {
@@ -182,9 +191,7 @@ async function participantHasPriorCompleteConfidenceSet(
         .query("confidencePicks")
         .withIndex("by_pickSetId", (q) => q.eq("pickSetId", pickSet._id))
         .collect();
-      if (
-        isConfidencePickSetComplete(pickSet, picks, sheet.gameIds.length)
-      ) {
+      if (isConfidencePickSetComplete(pickSet, picks, sheet.gameIds.length)) {
         return true;
       }
     }
@@ -245,14 +252,19 @@ export async function maybeMarkConfidencePlayingMilestone(
   const pickSet = await ctx.db
     .query("confidencePickSets")
     .withIndex("by_poolId_and_participantId_and_week", (q) =>
-      q.eq("poolId", poolId).eq("participantId", participantId).eq("week", week),
+      q
+        .eq("poolId", poolId)
+        .eq("participantId", participantId)
+        .eq("week", week),
     )
     .unique();
   if (!pickSet) return;
 
   const sheet = await ctx.db
     .query("confidencePickSheets")
-    .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId).eq("week", week))
+    .withIndex("by_poolId_and_week", (q) =>
+      q.eq("poolId", poolId).eq("week", week),
+    )
     .unique();
   if (!sheet) return;
 
@@ -342,13 +354,14 @@ export const getPromptState = query({
 
 export const recordPromptShown = mutation({
   args: { nowMs: v.number() },
-  returns: promptStateReturnValidator,
+  returns: recordPromptShownReturnValidator,
   handler: async (ctx, args) => {
     const participant = await requireParticipant(ctx);
     const state = await ensurePromptState(ctx, participant._id, args.nowMs);
 
     if (!computeCanShowPrompt(state, args.nowMs)) {
       return {
+        recorded: false,
         canShow: false,
         displayCount: state.displayCount,
         snoozeUntilMs: state.snoozeUntilMs ?? null,
@@ -373,6 +386,7 @@ export const recordPromptShown = mutation({
     }
 
     return {
+      recorded: true,
       canShow: computeCanShowPrompt(updated, args.nowMs),
       displayCount: updated.displayCount,
       snoozeUntilMs: updated.snoozeUntilMs ?? null,
