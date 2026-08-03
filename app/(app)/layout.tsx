@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AppRoutePrewarm } from "@/components/AppRoutePrewarm";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { PostHogUserContext } from "@/components/PostHogUserContext";
 import { SentryUserContext } from "@/components/SentryUserContext";
@@ -13,6 +14,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <ConvexClientProvider>
       <SentryUserContext />
       <PostHogUserContext />
+      <AppRoutePrewarm />
       <SiteHeader variant="app" />
       <div id="main" className="flex min-h-0 flex-1 flex-col">
         {children}

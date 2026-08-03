@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
+import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 import {
   officialWinnerTeamId,
   pickOutcomeLabel,
@@ -82,13 +83,20 @@ export function WeekBoardView({
       : "skip",
   );
   const dropPoolEntry = useMutation(api.pools.dropPoolEntry);
-  // Keep last successful board so week switches don't tear down the shell.
+  // Keep last successful board so week switches / section remounts don't tear down the shell.
+  const boardCacheKey = `weekBoard:${poolId}:${selectedWeek ?? "auto"}:${activeEntryId ?? "primary"}`;
+  const { value: keptBoard } = resolveKeepPrevious(
+    boardCacheKey,
+    boardResult === undefined ? undefined : boardResult,
+  );
   const [cachedBoard, setCachedBoard] = useState<WeekBoard | null>(null);
   if (boardResult && boardResult !== cachedBoard) {
     setCachedBoard(boardResult);
   }
-  const shellBoard =
-    boardResult === null ? null : (boardResult ?? cachedBoard);
+  const shellBoard: WeekBoard | null =
+    boardResult === null
+      ? null
+      : (boardResult ?? cachedBoard ?? keptBoard ?? null);
   const board =
     boardResult &&
     (selectedWeek === undefined || boardResult.week === selectedWeek)
@@ -313,7 +321,13 @@ export function WeekBoardView({
   }
 
   // Initial load only — never replace the shell on week switches.
-  if (isLoading || (isAuthenticated && shellBoard === null && boardResult === undefined)) {
+  if (
+    isLoading ||
+    (isAuthenticated &&
+      shellBoard === null &&
+      boardResult === undefined &&
+      keptBoard === undefined)
+  ) {
     return <WeekBoardSkeleton />;
   }
 

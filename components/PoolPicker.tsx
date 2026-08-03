@@ -1,14 +1,20 @@
 "use client";
 
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   COMPACT_CONTROL_CLASS,
   poolSectionHref,
   type PoolSection,
 } from "@/lib/gameDayShell";
+import {
+  prewarmMyPools,
+  prewarmPoolSection,
+  type PoolType,
+} from "@/lib/convexRouteData";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,14 +44,17 @@ function typeLabel(type: "survivor" | "confidence" | null): string | null {
 export function PoolPicker({
   poolId,
   poolName,
+  poolType,
   section,
   variant,
 }: {
   poolId: string;
   poolName?: string;
+  poolType?: PoolType;
   section: PoolSection;
   variant: "sidebar" | "mobile";
 }) {
+  const convex = useConvex();
   const { isAuthenticated } = useConvexAuth();
   const myPools = useQuery(
     api.participants.myPools,
@@ -63,10 +72,18 @@ export function PoolPicker({
   const pools =
     memberships.length > 0
       ? memberships
-      : ([{ poolId, name: label, type: null }] satisfies PoolPickerMembership[]);
+      : ([{ poolId, name: label, type: poolType ?? null }] satisfies PoolPickerMembership[]);
 
-  function selectPool(nextPoolId: string) {
+  function selectPool(nextPoolId: string, nextType: PoolType | null) {
     if (nextPoolId === poolId) return;
+    if (isAuthenticated) {
+      prewarmPoolSection(
+        convex,
+        nextPoolId as Id<"pools">,
+        section,
+        nextType,
+      );
+    }
     router.push(poolSectionHref(nextPoolId, section));
   }
 
@@ -79,6 +96,9 @@ export function PoolPicker({
           variant === "sidebar" ? "h-11 py-1" : COMPACT_CONTROL_CLASS,
         ].join(" ")}
         data-pool-picker="trigger"
+        onPointerEnter={() => {
+          if (isAuthenticated) prewarmMyPools(convex);
+        }}
       >
         <span className="min-w-0 flex-1">
           <span
@@ -119,7 +139,16 @@ export function PoolPicker({
             return (
               <DropdownMenuItem
                 key={m.poolId}
-                onClick={() => selectPool(m.poolId)}
+                onClick={() => selectPool(m.poolId, m.type)}
+                onPointerEnter={() => {
+                  if (!isAuthenticated || selected) return;
+                  prewarmPoolSection(
+                    convex,
+                    m.poolId as Id<"pools">,
+                    section,
+                    m.type,
+                  );
+                }}
                 className={[
                   "items-start gap-2.5 px-2.5 py-2",
                   selected
@@ -158,6 +187,9 @@ export function PoolPicker({
 
         <DropdownMenuItem
           render={<Link href="/my-pools" />}
+          onPointerEnter={() => {
+            if (isAuthenticated) prewarmMyPools(convex);
+          }}
           className="px-2.5 py-2 text-[13px] font-medium text-op-secondary focus:bg-op-control focus:text-op-text"
         >
           All pools

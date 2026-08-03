@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { Show, SignInButton, SignUpButton } from "@clerk/nextjs";
+import { SignInButton, SignUpButton } from "@clerk/nextjs";
 import { BrandMark } from "@/components/BrandMark";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
 
 /**
  * Client-only Clerk chrome for the marketing landing page.
  * Keeping auth widgets out of the RSC page lets `/` prerender as static HTML.
  */
 export function LandingHeader() {
+  const likelySignedIn = useLikelySignedIn();
+
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-[60] px-3 pt-3 sm:px-5 sm:pt-4">
       <nav
@@ -49,7 +52,14 @@ export function LandingHeader() {
         </div>
 
         <div className="ml-auto hidden items-center gap-1.5 md:flex">
-          <Show when="signed-out">
+          {likelySignedIn ? (
+            <Link
+              href="/join"
+              className="op-btn op-btn-ghost h-8 rounded-full px-3 text-[13px]"
+            >
+              Join a Pool
+            </Link>
+          ) : (
             <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
               <button
                 type="button"
@@ -58,15 +68,7 @@ export function LandingHeader() {
                 Log in
               </button>
             </SignInButton>
-          </Show>
-          <Show when="signed-in">
-            <Link
-              href="/join"
-              className="op-btn op-btn-ghost h-8 rounded-full px-3 text-[13px]"
-            >
-              Join a Pool
-            </Link>
-          </Show>
+          )}
           <PrimaryPoolAction className="op-btn op-btn-primary h-8 rounded-full px-4 text-[13px]" />
         </div>
 
@@ -78,7 +80,7 @@ export function LandingHeader() {
               <MenuIcon />
             </summary>
             <div className="absolute right-0 top-[calc(100%+0.55rem)] w-40 overflow-hidden rounded-[12px] border border-op-border-strong bg-op-surface p-1.5 shadow-[0_18px_42px_-18px_rgba(38,38,38,0.35)]">
-              <Show when="signed-out">
+              {likelySignedIn ? null : (
                 <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
                   <button
                     type="button"
@@ -87,7 +89,7 @@ export function LandingHeader() {
                     Log in
                   </button>
                 </SignInButton>
-              </Show>
+              )}
               <Link
                 href="/join"
                 className="block rounded-[8px] px-3 py-2 text-[13px] text-op-secondary hover:bg-op-control hover:text-op-text"
@@ -127,23 +129,24 @@ export function PrimaryPoolAction({
   className: string;
   showArrow?: boolean;
 }) {
+  const likelySignedIn = useLikelySignedIn();
+
+  if (likelySignedIn) {
+    return (
+      <Link href={POST_AUTH_HOME} className={className}>
+        My Pools
+        {showArrow ? <ArrowIcon /> : null}
+      </Link>
+    );
+  }
+
   return (
-    <>
-      <Show when="signed-out">
-        <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
-          <button type="button" className={className}>
-            Start a Pool
-            {showArrow ? <ArrowIcon /> : null}
-          </button>
-        </SignUpButton>
-      </Show>
-      <Show when="signed-in">
-        <Link href={POST_AUTH_HOME} className={className}>
-          My Pools
-          {showArrow ? <ArrowIcon /> : null}
-        </Link>
-      </Show>
-    </>
+    <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
+      <button type="button" className={className}>
+        Start a Pool
+        {showArrow ? <ArrowIcon /> : null}
+      </button>
+    </SignUpButton>
   );
 }
 

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Show,
   SignInButton,
   SignUpButton,
   UserButton,
@@ -10,7 +9,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { OperatorNavLink } from "@/components/OperatorNavLink";
+import { MyPoolsNavLink } from "@/components/MyPoolsNavLink";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
 
 /**
  * Global top bar. Hidden on in-pool desktop (≥900px) — brand lives in the
@@ -27,6 +28,7 @@ export function SiteHeader({
 }) {
   const pathname = usePathname() ?? "";
   const inPool = pathname.startsWith("/pools/");
+  const likelySignedIn = useLikelySignedIn();
 
   if (pathname === "/") {
     return null;
@@ -59,36 +61,43 @@ export function SiteHeader({
               Guides
             </Link>
           ) : null}
-          <Show when="signed-out">
-            <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
-              <button
-                type="button"
-                className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-              >
-                Log in
-              </button>
-            </SignInButton>
-            <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
-              <button
-                type="button"
-                className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
-              >
-                Sign up
-              </button>
-            </SignUpButton>
-          </Show>
-          <Show when="signed-in">
-            <Link
-              href={POST_AUTH_HOME}
-              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-            >
-              My Pools
-            </Link>
-            {variant === "app" ? <OperatorNavLink /> : null}
-            <div className="ml-1 flex items-center">
-              <UserButton />
-            </div>
-          </Show>
+          {likelySignedIn ? (
+            <>
+              {variant === "app" ? (
+                <MyPoolsNavLink className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]" />
+              ) : (
+                <Link
+                  href={POST_AUTH_HOME}
+                  className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+                >
+                  My Pools
+                </Link>
+              )}
+              {variant === "app" ? <OperatorNavLink /> : null}
+              <div className="ml-1 flex items-center">
+                <UserButton />
+              </div>
+            </>
+          ) : (
+            <>
+              <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
+                <button
+                  type="button"
+                  className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+                >
+                  Log in
+                </button>
+              </SignInButton>
+              <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
+                <button
+                  type="button"
+                  className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
+                >
+                  Sign up
+                </button>
+              </SignUpButton>
+            </>
+          )}
         </div>
       </div>
       <div className="h-px w-full bg-op-border" />
