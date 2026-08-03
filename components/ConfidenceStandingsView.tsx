@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 import { uiType } from "@/lib/uiType";
 import { EmptyState } from "./EmptyState";
 import { usePoolChromeName } from "./PoolChrome";
@@ -27,9 +28,13 @@ export function ConfidenceStandingsView({
 }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const [tab, setTab] = useState<"weekly" | "season">("weekly");
-  const standings = useQuery(
+  const liveStandings = useQuery(
     api.confidenceScoring.getConfidenceStandings,
     isAuthenticated ? { poolId } : "skip",
+  );
+  const { value: standings, isPrevious } = resolveKeepPrevious(
+    `confidenceStandings:${poolId}`,
+    liveStandings,
   );
   usePoolChromeName(standings?.poolName);
 
@@ -55,7 +60,10 @@ export function ConfidenceStandingsView({
   }
 
   return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:px-8">
+      <div
+        className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:px-8 ${isPrevious ? "opacity-90" : ""}`}
+        aria-busy={isPrevious || undefined}
+      >
         <header className="flex flex-col gap-1">
           <h1 className={uiType.title}>Standings</h1>
           <p className="text-sm text-op-secondary">

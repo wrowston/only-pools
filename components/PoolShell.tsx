@@ -1,12 +1,15 @@
 "use client";
 
 import { UserButton, useUser } from "@clerk/nextjs";
+import { useConvex, useConvexAuth } from "convex/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { MyPoolsNavLink } from "@/components/MyPoolsNavLink";
 import { OperatorNavLink } from "@/components/OperatorNavLink";
 import { PoolPicker } from "@/components/PoolPicker";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   COMPACT_CONTROL_CLASS,
   backHref,
@@ -16,7 +19,13 @@ import {
   shellChromeClasses,
   type PoolSection,
 } from "@/lib/gameDayShell";
+import {
+  prewarmMyPools,
+  prewarmPoolSection,
+  type PoolType,
+} from "@/lib/convexRouteData";
 import { HELP_FEEDBACK_LABEL, helpFeedbackHref } from "@/lib/helpNav";
+import { useRoutePrewarmIntent } from "@/lib/useRoutePrewarmIntent";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
 
 function accountLabel(
@@ -41,11 +50,13 @@ function NavLink({
   label,
   active,
   variant,
+  prewarmHandlers,
 }: {
   href: string;
   label: string;
   active: boolean;
   variant: "chip" | "sidebar";
+  prewarmHandlers?: ReturnType<typeof useRoutePrewarmIntent>;
 }) {
   // Firecrawl nav = 32px (h-8), padding 6px, radius 8px
   const base =
@@ -74,9 +85,46 @@ function NavLink({
       href={href}
       className={`${base} ${activeClass}`}
       data-pool-nav={label.toLowerCase()}
+      {...prewarmHandlers}
     >
       {label}
     </Link>
+  );
+}
+
+function SectionNavLink({
+  poolId,
+  item,
+  section,
+  poolType,
+  variant,
+}: {
+  poolId: string;
+  item: { section: PoolSection; href: string; label: string };
+  section: PoolSection;
+  poolType?: PoolType;
+  variant: "chip" | "sidebar";
+}) {
+  const convex = useConvex();
+  const { isAuthenticated } = useConvexAuth();
+  const prewarmHandlers = useRoutePrewarmIntent(() => {
+    if (!isAuthenticated) return;
+    prewarmPoolSection(
+      convex,
+      poolId as Id<"pools">,
+      item.section,
+      poolType,
+    );
+  });
+
+  return (
+    <NavLink
+      href={item.href}
+      label={item.label}
+      active={item.section === section}
+      variant={variant}
+      prewarmHandlers={prewarmHandlers}
+    />
   );
 }
 
@@ -87,11 +135,13 @@ function NavLink({
 export function PoolShell({
   poolId,
   poolName,
+  poolType,
   children,
   contextRail,
 }: {
   poolId: string;
   poolName?: string;
+  poolType?: PoolType;
   children: ReactNode;
   /** Week Board only — Confidence/Survivor peek. Hidden below 900px. */
   contextRail?: ReactNode;
@@ -106,6 +156,17 @@ export function PoolShell({
   const { user } = useUser();
   const accountText = accountLabel(user);
   useSyncParticipantAvatar();
+
+  const convex = useConvex();
+  const { isAuthenticated } = useConvexAuth();
+  const backPrewarm = useRoutePrewarmIntent(() => {
+    if (!isAuthenticated) return;
+    if (section === "board") {
+      prewarmMyPools(convex);
+      return;
+    }
+    prewarmPoolSection(convex, poolId as Id<"pools">, "board", poolType);
+  });
 
   return (
     <div
@@ -128,6 +189,7 @@ export function PoolShell({
           <PoolPicker
             poolId={poolId}
             poolName={poolName}
+            poolType={poolType}
             section={section}
             variant="sidebar"
           />
@@ -135,11 +197,12 @@ export function PoolShell({
         <nav className="flex flex-col gap-0.5 px-2 pt-3" aria-label="Pool sections">
           <p className="op-eyebrow px-2.5 pb-1.5">Play</p>
           {items.map((item) => (
-            <NavLink
+            <SectionNavLink
               key={item.section}
-              href={item.href}
-              label={item.label}
-              active={item.section === section}
+              poolId={poolId}
+              item={item}
+              section={section}
+              poolType={poolType}
               variant="sidebar"
             />
           ))}
@@ -151,12 +214,9 @@ export function PoolShell({
           >
             {HELP_FEEDBACK_LABEL}
           </Link>
-          <Link
-            href="/my-pools"
+          <MyPoolsNavLink
             className={`${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
-          >
-            My Pools
-          </Link>
+          />
           <OperatorNavLink variant="sidebar" />
           <div className="flex items-center gap-2 px-2.5 py-1.5">
             <UserButton />
@@ -174,12 +234,14 @@ export function PoolShell({
           <Link
             href={backTo}
             className={`${COMPACT_CONTROL_CLASS} inline-flex items-center text-[13px] font-medium text-op-secondary hover:text-op-text`}
+            {...backPrewarm}
           >
             ← {backText}
           </Link>
           <PoolPicker
             poolId={poolId}
             poolName={poolName}
+            poolType={poolType}
             section={section}
             variant="mobile"
           />
@@ -189,11 +251,12 @@ export function PoolShell({
             data-shell-chrome="mobile-chips"
           >
             {items.map((item) => (
-              <NavLink
+              <SectionNavLink
                 key={item.section}
-                href={item.href}
-                label={item.label}
-                active={item.section === section}
+                poolId={poolId}
+                item={item}
+                section={section}
+                poolType={poolType}
                 variant="chip"
               />
             ))}

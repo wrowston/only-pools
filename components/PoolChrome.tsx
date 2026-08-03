@@ -1,5 +1,6 @@
 "use client";
 
+import { useConvexAuth, useQuery } from "convex/react";
 import {
   createContext,
   useContext,
@@ -8,9 +9,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 import { PoolShell } from "./PoolShell";
 
+export type PoolChromeShell = {
+  poolId: Id<"pools">;
+  name: string;
+  type: "survivor" | "confidence";
+  status: "active" | "completed";
+};
+
 type PoolChromeContextValue = {
+  poolId: Id<"pools">;
+  shell: PoolChromeShell | null | undefined;
+  poolType: "survivor" | "confidence" | undefined;
   setPoolName: (name: string | undefined) => void;
   setContextRail: (rail: ReactNode) => void;
 };
@@ -20,6 +34,7 @@ const PoolChromeContext = createContext<PoolChromeContextValue | null>(null);
 /**
  * Persistent in-pool chrome. Lives in the pool route layout so Board /
  * Standings / Pool navigations do not remount the shell.
+ * Subscribes to thin getPoolShell once for name + type across sections.
  */
 export function PoolChromeProvider({
   poolId,
@@ -28,11 +43,38 @@ export function PoolChromeProvider({
   poolId: string;
   children: ReactNode;
 }) {
-  const [poolName, setPoolName] = useState<string | undefined>();
+  const typedPoolId = poolId as Id<"pools">;
+  const { isAuthenticated } = useConvexAuth();
+  const liveShell = useQuery(
+    api.pools.getPoolShell,
+    isAuthenticated ? { poolId: typedPoolId } : "skip",
+  );
+  const { value: keptShell, isPrevious } = resolveKeepPrevious(
+    `poolShell:${poolId}`,
+    liveShell,
+  );
+  // A cached null is a prior non-member response — don't treat it as a live
+  // denial while getPoolShell is still undefined (refetch / remount).
+  const shell = isPrevious && keptShell === null ? undefined : keptShell;
+  /** Optional override from section views; shell name is the default. */
+  const [nameOverride, setPoolName] = useState<string | undefined>();
+  const [seenPoolId, setSeenPoolId] = useState(poolId);
+  if (seenPoolId !== poolId) {
+    setSeenPoolId(poolId);
+    setPoolName(undefined);
+  }
   const [contextRail, setContextRail] = useState<ReactNode>(null);
+  const poolName = nameOverride ?? shell?.name;
+
   const value = useMemo(
-    () => ({ setPoolName, setContextRail }),
-    [],
+    () => ({
+      poolId: typedPoolId,
+      shell,
+      poolType: shell?.type,
+      setPoolName,
+      setContextRail,
+    }),
+    [typedPoolId, shell],
   );
 
   return (
@@ -40,6 +82,7 @@ export function PoolChromeProvider({
       <PoolShell
         poolId={poolId}
         poolName={poolName}
+        poolType={shell?.type}
         contextRail={contextRail}
       >
         {children}
@@ -56,13 +99,15 @@ export function usePoolChrome(): PoolChromeContextValue {
   return ctx;
 }
 
-/** Sync pool display name into the persistent shell. */
+/**
+ * Optional name sync from section views when it differs from getPoolShell.
+ * Shell name covers the common case; this keeps legacy callers working.
+ */
 export function usePoolChromeName(poolName: string | undefined) {
-  const { setPoolName } = usePoolChrome();
+  const { setPoolName, shell } = usePoolChrome();
   useEffect(() => {
-    // Keep the prior name while a route's query is still loading so the
-    // persistent shell does not clear/re-render on every Board ↔ Standings switch.
     if (poolName === undefined) return;
+    if (poolName === shell?.name) return;
     setPoolName(poolName);
-  }, [poolName, setPoolName]);
+  }, [poolName, shell?.name, setPoolName]);
 }

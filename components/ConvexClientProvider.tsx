@@ -3,7 +3,8 @@
 import { useAuth } from "@clerk/nextjs";
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { ReactNode, useCallback, useMemo } from "react";
+import { ReactNode, useCallback, useMemo, useRef } from "react";
+import { clearKeepPreviousQuery } from "@/lib/keepPreviousQuery";
 
 /**
  * Clerk's Convex integration sets session token `aud` to "convex".
@@ -35,6 +36,28 @@ function useAuthWithConvexJwtTemplate() {
   };
 }
 
+/**
+ * Clears keep-previous query cache when the signed-in Clerk user changes.
+ * Runs during render (before children) so skipped/loading queries cannot
+ * resurface the previous account's memberships or standings.
+ */
+function KeepPreviousAuthBoundary({ children }: { children: ReactNode }) {
+  const { isLoaded, userId } = useAuth();
+  const seenUserIdRef = useRef<string | null | undefined>(undefined);
+
+  if (isLoaded) {
+    const next = userId ?? null;
+    if (seenUserIdRef.current === undefined) {
+      seenUserIdRef.current = next;
+    } else if (seenUserIdRef.current !== next) {
+      clearKeepPreviousQuery();
+      seenUserIdRef.current = next;
+    }
+  }
+
+  return children;
+}
+
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
@@ -48,7 +71,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
       client={client}
       useAuth={useAuthWithConvexJwtTemplate}
     >
-      {children}
+      <KeepPreviousAuthBoundary>{children}</KeepPreviousAuthBoundary>
     </ConvexProviderWithClerk>
   );
 }

@@ -48,6 +48,7 @@ import {
   PoolPanelSkeleton,
 } from "./PoolPanelSkeleton";
 import { usePoolChromeName } from "./PoolChrome";
+import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 
 function memberRoleBadgeVariant(
   role: string,
@@ -119,9 +120,13 @@ type ConfirmState =
 export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const [panelNowMs] = useState(() => Date.now());
-  const members = useQuery(
+  const membersLive = useQuery(
     api.invites.listPoolMembers,
     isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
+  );
+  const { value: members, isPrevious: membersPrevious } = resolveKeepPrevious(
+    `poolMembers:${poolId}`,
+    membersLive,
   );
   const inviteStatus = useQuery(
     api.invites.getInviteStatus,
@@ -348,7 +353,10 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8">
+    <div
+      className={`mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-8 min-[900px]:px-8 ${membersPrevious ? "opacity-90" : ""}`}
+      aria-busy={membersPrevious || undefined}
+    >
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-medium tracking-tight text-op-text">

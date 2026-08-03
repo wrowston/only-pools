@@ -1,28 +1,20 @@
 "use client";
 
-import { useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ConfidenceStandingsView } from "./ConfidenceStandingsView";
+import { usePoolChrome } from "./PoolChrome";
 import { StandingsSkeleton } from "./StandingsSkeleton";
 import { SurvivorStandingsView } from "./SurvivorStandingsView";
 
 /**
- * Routes Standings to Survivor or Confidence view by Pool Type.
+ * Routes Standings to Survivor or Confidence view by Pool Type from chrome
+ * (thin getPoolShell) — never loads the full week board just for type detect.
  */
 export function PoolStandingsView({ poolId }: { poolId: Id<"pools"> }) {
-  const { isAuthenticated, isLoading } = useConvexAuth();
-  const board = useQuery(
-    api.pools.getWeekBoard,
-    isAuthenticated ? { poolId } : "skip",
-  );
+  const { poolType, shell } = usePoolChrome();
 
-  if (isLoading || board === undefined) {
-    return <StandingsSkeleton />;
-  }
-
-  if (board === null) {
+  if (shell === null) {
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -38,7 +30,11 @@ export function PoolStandingsView({ poolId }: { poolId: Id<"pools"> }) {
     );
   }
 
-  if (board.pool.type === "confidence") {
+  if (poolType === undefined) {
+    return <StandingsSkeleton />;
+  }
+
+  if (poolType === "confidence") {
     return <ConfidenceStandingsView poolId={poolId} />;
   }
   return <SurvivorStandingsView poolId={poolId} />;

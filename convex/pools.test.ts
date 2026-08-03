@@ -410,6 +410,60 @@ describe("myPools after create", () => {
   });
 });
 
+describe("getPoolShell", () => {
+  it("returns thin name and type for a member", async () => {
+    const t = convexTest(schema, modules);
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Shell Pool",
+      type: "confidence",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    const shell = await asAlex.query(api.pools.getPoolShell, {
+      poolId: created.poolId,
+    });
+
+    expect(shell).toMatchObject({
+      poolId: created.poolId,
+      name: "Shell Pool",
+      type: "confidence",
+      status: "active",
+    });
+  });
+
+  it("returns null for non-members", async () => {
+    const t = convexTest(schema, modules);
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Private Shell",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    const asIntruder = t.withIdentity(
+      fullyVerifiedIdentity({
+        subject: "clerk_intruder_shell",
+        email: "intruder-shell@example.com",
+        name: "Intruder",
+        sid: "sess_intruder_shell_1",
+      }),
+    );
+    await asIntruder.mutation(api.participants.ensureMyParticipant, {});
+    const shell = await asIntruder.query(api.pools.getPoolShell, {
+      poolId: created.poolId,
+    });
+    expect(shell).toBeNull();
+  });
+});
+
 describe("getWeekBoard", () => {
   it("returns published slate for a member", async () => {
     const t = convexTest(schema, modules);
