@@ -18,8 +18,13 @@ export function clearQueryValue(key: string): void {
   cache.delete(key);
 }
 
-export function resetKeepPreviousQueryForTests(): void {
+/** Drop all kept values (e.g. on sign-out or account switch). */
+export function clearKeepPreviousQuery(): void {
   cache.clear();
+}
+
+export function resetKeepPreviousQueryForTests(): void {
+  clearKeepPreviousQuery();
 }
 
 /**

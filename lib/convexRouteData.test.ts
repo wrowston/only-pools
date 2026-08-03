@@ -11,6 +11,7 @@ import {
   resetPrewarmDedupeForTests,
 } from "./convexRouteData";
 import {
+  clearKeepPreviousQuery,
   clearQueryValue,
   peekQueryValue,
   rememberQueryValue,
@@ -104,6 +105,17 @@ describe("keepPreviousQuery", () => {
     );
     expect(second.isPrevious).toBe(true);
     expect(second.value).toEqual({ rows: [1] });
+  });
+
+  it("clears all kept values", () => {
+    resolveKeepPrevious("standings", { rows: [1] });
+    clearKeepPreviousQuery();
+    const after = resolveKeepPrevious<{ rows: number[] }>(
+      "standings",
+      undefined,
+    );
+    expect(after.value).toBeUndefined();
+    expect(after.isPrevious).toBe(false);
   });
 });
 
