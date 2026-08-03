@@ -61,6 +61,12 @@ export function SiteHeader({
               Guides
             </Link>
           ) : null}
+          <Link
+            href="/help"
+            className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+          >
+            Help & feedback
+          </Link>
           {likelySignedIn ? (
             <>
               {variant === "app" ? (

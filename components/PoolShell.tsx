@@ -24,6 +24,7 @@ import {
   prewarmPoolSection,
   type PoolType,
 } from "@/lib/convexRouteData";
+import { HELP_FEEDBACK_LABEL, helpFeedbackHref } from "@/lib/helpNav";
 import { useRoutePrewarmIntent } from "@/lib/useRoutePrewarmIntent";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
 
@@ -151,12 +152,7 @@ export function PoolShell({
   const chrome = shellChromeClasses();
   const backTo = backHref(poolId, section);
   const backText = backLabel(section);
-  const helpHref =
-    section === "standings"
-      ? "/guides/standings-and-results"
-      : section === "pool"
-        ? "/guides/members-roles-and-ownership"
-        : "/guides/week-board-picks-and-locks";
+  const helpHref = helpFeedbackHref(section);
   const { user } = useUser();
   const accountText = accountLabel(user);
   useSyncParticipantAvatar();
@@ -216,7 +212,7 @@ export function PoolShell({
             href={helpHref}
             className={`${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
           >
-            Help
+            {HELP_FEEDBACK_LABEL}
           </Link>
           <MyPoolsNavLink
             className={`${COMPACT_CONTROL_CLASS} flex w-full items-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
@@ -268,7 +264,7 @@ export function PoolShell({
               href={helpHref}
               className={`${COMPACT_CONTROL_CLASS} inline-flex items-center justify-center rounded-[8px] px-2.5 text-[13px] font-medium text-op-secondary hover:bg-op-control hover:text-op-text`}
             >
-              Help
+              {HELP_FEEDBACK_LABEL}
             </Link>
           </nav>
         </div>

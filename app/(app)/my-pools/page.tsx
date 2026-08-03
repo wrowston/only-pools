@@ -32,6 +32,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { prewarmPoolSection } from "@/lib/convexRouteData";
+import { HELP_FEEDBACK_LABEL } from "@/lib/helpNav";
 import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 import { useRoutePrewarmIntent } from "@/lib/useRoutePrewarmIntent";
 import { useSyncParticipantAvatar } from "@/lib/useSyncParticipantAvatar";
@@ -320,9 +321,17 @@ function MyPoolsHome() {
       aria-busy={isPrevious || undefined}
     >
       <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-medium tracking-tight text-op-text">
-          My Pools
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-3xl font-medium tracking-tight text-op-text">
+            My Pools
+          </h1>
+          <Link
+            href="/help?source=account"
+            className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+          >
+            {HELP_FEEDBACK_LABEL}
+          </Link>
+        </div>
         <p className="text-[15px] text-op-secondary">
           {includeArchived
             ? "Including archived Pools in this list."

@@ -3,6 +3,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { markOwnerPoolCreated } from "./helpPrompt";
 import { createLogger } from "./lib/log";
 import {
   assertRulesEditable,
@@ -278,6 +279,8 @@ export const createPool = mutation({
       pickLockMode: args.pickLockMode,
       hasDescription: description !== undefined,
     });
+
+    await markOwnerPoolCreated(ctx, participant._id, nowMs);
 
     return {
       poolId,

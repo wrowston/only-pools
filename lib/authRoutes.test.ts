@@ -15,6 +15,7 @@ describe("POST_AUTH_HOME", () => {
 describe("PUBLIC_ROUTE_PATTERNS", () => {
   it("keeps the complete guides section available without signing in", () => {
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/guides(.*)");
+    expect(PUBLIC_ROUTE_PATTERNS).toContain("/help(.*)");
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/sitemap.xml");
   });
 

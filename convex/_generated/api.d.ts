@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as applyStagedSchedule from "../applyStagedSchedule.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as confidencePicks from "../confidencePicks.js";
 import type * as confidenceScoring from "../confidenceScoring.js";
@@ -17,7 +18,15 @@ import type * as effect_apiSports_client from "../effect/apiSports/client.js";
 import type * as effect_apiSports_reliableFetch from "../effect/apiSports/reliableFetch.js";
 import type * as effect_apiSports_schemas from "../effect/apiSports/schemas.js";
 import type * as effect_errors from "../effect/errors.js";
+import type * as effect_resend_client from "../effect/resend/client.js";
+import type * as effect_resend_errors from "../effect/resend/errors.js";
+import type * as effect_resend_schemas from "../effect/resend/schemas.js";
 import type * as effect_run from "../effect/run.js";
+import type * as helpDelivery from "../helpDelivery.js";
+import type * as helpIntake from "../helpIntake.js";
+import type * as helpPrompt from "../helpPrompt.js";
+import type * as helpRetention from "../helpRetention.js";
+import type * as http from "../http.js";
 import type * as incidents from "../incidents.js";
 import type * as invites from "../invites.js";
 import type * as lib_abuseReportSanitize from "../lib/abuseReportSanitize.js";
@@ -27,6 +36,12 @@ import type * as lib_cleanActivationPolicy from "../lib/cleanActivationPolicy.js
 import type * as lib_confidenceScale from "../lib/confidenceScale.js";
 import type * as lib_confidenceScoring from "../lib/confidenceScoring.js";
 import type * as lib_freshness from "../lib/freshness.js";
+import type * as lib_helpConfig from "../lib/helpConfig.js";
+import type * as lib_helpConstants from "../lib/helpConstants.js";
+import type * as lib_helpDeliveryPolicy from "../lib/helpDeliveryPolicy.js";
+import type * as lib_helpReference from "../lib/helpReference.js";
+import type * as lib_helpSanitize from "../lib/helpSanitize.js";
+import type * as lib_helpThrottle from "../lib/helpThrottle.js";
 import type * as lib_identityClaims from "../lib/identityClaims.js";
 import type * as lib_incidents from "../lib/incidents.js";
 import type * as lib_inviteCrypto from "../lib/inviteCrypto.js";
@@ -54,6 +69,7 @@ import type * as lib_providerQualificationCandidate from "../lib/providerQualifi
 import type * as lib_providerQualificationPolicy from "../lib/providerQualificationPolicy.js";
 import type * as lib_providerReliabilityPolicy from "../lib/providerReliabilityPolicy.js";
 import type * as lib_quotas from "../lib/quotas.js";
+import type * as lib_resendSink from "../lib/resendSink.js";
 import type * as lib_scoringHolds from "../lib/scoringHolds.js";
 import type * as lib_sentry from "../lib/sentry.js";
 import type * as lib_survivorMessages from "../lib/survivorMessages.js";
@@ -112,6 +128,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  applyStagedSchedule: typeof applyStagedSchedule;
   bootstrap: typeof bootstrap;
   confidencePicks: typeof confidencePicks;
   confidenceScoring: typeof confidenceScoring;
@@ -121,7 +138,15 @@ declare const fullApi: ApiFromModules<{
   "effect/apiSports/reliableFetch": typeof effect_apiSports_reliableFetch;
   "effect/apiSports/schemas": typeof effect_apiSports_schemas;
   "effect/errors": typeof effect_errors;
+  "effect/resend/client": typeof effect_resend_client;
+  "effect/resend/errors": typeof effect_resend_errors;
+  "effect/resend/schemas": typeof effect_resend_schemas;
   "effect/run": typeof effect_run;
+  helpDelivery: typeof helpDelivery;
+  helpIntake: typeof helpIntake;
+  helpPrompt: typeof helpPrompt;
+  helpRetention: typeof helpRetention;
+  http: typeof http;
   incidents: typeof incidents;
   invites: typeof invites;
   "lib/abuseReportSanitize": typeof lib_abuseReportSanitize;
@@ -131,6 +156,12 @@ declare const fullApi: ApiFromModules<{
   "lib/confidenceScale": typeof lib_confidenceScale;
   "lib/confidenceScoring": typeof lib_confidenceScoring;
   "lib/freshness": typeof lib_freshness;
+  "lib/helpConfig": typeof lib_helpConfig;
+  "lib/helpConstants": typeof lib_helpConstants;
+  "lib/helpDeliveryPolicy": typeof lib_helpDeliveryPolicy;
+  "lib/helpReference": typeof lib_helpReference;
+  "lib/helpSanitize": typeof lib_helpSanitize;
+  "lib/helpThrottle": typeof lib_helpThrottle;
   "lib/identityClaims": typeof lib_identityClaims;
   "lib/incidents": typeof lib_incidents;
   "lib/inviteCrypto": typeof lib_inviteCrypto;
@@ -158,6 +189,7 @@ declare const fullApi: ApiFromModules<{
   "lib/providerQualificationPolicy": typeof lib_providerQualificationPolicy;
   "lib/providerReliabilityPolicy": typeof lib_providerReliabilityPolicy;
   "lib/quotas": typeof lib_quotas;
+  "lib/resendSink": typeof lib_resendSink;
   "lib/scoringHolds": typeof lib_scoringHolds;
   "lib/sentry": typeof lib_sentry;
   "lib/survivorMessages": typeof lib_survivorMessages;

@@ -142,6 +142,18 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "delete",
     reason: "Reports reference application identities and Pools being removed.",
   },
+  helpIntake: {
+    disposition: "delete",
+    reason: "Temporary Help intake rows reference Participants and Pools being removed.",
+  },
+  helpThrottle: {
+    disposition: "delete",
+    reason: "Help intake rate-limit state is application data.",
+  },
+  feedbackPromptState: {
+    disposition: "delete",
+    reason: "Feedback prompt eligibility belongs to deleted Participants.",
+  },
   syncGate: {
     disposition: "preserve",
     reason: "The deployment Sync Gate is service-level configuration.",
@@ -290,6 +302,9 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "poolEntries",
   "poolMemberships",
   "abuseReports",
+  "helpIntake",
+  "helpThrottle",
+  "feedbackPromptState",
   "pools",
   "syncWorkItems",
   "syncSurfaceHealth",
