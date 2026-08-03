@@ -49,10 +49,13 @@ export function PoolChromeProvider({
     api.pools.getPoolShell,
     isAuthenticated ? { poolId: typedPoolId } : "skip",
   );
-  const { value: shell } = resolveKeepPrevious(
+  const { value: keptShell, isPrevious } = resolveKeepPrevious(
     `poolShell:${poolId}`,
     liveShell,
   );
+  // A cached null is a prior non-member response — don't treat it as a live
+  // denial while getPoolShell is still undefined (refetch / remount).
+  const shell = isPrevious && keptShell === null ? undefined : keptShell;
   /** Optional override from section views; shell name is the default. */
   const [nameOverride, setPoolName] = useState<string | undefined>();
   const [seenPoolId, setSeenPoolId] = useState(poolId);
