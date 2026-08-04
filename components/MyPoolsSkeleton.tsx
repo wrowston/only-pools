@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function MyPoolsSkeleton() {
   return (
     <div
-      className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12"
+      className="bg-op-canvas mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12"
       aria-busy="true"
       aria-label="Loading My Pools"
     >

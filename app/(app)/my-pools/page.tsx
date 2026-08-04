@@ -273,7 +273,7 @@ function MyPoolsHome() {
 
   if (myPools.memberships.length === 0) {
     return (
-      <div className="op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-12">
+      <div className="bg-op-canvas mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-12">
         <Empty className="border border-dashed border-op-border bg-op-surface/60">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -317,7 +317,7 @@ function MyPoolsHome() {
 
   return (
     <div
-      className={`op-grid-bg-soft mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12 ${isPrevious ? "opacity-90" : ""}`}
+      className={`bg-op-canvas mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12 ${isPrevious ? "opacity-90" : ""}`}
       aria-busy={isPrevious || undefined}
     >
       <header className="flex flex-col gap-2">
