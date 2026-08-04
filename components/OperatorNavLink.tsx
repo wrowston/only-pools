@@ -12,8 +12,10 @@ import { COMPACT_CONTROL_CLASS } from "@/lib/gameDayShell";
  */
 export function OperatorNavLink({
   variant = "header",
+  className,
 }: {
   variant?: "header" | "sidebar";
+  className?: string;
 }) {
   const me = useQuery(api.incidents.amIProductionOperator);
   const pathname = usePathname() ?? "";
@@ -55,9 +57,12 @@ export function OperatorNavLink({
   return (
     <Link
       href="/operator"
-      className={`op-btn op-btn-ghost h-8 px-2.5 text-[13px]${
-        active ? " bg-op-selected text-op-selected-fg" : ""
-      }`}
+      className={
+        className ??
+        `op-btn op-btn-ghost h-8 px-2.5 text-[13px]${
+          active ? " bg-op-selected text-op-selected-fg" : ""
+        }`
+      }
       aria-current={active ? "page" : undefined}
       data-operator-nav
     >
