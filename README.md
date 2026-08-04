@@ -86,6 +86,8 @@ CONTEXT.md         Domain glossary (source of truth for product language)
 |-------|---------|
 | `/` | Marketing |
 | `/guides` | Help docs |
+| `/terms` | Terms of Service (linked from Clerk SignUp) |
+| `/privacy` | Privacy Policy (linked from Clerk SignUp) |
 | `/my-pools` | Post-auth home |
 | `/join/[token]` | Accept Pool Invite |
 | `/pools/[poolId]/…` | Board, standings, pool admin |
@@ -104,6 +106,8 @@ CONTEXT.md         Domain glossary (source of truth for product language)
 ## Local development
 
 Requires Bun, a Convex project, and Clerk (plus API-Sports for live schedule sync).
+
+Clerk SignUp shows a Terms / Privacy checkbox when **Require express consent to legal documents** is enabled under [Clerk Dashboard → Legal](https://dashboard.clerk.com/~/compliance/legal). App URLs are wired in [`lib/clerkAppearance.ts`](./lib/clerkAppearance.ts) (`/terms`, `/privacy`).
 
 ```bash
 bun install
