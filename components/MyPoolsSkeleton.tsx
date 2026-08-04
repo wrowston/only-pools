@@ -1,5 +1,8 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** Visible on --op-canvas; default shadcn bg-muted is nearly invisible there. */
+const PLACEHOLDER = "bg-op-border-strong";
+
 /** Layout-matching placeholder while My Pools memberships load. */
 export function MyPoolsSkeleton() {
   return (
@@ -9,11 +12,11 @@ export function MyPoolsSkeleton() {
       aria-label="Loading My Pools"
     >
       <div className="flex flex-col gap-2">
-        <Skeleton className="h-9 w-40" />
-        <Skeleton className="h-4 w-72 max-w-full" />
+        <Skeleton className={`h-9 w-40 ${PLACEHOLDER}`} />
+        <Skeleton className={`h-4 w-72 max-w-full ${PLACEHOLDER}`} />
       </div>
       <div className="flex flex-col gap-3">
-        <Skeleton className="h-3 w-24" />
+        <Skeleton className={`h-3 w-24 ${PLACEHOLDER}`} />
         <div className="op-panel divide-y divide-op-border overflow-hidden p-0">
           {Array.from({ length: 3 }, (_, i) => (
             <div
@@ -21,18 +24,20 @@ export function MyPoolsSkeleton() {
               className="flex items-start justify-between gap-3 px-4 py-3.5"
             >
               <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Skeleton className="h-4 w-36" />
-                <Skeleton className="h-3 w-48" />
-                <Skeleton className="h-5 w-28 rounded-[8px]" />
+                <Skeleton className={`h-4 w-36 ${PLACEHOLDER}`} />
+                <Skeleton className={`h-3 w-48 ${PLACEHOLDER}`} />
+                <Skeleton className={`h-5 w-28 rounded-[8px] ${PLACEHOLDER}`} />
               </div>
-              <Skeleton className="h-5 w-20 shrink-0 rounded-[8px]" />
+              <Skeleton
+                className={`h-5 w-20 shrink-0 rounded-[8px] ${PLACEHOLDER}`}
+              />
             </div>
           ))}
         </div>
       </div>
       <div className="flex flex-wrap gap-3">
-        <Skeleton className="h-9 w-28 rounded-lg" />
-        <Skeleton className="h-9 w-28 rounded-lg" />
+        <Skeleton className={`h-9 w-28 rounded-lg ${PLACEHOLDER}`} />
+        <Skeleton className={`h-9 w-28 rounded-lg ${PLACEHOLDER}`} />
       </div>
     </div>
   );

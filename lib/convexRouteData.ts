@@ -7,6 +7,7 @@ import {
 import { convexToJson, type Value } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { myPoolsQueryArgs } from "@/lib/myPoolsQueryArgs";
 
 export const PREWARM_DEBOUNCE_MS = 120;
 export const PREWARM_EXTEND_MS = 8_000;
@@ -84,9 +85,10 @@ export function getMyPoolsEssentialSpecs(opts?: {
   includeArchived?: boolean;
 }) {
   return [
-    makeRouteQuerySpec(api.participants.myPools, {
-      includeArchived: opts?.includeArchived === true,
-    }),
+    makeRouteQuerySpec(
+      api.participants.myPools,
+      myPoolsQueryArgs(opts?.includeArchived === true),
+    ),
   ];
 }
 
