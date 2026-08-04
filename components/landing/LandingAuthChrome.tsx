@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
 import { BrandMark } from "@/components/BrandMark";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
 
 /**
@@ -60,7 +61,10 @@ export function LandingHeader() {
               Join a Pool
             </Link>
           ) : (
-            <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
+            <SignInButton
+              forceRedirectUrl={POST_AUTH_HOME}
+              initialValues={clerkPhoneFirstInitialValues}
+            >
               <button
                 type="button"
                 className="op-btn op-btn-ghost h-8 rounded-full px-3 text-[13px]"
@@ -81,7 +85,10 @@ export function LandingHeader() {
             </summary>
             <div className="absolute right-0 top-[calc(100%+0.55rem)] w-40 overflow-hidden rounded-[12px] border border-op-border-strong bg-op-surface p-1.5 shadow-[0_18px_42px_-18px_rgba(38,38,38,0.35)]">
               {likelySignedIn ? null : (
-                <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
+                <SignInButton
+                  forceRedirectUrl={POST_AUTH_HOME}
+                  initialValues={clerkPhoneFirstInitialValues}
+                >
                   <button
                     type="button"
                     className="flex w-full rounded-[8px] px-3 py-2 text-left text-[13px] text-op-secondary hover:bg-op-control hover:text-op-text"
@@ -141,7 +148,10 @@ export function PrimaryPoolAction({
   }
 
   return (
-    <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
+    <SignUpButton
+      forceRedirectUrl={POST_AUTH_HOME}
+      initialValues={clerkPhoneFirstInitialValues}
+    >
       <button type="button" className={className}>
         Start a Pool
         {showArrow ? <ArrowIcon /> : null}

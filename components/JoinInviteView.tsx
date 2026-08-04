@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { poolTypeLabel } from "@/lib/inviteShareMetadata";
 import { EmptyState } from "./EmptyState";
@@ -77,7 +78,11 @@ export function JoinInviteView({ token }: { token: string }) {
           description="This invite link is invalid, expired, or no longer active."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <SignInButton mode="modal" forceRedirectUrl={`/join/${token}`}>
+              <SignInButton
+                mode="modal"
+                forceRedirectUrl={`/join/${token}`}
+                initialValues={clerkPhoneFirstInitialValues}
+              >
                 <button type="button" className="op-btn op-btn-primary">
                   Sign in
                 </button>
@@ -105,7 +110,11 @@ export function JoinInviteView({ token }: { token: string }) {
           Opening the link alone does not enroll you.
         </p>
         <div className="flex flex-wrap gap-2">
-          <SignInButton mode="modal" forceRedirectUrl={`/join/${token}`}>
+          <SignInButton
+            mode="modal"
+            forceRedirectUrl={`/join/${token}`}
+            initialValues={clerkPhoneFirstInitialValues}
+          >
             <button type="button" className="op-btn op-btn-primary">
               Sign in to continue
             </button>
