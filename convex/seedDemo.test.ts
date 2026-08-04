@@ -85,6 +85,9 @@ describe("seedDemoWorld (browse-ready)", () => {
     expect(result.fakeUserCount).toBe(8);
     expect(result.membershipCount).toBeGreaterThan(4);
     expect(result.survivorPickCount).toBeGreaterThan(0);
+    expect(result.openWeek).toBe(4);
+    expect(result.maxEntriesPerUser).toBe(1);
+    expect(result.entryCount).toBe(result.membershipCount);
 
     const home = await asOwner.query(api.participants.myPools, {});
     expect(home.createPoolEnabled).toBe(true);
@@ -219,8 +222,9 @@ describe("seedDemoWorld (browse-ready)", () => {
     expect(slate.openWeekHasFutureGames).toBe(true);
     expect(slate.openWeekHasStartedGame).toBe(true);
     expect(slate.futureStartWeeks).toEqual(
-      expect.arrayContaining([5, 6]),
+      expect.arrayContaining([5, 6, 18]),
     );
+    expect(Math.max(...slate.futureStartWeeks)).toBe(18);
   });
 
   it("reset replaces prior seed pools without duplicating", async () => {
@@ -248,5 +252,93 @@ describe("seedDemoWorld (browse-ready)", () => {
       return pools.filter((p) => p.name.startsWith("Seed · "));
     });
     expect(seedPools).toHaveLength(3);
+  });
+
+  it("seeds a week-5 multi-entry showcase pool with eliminations", async () => {
+    const t = convexTest(schema, modules);
+    const asOwner = t.withIdentity(ownerIdentity());
+    await asOwner.mutation(api.participants.ensureMyParticipant, {});
+
+    const result = await t.mutation(internal.seedDemo.seedDemoWorld, {
+      ownerClerkUserId: OWNER_CLERK,
+      poolCount: 1,
+      fakeUserCount: 9,
+      membersPerPool: 9,
+      openWeek: 5,
+      maxEntriesPerUser: 3,
+    });
+
+    expect(result).toMatchObject({
+      poolCount: 1,
+      fakeUserCount: 9,
+      openWeek: 5,
+      maxEntriesPerUser: 3,
+      membershipCount: 10,
+    });
+    expect(result.entryCount).toBeGreaterThan(result.membershipCount);
+
+    const home = await asOwner.query(api.participants.myPools, {});
+    expect(home.memberships).toHaveLength(1);
+    expect(home.memberships[0]).toMatchObject({
+      name: "Seed · Demo Night Survivor",
+      type: "survivor",
+      boardWeek: 5,
+      standing: { kind: "survivor", eligibility: "alive" },
+    });
+
+    const snapshot = await t.run(async (ctx) => {
+      const pools = await ctx.db.query("pools").collect();
+      const pool = pools.find((p) => p.name.startsWith("Seed · "));
+      if (!pool) throw new Error("missing seed pool");
+      const entries = await ctx.db
+        .query("poolEntries")
+        .withIndex("by_poolId_and_status", (q) =>
+          q.eq("poolId", pool._id).eq("status", "active"),
+        )
+        .collect();
+      const standings = await ctx.db
+        .query("seasonStandings")
+        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+        .collect();
+      const games = await ctx.db
+        .query("nflGames")
+        .withIndex("by_seasonId", (q) => q.eq("seasonId", result.seasonId))
+        .collect();
+      const nowMs = Date.now();
+      return {
+        maxEntriesPerUser: pool.maxEntriesPerUser,
+        entryCount: entries.length,
+        multiEntryMembers: new Set(
+          entries
+            .map((e) => e.participantId)
+            .filter(
+              (id, _, all) => all.filter((x) => x === id).length > 1,
+            ),
+        ).size,
+        eliminated: standings.filter((s) => s.eligibility === "eliminated")
+          .length,
+        alive: standings.filter((s) => s.eligibility === "alive").length,
+        week5Started: games.some(
+          (g) => g.week === 5 && g.scheduledKickoffMs <= nowMs,
+        ),
+        week5Future: games.some(
+          (g) => g.week === 5 && g.scheduledKickoffMs > nowMs,
+        ),
+        pastSettled: games
+          .filter((g) => g.week <= 3)
+          .every((g) => g.lifecycle === "terminal"),
+        lastWeek: Math.max(...games.map((g) => g.week)),
+      };
+    });
+
+    expect(snapshot.maxEntriesPerUser).toBe(3);
+    expect(snapshot.entryCount).toBe(result.entryCount);
+    expect(snapshot.multiEntryMembers).toBeGreaterThan(1);
+    expect(snapshot.eliminated).toBeGreaterThan(0);
+    expect(snapshot.alive).toBeGreaterThan(0);
+    expect(snapshot.week5Started).toBe(true);
+    expect(snapshot.week5Future).toBe(true);
+    expect(snapshot.pastSettled).toBe(true);
+    expect(snapshot.lastWeek).toBe(18);
   });
 });

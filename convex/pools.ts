@@ -19,6 +19,7 @@ import { defaultConfidenceRanking } from "./lib/confidenceScale";
 import { deriveFreshness } from "./lib/freshness";
 import { isPoolArchived } from "./lib/poolArchive";
 import { mintOrdinaryPoolInvite } from "./lib/mintOrdinaryInvite";
+import { schedulePoolUpdateNotification } from "./notificationPoolUpdates";
 import {
   MAX_MEMBERSHIPS_PER_SEASON,
   MAX_OWNED_POOLS,
@@ -694,6 +695,12 @@ export const updatePoolDescription = mutation({
     }
 
     await writePoolDescription(ctx, pool, description);
+    await schedulePoolUpdateNotification(ctx, {
+      poolId: pool._id,
+      field: "description",
+      latestText: description ?? "",
+      editorParticipantId: participant._id,
+    });
     return {
       poolId: pool._id,
       description: description ?? null,
@@ -738,6 +745,12 @@ export const updatePoolBannerMessage = mutation({
     }
 
     await writePoolBannerMessage(ctx, pool, bannerMessage);
+    await schedulePoolUpdateNotification(ctx, {
+      poolId: pool._id,
+      field: "banner",
+      latestText: bannerMessage ?? "",
+      editorParticipantId: participant._id,
+    });
     return {
       poolId: pool._id,
       bannerMessage: bannerMessage ?? null,
