@@ -207,7 +207,7 @@ export const firePickRemindersForPoolWeek = internalMutation({
       });
       if (incomplete.length === 0) continue;
 
-      const { subject, bodyText } = formatPickReminderEmail({
+      const { subject, bodyText, bodyHtml } = formatPickReminderEmail({
         poolName: pool.name,
         poolId: pool._id,
         week: args.week,
@@ -222,6 +222,7 @@ export const firePickRemindersForPoolWeek = internalMutation({
         toEmail: participant.email!,
         subject,
         bodyText,
+        bodyHtml,
         poolId: pool._id,
         week: args.week,
         scheduledForMs: args.firstKickoffMs - PICK_REMINDER_LEAD_MS,

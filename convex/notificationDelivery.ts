@@ -39,6 +39,7 @@ export async function enqueueNotificationDelivery(
     toEmail: string;
     subject: string;
     bodyText: string;
+    bodyHtml?: string;
     poolId?: Id<"pools">;
     week?: number;
     payloadSummary?: string;
@@ -63,6 +64,7 @@ export async function enqueueNotificationDelivery(
       toEmail: args.toEmail,
       subject: args.subject,
       bodyText: args.bodyText,
+      bodyHtml: args.bodyHtml,
       attemptCount: 0,
       nextAttemptAtMs: undefined,
       failureClass: undefined,
@@ -83,6 +85,7 @@ export async function enqueueNotificationDelivery(
     toEmail: args.toEmail,
     subject: args.subject,
     bodyText: args.bodyText,
+    bodyHtml: args.bodyHtml,
     status: "pending",
     attemptCount: 0,
     scheduledForMs: args.scheduledForMs,
@@ -111,6 +114,7 @@ export const getDelivery = internalQuery({
       toEmail: v.string(),
       subject: v.string(),
       bodyText: v.string(),
+      bodyHtml: v.union(v.string(), v.null()),
       status: v.union(
         v.literal("pending"),
         v.literal("sent"),
@@ -131,6 +135,7 @@ export const getDelivery = internalQuery({
       toEmail: row.toEmail,
       subject: row.subject,
       bodyText: row.bodyText,
+      bodyHtml: row.bodyHtml ?? null,
       status: row.status,
       attemptCount: row.attemptCount,
     };
@@ -223,6 +228,7 @@ export const deliverNotification = internalAction({
             to: row.toEmail,
             subject: row.subject,
             text: row.bodyText,
+            html: row.bodyHtml ?? undefined,
             replyTo,
             idempotencyKey: row.dedupeKey,
           },

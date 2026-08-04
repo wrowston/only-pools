@@ -55,6 +55,7 @@ import type * as lib_mintOrdinaryInvite from "../lib/mintOrdinaryInvite.js";
 import type * as lib_myPoolsStatus from "../lib/myPoolsStatus.js";
 import type * as lib_notificationBodies from "../lib/notificationBodies.js";
 import type * as lib_notificationConfig from "../lib/notificationConfig.js";
+import type * as lib_notificationEmailLayout from "../lib/notificationEmailLayout.js";
 import type * as lib_notificationPrefs from "../lib/notificationPrefs.js";
 import type * as lib_operator from "../lib/operator.js";
 import type * as lib_operatorAuditInventory from "../lib/operatorAuditInventory.js";
@@ -184,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   "lib/myPoolsStatus": typeof lib_myPoolsStatus;
   "lib/notificationBodies": typeof lib_notificationBodies;
   "lib/notificationConfig": typeof lib_notificationConfig;
+  "lib/notificationEmailLayout": typeof lib_notificationEmailLayout;
   "lib/notificationPrefs": typeof lib_notificationPrefs;
   "lib/operator": typeof lib_operator;
   "lib/operatorAuditInventory": typeof lib_operatorAuditInventory;

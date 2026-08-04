@@ -158,11 +158,13 @@ describe("pool update notifications", () => {
     expect(resendSink.emails.length).toBeGreaterThanOrEqual(1);
     const subjects = resendSink.emails.map((e) => e.subject);
     expect(subjects.some((s) => s.includes("banner updated"))).toBe(true);
-    const body = resendSink.emails.find((e) =>
+    const mailed = resendSink.emails.find((e) =>
       e.subject.includes("banner updated"),
-    )?.text;
-    expect(body).toContain("Buy-in Saturday");
-    expect(body).not.toContain("Buy-in Friday");
+    );
+    expect(mailed?.text).toContain("Buy-in Saturday");
+    expect(mailed?.text).not.toContain("Buy-in Friday");
+    expect(mailed?.html).toContain("Buy-in Saturday");
+    expect(mailed?.html).toContain("#fa5d19");
   });
 
   it("skips pool update email when pref is off", async () => {

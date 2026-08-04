@@ -1804,6 +1804,7 @@ export default defineSchema({
     toEmail: v.string(),
     subject: v.string(),
     bodyText: v.string(),
+    bodyHtml: v.optional(v.string()),
     status: v.union(
       v.literal("pending"),
       v.literal("sent"),

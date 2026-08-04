@@ -108,7 +108,7 @@ export const flushPoolUpdateDebounce = internalMutation({
       POOL_UPDATE_DEBOUNCE_MS;
     const kind =
       row.field === "description" ? "pool_description" : "pool_banner";
-    const { subject, bodyText } = formatPoolUpdateEmail({
+    const { subject, bodyText, bodyHtml } = formatPoolUpdateEmail({
       poolName: pool.name,
       poolId: pool._id,
       field: row.field,
@@ -127,6 +127,7 @@ export const flushPoolUpdateDebounce = internalMutation({
         toEmail: participant.email!,
         subject,
         bodyText,
+        bodyHtml,
         poolId: pool._id,
         payloadSummary: row.latestText.slice(0, 200),
       });

@@ -286,7 +286,7 @@ export const sendWeeklySummaries = internalMutation({
       }
       if (sections.length === 0) continue;
 
-      const { subject, bodyText } = formatWeeklySummaryEmail({
+      const { subject, bodyText, bodyHtml } = formatWeeklySummaryEmail({
         week: summaryWeek,
         sections,
       });
@@ -298,6 +298,7 @@ export const sendWeeklySummaries = internalMutation({
         toEmail: participant.email!,
         subject,
         bodyText,
+        bodyHtml,
         week: summaryWeek,
         payloadSummary: `pools=${sections.length}`,
       });
