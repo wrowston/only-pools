@@ -441,7 +441,33 @@ describe("getPoolShell", () => {
       name: "Shell Pool",
       type: "confidence",
       status: "active",
+      bannerMessage: null,
     });
+  });
+
+  it("includes the current Pool banner message", async () => {
+    const t = convexTest(schema, modules);
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Banner Shell",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    await asAlex.mutation(api.pools.updatePoolBannerMessage, {
+      poolId: created.poolId,
+      bannerMessage: "  Week 3 buy-in due Friday  ",
+    });
+
+    const shell = await asAlex.query(api.pools.getPoolShell, {
+      poolId: created.poolId,
+    });
+
+    expect(shell?.bannerMessage).toBe("Week 3 buy-in due Friday");
   });
 
   it("returns null for non-members", async () => {
@@ -699,6 +725,119 @@ describe("updatePoolDescription", () => {
       asAlex.mutation(api.pools.updatePoolDescription, {
         poolId,
         description: "Should fail",
+      }),
+    ).rejects.toThrow(/Archived/);
+  });
+});
+
+describe("updatePoolBannerMessage", () => {
+  async function createPoolWithMember(t: ReturnType<typeof convexTest>) {
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Banner Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+    const poolId = created.poolId as Id<"pools">;
+
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    const invite = await asAlex.mutation(api.invites.createOrRetrieveInvite, {
+      poolId,
+    });
+    const rawToken = invite.url.replace("/join/", "");
+
+    const asBlake = t.withIdentity(
+      fullyVerifiedIdentity({
+        subject: "clerk_blake_banner",
+        email: "blake-banner@example.com",
+        name: "Blake Banner",
+        phoneNumber: "+15559876544",
+        sid: "sess_blake_banner_1",
+      }),
+    );
+    await asBlake.mutation(api.participants.ensureMyParticipant, {});
+    await asBlake.mutation(api.invites.acceptInvite, {
+      token: rawToken,
+      acknowledgedContactVisibility: true,
+    });
+    const blakeId = await t.run(async (ctx) => {
+      const rows = await ctx.db.query("participants").collect();
+      const match = rows.find((p) => p.clerkUserId === "clerk_blake_banner");
+      return match!._id;
+    });
+
+    return { asAlex, asBlake, poolId, blakeId };
+  }
+
+  it("lets Owner set and clear banner; exposes via listPoolMembers", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, asBlake, poolId } = await createPoolWithMember(t);
+
+    const updated = await asAlex.mutation(api.pools.updatePoolBannerMessage, {
+      poolId,
+      bannerMessage: "  Buy-in due Friday  ",
+    });
+    expect(updated.bannerMessage).toBe("Buy-in due Friday");
+
+    const asOwner = await asAlex.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs: Date.now(),
+    });
+    expect(asOwner.bannerMessage).toBe("Buy-in due Friday");
+
+    const asMember = await asBlake.query(api.invites.listPoolMembers, {
+      poolId,
+      nowMs: Date.now(),
+    });
+    expect(asMember.bannerMessage).toBe("Buy-in due Friday");
+
+    const cleared = await asAlex.mutation(api.pools.updatePoolBannerMessage, {
+      poolId,
+      bannerMessage: "   ",
+    });
+    expect(cleared.bannerMessage).toBeNull();
+
+    const pool = await t.run(async (ctx) => ctx.db.get(poolId));
+    expect(pool!.bannerMessage).toBeUndefined();
+  });
+
+  it("lets Admin update banner; Members cannot", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, asBlake, poolId, blakeId } = await createPoolWithMember(t);
+
+    await expect(
+      asBlake.mutation(api.pools.updatePoolBannerMessage, {
+        poolId,
+        bannerMessage: "Member rewrite",
+      }),
+    ).rejects.toThrow(/Owner or Pool Admin/);
+
+    await asAlex.mutation(api.membershipAdmin.promoteAdmin, {
+      poolId,
+      participantId: blakeId,
+    });
+
+    const asAdmin = await asBlake.mutation(api.pools.updatePoolBannerMessage, {
+      poolId,
+      bannerMessage: "Admin note",
+    });
+    expect(asAdmin.bannerMessage).toBe("Admin note");
+  });
+
+  it("blocks banner edits while archived", async () => {
+    const t = convexTest(schema, modules);
+    const { asAlex, poolId } = await createPoolWithMember(t);
+
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    await asAlex.mutation(api.membershipAdmin.archivePool, { poolId });
+
+    await expect(
+      asAlex.mutation(api.pools.updatePoolBannerMessage, {
+        poolId,
+        bannerMessage: "Should fail",
       }),
     ).rejects.toThrow(/Archived/);
   });

@@ -43,6 +43,7 @@ import {
   loadEarliestKickoffByWeek,
   resolveBoardWeek,
 } from "./lib/myPoolsStatus";
+import { normalizePoolBannerMessage } from "./lib/poolBannerMessage";
 import { normalizePoolDescription } from "./lib/poolDescription";
 import { isRegularPoolSeason } from "./lib/poolSeason";
 import {
@@ -130,7 +131,7 @@ async function requirePoolOwnerOrAdmin(
   const membership = await requirePoolMembership(ctx, poolId, participantId);
   if (membership.role !== "owner" && membership.role !== "admin") {
     throw new AuthError(
-      "Only the Pool Owner or Pool Admin may update the Pool description",
+      "Only the Pool Owner or Pool Admin may update Pool announcements",
     );
   }
   return membership;
@@ -156,6 +157,28 @@ async function writePoolDescription(
     return;
   }
   await ctx.db.patch(pool._id, { description });
+}
+
+/** Patch banner message, or replace to clear when undefined. */
+async function writePoolBannerMessage(
+  ctx: MutationCtx,
+  pool: Doc<"pools">,
+  bannerMessage: string | undefined,
+): Promise<void> {
+  if (bannerMessage === undefined) {
+    if (pool.bannerMessage === undefined) return;
+    const {
+      _id,
+      _creationTime: _ct,
+      bannerMessage: _cleared,
+      ...rest
+    } = pool;
+    void _ct;
+    void _cleared;
+    await ctx.db.replace(_id, rest);
+    return;
+  }
+  await ctx.db.patch(pool._id, { bannerMessage });
 }
 
 /**
@@ -679,6 +702,50 @@ export const updatePoolDescription = mutation({
 });
 
 /**
+ * Owner or Admin may set/clear the Pool banner shown atop every in-pool view.
+ * Not outcome-affecting — allowed after rules freeze; blocked while archived.
+ */
+export const updatePoolBannerMessage = mutation({
+  args: {
+    poolId: v.id("pools"),
+    bannerMessage: v.string(),
+  },
+  returns: v.object({
+    poolId: v.id("pools"),
+    bannerMessage: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const participant = await requireParticipant(ctx);
+    const pool = await ctx.db.get(args.poolId);
+    if (!pool) {
+      throw new PoolError("Pool not found");
+    }
+
+    await requirePoolOwnerOrAdmin(ctx, pool._id, participant._id);
+
+    if (isPoolArchived(pool)) {
+      throw new PoolError(
+        "Archived Pools are read-only — restore before editing",
+      );
+    }
+
+    let bannerMessage: string | undefined;
+    try {
+      bannerMessage = normalizePoolBannerMessage(args.bannerMessage);
+    } catch (err) {
+      if (err instanceof Error) throw new PoolError(err.message);
+      throw err;
+    }
+
+    await writePoolBannerMessage(ctx, pool, bannerMessage);
+    return {
+      poolId: pool._id,
+      bannerMessage: bannerMessage ?? null,
+    };
+  },
+});
+
+/**
  * Internal helper for tests / later pick tickets: mark rules frozen after
  * first accepted competitive edit or first Pick Lock.
  */
@@ -755,6 +822,7 @@ export const getPoolShell = query({
       name: v.string(),
       type: poolTypeValidator,
       status: v.union(v.literal("active"), v.literal("completed")),
+      bannerMessage: v.union(v.string(), v.null()),
     }),
     v.null(),
   ),
@@ -781,6 +849,7 @@ export const getPoolShell = query({
       name: pool.name,
       type: pool.type,
       status: pool.status,
+      bannerMessage: pool.bannerMessage ?? null,
     };
   },
 });
