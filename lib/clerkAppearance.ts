@@ -1,5 +1,9 @@
 /**
  * Clerk appearance — Firecrawl heat orange primary, hairline borders, Satoshi.
+ *
+ * `options.termsPageUrl` / `privacyPageUrl` link SignUp’s legal consent
+ * checkbox (enable “Require express consent to legal documents” in the Clerk
+ * Dashboard → Legal). Paths are same-origin so they work in every deploy.
  */
 export const clerkAppearance = {
   variables: {
@@ -13,6 +17,11 @@ export const clerkAppearance = {
     borderRadius: "0.625rem",
     fontFamily: "var(--font-suisse), ui-sans-serif, system-ui, sans-serif",
     fontFamilyButtons: "var(--font-suisse), ui-sans-serif, system-ui, sans-serif",
+  },
+  options: {
+    termsPageUrl: "/terms",
+    privacyPageUrl: "/privacy",
+    helpPageUrl: "/help",
   },
   elements: {
     card: "shadow-[0_1px_2px_rgba(0,0,0,0.04)] border border-[#ededed] rounded-[16px]",

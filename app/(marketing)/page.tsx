@@ -189,9 +189,34 @@ export default function Home() {
             <BrandMark />
             Only Pools
           </Link>
-          <p className="text-xs text-op-muted">
-            Private NFL prediction pools for participants 18+.
-          </p>
+          <div className="flex flex-col gap-2 sm:items-end">
+            <nav
+              aria-label="Legal"
+              className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-op-secondary"
+            >
+              <Link
+                href="/terms"
+                className="underline-offset-4 hover:text-op-text hover:underline"
+              >
+                Terms
+              </Link>
+              <Link
+                href="/privacy"
+                className="underline-offset-4 hover:text-op-text hover:underline"
+              >
+                Privacy
+              </Link>
+              <Link
+                href="/help"
+                className="underline-offset-4 hover:text-op-text hover:underline"
+              >
+                Help
+              </Link>
+            </nav>
+            <p className="text-xs text-op-muted">
+              Private NFL prediction pools for participants 18+.
+            </p>
+          </div>
         </div>
       </footer>
     </main>

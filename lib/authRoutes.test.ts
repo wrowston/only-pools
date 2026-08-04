@@ -16,6 +16,8 @@ describe("PUBLIC_ROUTE_PATTERNS", () => {
   it("keeps the complete guides section available without signing in", () => {
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/guides(.*)");
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/help(.*)");
+    expect(PUBLIC_ROUTE_PATTERNS).toContain("/terms(.*)");
+    expect(PUBLIC_ROUTE_PATTERNS).toContain("/privacy(.*)");
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/sitemap.xml");
   });
 

@@ -6,6 +6,8 @@ export const PUBLIC_ROUTE_PATTERNS = [
   "/",
   "/guides(.*)",
   "/help(.*)",
+  "/terms(.*)",
+  "/privacy(.*)",
   /**
    * Invite join URLs must stay public so iMessage / social crawlers receive
    * Open Graph HTML instead of a sign-in redirect. Accept still requires auth.
