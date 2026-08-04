@@ -11,7 +11,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
-    "Basic terms for using Only Pools — private NFL Survivor and Confidence pools for verified adults.",
+    "Basic terms for using Only Pools — private NFL Survivor and Confidence pools.",
   alternates: { canonical: "/terms" },
 };
 
@@ -30,19 +30,13 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Eligibility">
-        <p>
-          You must be at least 18 years old and confirm that eligibility to
-          create an account. Signup and each new sign-in require a verified email
-          address and verified phone number.
-        </p>
-      </LegalSection>
-
       <LegalSection title="Your account">
         <p>
-          You are responsible for the accuracy of your account information and
-          for activity under your account. Do not share invite links or account
-          credentials in ways that let others impersonate you.
+          Signup and each new sign-in require a verified email address and
+          verified phone number. You are responsible for the accuracy of your
+          account information and for activity under your account. Do not share
+          invite links or account credentials in ways that let others impersonate
+          you.
         </p>
       </LegalSection>
 
