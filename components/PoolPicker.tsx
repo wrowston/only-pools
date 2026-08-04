@@ -15,6 +15,7 @@ import {
   prewarmPoolSection,
   type PoolType,
 } from "@/lib/convexRouteData";
+import { myPoolsQueryArgs } from "@/lib/myPoolsQueryArgs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,7 +59,7 @@ export function PoolPicker({
   const { isAuthenticated } = useConvexAuth();
   const myPools = useQuery(
     api.participants.myPools,
-    isAuthenticated ? {} : "skip",
+    isAuthenticated ? myPoolsQueryArgs() : "skip",
   );
   const router = useRouter();
   const label = poolName ?? "Pool";
