@@ -33,7 +33,7 @@ export const guides = [
     slug: "create-a-pool",
     title: "Create a Pool and Reuse a Template",
     summary:
-      "Choose a Pool Season, type, Start Week, Pick Lock mode, or reuse a prior Pool setup.",
+      "Choose a Pool Season, type, Pick Lock mode, or reuse a prior Pool setup. Competition always starts at Week 1.",
     category: "Run a Pool",
     audience: "Pool Owners and Admins",
     headings: ["Create from scratch", "Create from a template", "Returning Participant Invites"],

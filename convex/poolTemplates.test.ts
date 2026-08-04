@@ -253,7 +253,7 @@ describe("createPoolFromTemplate (acceptance scenario 11)", () => {
 
     expect(created.status).toBe("active");
     expect(created.seasonId).toEqual(availableSeasonId);
-    expect(created.startWeek).toBe(2);
+    expect(created.startWeek).toBe(1);
     expect(created.type).toBe("survivor");
     expect(created.pickLockMode).toBe("weeklyCutoff");
     expect(created.name).toBe("Office Survivor 2024");
@@ -265,7 +265,7 @@ describe("createPoolFromTemplate (acceptance scenario 11)", () => {
       name: "Office Survivor 2024",
       type: "survivor",
       seasonId: availableSeasonId,
-      startWeek: 2,
+      startWeek: 1,
       pickLockMode: "weeklyCutoff",
       status: "active",
       rulesFrozen: false,
@@ -344,14 +344,13 @@ describe("createPoolFromTemplate (acceptance scenario 11)", () => {
     }
   });
 
-  it("falls back when prior Start Week is no longer valid for Available Season", async () => {
+  it("always starts at week 1 even when the template source used a later week", async () => {
     const t = convexTest(schema, modules);
     const { seasonId: priorSeasonId } = await seedSeasonWithSlate(t, {
       label: "2024",
       year: 2024,
       status: "bootstrapping",
     });
-    // Available season: only week 1 is still in the future; week 2 already kicked off.
     await seedSeasonWithSlate(t, {
       label: "2025",
       year: 2025,
@@ -395,6 +394,55 @@ describe("createPoolFromTemplate (acceptance scenario 11)", () => {
     expect(created.startWeek).toBe(1);
     expect(created.type).toBe("confidence");
     expect(created.pickLockMode).toBe("gameKickoff");
+  });
+
+  it("rejects an explicit Start Week other than week 1", async () => {
+    const t = convexTest(schema, modules);
+    const { seasonId: priorSeasonId } = await seedSeasonWithSlate(t, {
+      label: "2024",
+      year: 2024,
+      status: "bootstrapping",
+    });
+    await seedSeasonWithSlate(t, {
+      label: "2025",
+      year: 2025,
+      status: "available",
+    });
+
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId: alexId } = await asAlex.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+
+    const sourcePoolId = await t.run(async (ctx) => {
+      const poolId = await ctx.db.insert("pools", {
+        name: "Prior Pool",
+        type: "survivor",
+        seasonId: priorSeasonId,
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+        status: "completed",
+        rulesFrozen: true,
+        archived: false,
+        ownerParticipantId: alexId,
+        createdAtMs: Date.now(),
+      });
+      await ctx.db.insert("poolMemberships", {
+        poolId,
+        participantId: alexId,
+        role: "owner",
+        status: "active",
+      });
+      return poolId;
+    });
+
+    await expect(
+      asAlex.mutation(api.poolTemplates.createPoolFromTemplate, {
+        sourcePoolId,
+        startWeek: 2,
+      }),
+    ).rejects.toThrow(/week 1/);
   });
 });
 

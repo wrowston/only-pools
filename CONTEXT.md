@@ -25,7 +25,7 @@ A Pool's outcome-affecting rules, including its Pick Lock mode, shared by every 
 _Avoid_: Settings, configuration
 
 **Pool Template**:
-Reusable setup from a prior-season Pool that can prefill its name, Pool Type, Pool Ruleset, locking mode, valid Start Week preference, and proposed invite roles without carrying competitive identity or history.
+Reusable setup from a prior-season Pool that can prefill its name, Pool Type, Pool Ruleset, locking mode, and proposed invite roles without carrying competitive identity or history. New Pools always begin at Start Week 1.
 _Avoid_: Pool clone, rollover, renewal
 
 **Active Pool**:
@@ -135,7 +135,7 @@ The ordered list of a Pool Week's Required Confidence Games presented identicall
 _Avoid_: Slate order, personal game order
 
 **Start Week**:
-The first regular-season Pool Week included in a Pool; its first NFL game must not have kicked off when the Pool is created, and it becomes immutable when the Pool accepts its first pick.
+Regular-season Week 1 — the only allowed first Pool Week. Its first NFL game must not have kicked off when the Pool is created, and it becomes immutable when the Pool accepts its first pick. Mid-season starts are not allowed.
 _Avoid_: Opening week, beginning week
 
 **Pickable Week**:

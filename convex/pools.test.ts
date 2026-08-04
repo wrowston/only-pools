@@ -200,7 +200,7 @@ describe("createPool", () => {
     expect(created.seasonId).toBe(seasonId);
   });
 
-  it("rejects Start Week with missing slate", async () => {
+  it("rejects Start Week other than week 1", async () => {
     const t = convexTest(schema, modules);
     await seedAvailableSeasonWithSlate(t);
     const asAlex = t.withIdentity(fullyVerifiedIdentity());
@@ -208,12 +208,12 @@ describe("createPool", () => {
 
     await expect(
       asAlex.mutation(api.pools.createPool, {
-        name: "Bad Week",
+        name: "Mid Season",
         type: "confidence",
-        startWeek: 18,
+        startWeek: 2,
         pickLockMode: "weeklyCutoff",
       }),
-    ).rejects.toThrow(/no published slate/);
+    ).rejects.toThrow(/week 1/);
   });
 
   it("rejects Start Week whose first game has kicked off", async () => {
@@ -243,14 +243,14 @@ describe("createPool", () => {
     const result = await asAlex.mutation(api.pools.createPool, {
       name: "Confidence Crew",
       type: "confidence",
-      startWeek: 2,
+      startWeek: 1,
       pickLockMode: "weeklyCutoff",
     });
 
     const pool = await t.run(async (ctx) => ctx.db.get(result.poolId));
     expect(pool).toMatchObject({
       type: "confidence",
-      startWeek: 2,
+      startWeek: 1,
       pickLockMode: "weeklyCutoff",
     });
   });
@@ -275,14 +275,16 @@ describe("immutability (acceptance scenarios 8–9)", () => {
     const { asAlex, poolId } = await createOwnedPool(t);
 
     // updatePoolRules has no type/season args — identity fields are not in the API.
-    await asAlex.mutation(api.pools.updatePoolRules, {
-      poolId,
-      startWeek: 2,
-    });
+    await expect(
+      asAlex.mutation(api.pools.updatePoolRules, {
+        poolId,
+        startWeek: 2,
+      }),
+    ).rejects.toThrow(/week 1/);
 
     const pool = await t.run(async (ctx) => ctx.db.get(poolId));
     expect(pool!.type).toBe("survivor");
-    expect(pool!.startWeek).toBe(2);
+    expect(pool!.startWeek).toBe(1);
 
     const seasons = await t.run(async (ctx) =>
       ctx.db
@@ -293,20 +295,26 @@ describe("immutability (acceptance scenarios 8–9)", () => {
     expect(pool!.seasonId).toEqual(seasons[0]!._id);
   });
 
-  it("allows Start Week and lock mode edits until freeze (scenario 9)", async () => {
+  it("allows lock mode edits until freeze; Start Week stays week 1 (scenario 9)", async () => {
     const t = convexTest(schema, modules);
     const { asAlex, poolId } = await createOwnedPool(t);
 
+    await expect(
+      asAlex.mutation(api.pools.updatePoolRules, {
+        poolId,
+        startWeek: 2,
+      }),
+    ).rejects.toThrow(/week 1/);
+
     await asAlex.mutation(api.pools.updatePoolRules, {
       poolId,
-      startWeek: 2,
       pickLockMode: "weeklyCutoff",
       name: "Renamed Pool",
     });
 
     const pool = await t.run(async (ctx) => ctx.db.get(poolId));
     expect(pool).toMatchObject({
-      startWeek: 2,
+      startWeek: 1,
       pickLockMode: "weeklyCutoff",
       name: "Renamed Pool",
       rulesFrozen: false,
@@ -322,7 +330,7 @@ describe("immutability (acceptance scenarios 8–9)", () => {
     await expect(
       asAlex.mutation(api.pools.updatePoolRules, {
         poolId,
-        startWeek: 2,
+        startWeek: 1,
       }),
     ).rejects.toThrow(/frozen/);
 

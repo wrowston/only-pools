@@ -3,11 +3,20 @@
  * earlier of the first accepted competitive edit or the first Pick Lock.
  */
 
+/** Pools always begin at regular-season week 1 — mid-season starts are not allowed. */
+export const POOL_START_WEEK = 1;
+
 export function assertRulesEditable(rulesFrozen: boolean): void {
   if (rulesFrozen) {
     throw new Error(
       "Pool Ruleset is frozen after the first accepted competitive edit or Pick Lock",
     );
+  }
+}
+
+export function assertPoolStartWeek(startWeek: number): void {
+  if (startWeek !== POOL_START_WEEK) {
+    throw new Error("Start Week must be week 1");
   }
 }
 

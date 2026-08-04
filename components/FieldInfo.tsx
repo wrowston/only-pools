@@ -41,7 +41,7 @@ export function FieldInfo({ label, title, children }: FieldInfoProps) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`About ${label}`}
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-op-border-strong bg-op-control text-[11px] font-semibold leading-none text-op-secondary transition-colors hover:bg-[#00000014] hover:text-op-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-op-ink"
+        className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-op-border text-[9px] font-semibold leading-none text-op-muted transition-colors hover:border-op-border-strong hover:bg-op-control hover:text-op-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-op-ink"
       >
         i
       </button>

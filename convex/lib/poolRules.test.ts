@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertRulesEditable, assertValidStartWeekSlate } from "./poolRules";
+import {
+  assertPoolStartWeek,
+  assertRulesEditable,
+  assertValidStartWeekSlate,
+} from "./poolRules";
 
 describe("assertValidStartWeekSlate", () => {
   it("rejects an empty slate", () => {
@@ -24,6 +28,17 @@ describe("assertValidStartWeekSlate", () => {
         nowMs: 1_000,
       }),
     ).not.toThrow();
+  });
+});
+
+describe("assertPoolStartWeek", () => {
+  it("accepts week 1", () => {
+    expect(() => assertPoolStartWeek(1)).not.toThrow();
+  });
+
+  it("rejects any other week", () => {
+    expect(() => assertPoolStartWeek(2)).toThrow(/week 1/);
+    expect(() => assertPoolStartWeek(18)).toThrow(/week 1/);
   });
 });
 

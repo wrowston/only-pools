@@ -16,7 +16,11 @@ import {
   resolveAdmissionClosedAtMs,
 } from "./lib/membershipCutoff";
 import { mintOrdinaryPoolInvite } from "./lib/mintOrdinaryInvite";
-import { assertValidStartWeekSlate } from "./lib/poolRules";
+import {
+  assertPoolStartWeek,
+  assertValidStartWeekSlate,
+  POOL_START_WEEK,
+} from "./lib/poolRules";
 import { isPoolArchived } from "./lib/poolArchive";
 import {
   MAX_MEMBERSHIPS_PER_SEASON,
@@ -85,37 +89,17 @@ function isStartWeekValid(
   return earliest > nowMs;
 }
 
-async function resolveValidStartWeek(
+/** Pools always start at week 1 — no mid-season fallback. */
+async function requireWeekOneStartWeek(
   ctx: DbCtx,
   seasonId: Id<"poolSeasons">,
-  preferredWeek: number,
   nowMs: number,
 ): Promise<number> {
-  const preferredGames = await loadWeekGames(ctx, seasonId, preferredWeek);
-  if (isStartWeekValid(preferredGames, nowMs)) {
-    return preferredWeek;
-  }
-
-  const allGames = await ctx.db
-    .query("nflGames")
-    .withIndex("by_seasonId", (q) => q.eq("seasonId", seasonId))
-    .take(512);
-  const byWeek = new Map<number, number>();
-  for (const g of allGames) {
-    const prev = byWeek.get(g.week);
-    if (prev === undefined || g.scheduledKickoffMs < prev) {
-      byWeek.set(g.week, g.scheduledKickoffMs);
-    }
-  }
-  const candidates = [...byWeek.entries()]
-    .filter(([, earliest]) => earliest > nowMs)
-    .map(([week]) => week)
-    .sort((a, b) => a - b);
-  const first = candidates[0];
-  if (first === undefined) {
+  const games = await loadWeekGames(ctx, seasonId, POOL_START_WEEK);
+  if (!isStartWeekValid(games, nowMs)) {
     throw new TemplateError("No valid Start Week is available for this season");
   }
-  return first;
+  return POOL_START_WEEK;
 }
 
 function isEligibleTemplateSource(
@@ -247,7 +231,7 @@ export const listMyTemplates = query({
 
 /**
  * Create an Active Pool from a prior-season Pool Template.
- * Prefills name / type / Pick Lock mode / valid Start Week preference.
+ * Prefills name / type / Pick Lock mode. Start Week is always week 1.
  * Never copies memberships, picks, standings, audit, or other history.
  * Optional Returning Participant Invites are pending until explicit accept.
  */
@@ -305,19 +289,19 @@ export const createPoolFromTemplate = mutation({
       if (err instanceof PoolEntryError) throw new TemplateError(err.message);
       throw err;
     }
-    const startWeek =
-      args.startWeek !== undefined
-        ? args.startWeek
-        : await resolveValidStartWeek(
-            ctx,
-            availableSeason._id,
-            source.startWeek,
-            nowMs,
-          );
-
-    if (startWeek < 1 || startWeek > 18) {
-      throw new TemplateError("Start Week must be a regular-season week 1–18");
+    if (args.startWeek !== undefined) {
+      try {
+        assertPoolStartWeek(args.startWeek);
+      } catch (err) {
+        if (err instanceof Error) throw new TemplateError(err.message);
+        throw err;
+      }
     }
+    const startWeek = await requireWeekOneStartWeek(
+      ctx,
+      availableSeason._id,
+      nowMs,
+    );
     const games = await loadWeekGames(ctx, availableSeason._id, startWeek);
     assertValidStartWeekSlate({ games, nowMs });
 

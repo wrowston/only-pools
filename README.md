@@ -28,7 +28,7 @@ Pool type is fixed at creation. Each pool has one Pool Season (NFL regular seaso
 ### Lifecycle (short version)
 
 1. **Season Bootstrap** (Production Operator) seeds teams and schedule; season becomes Available.
-2. **Create Pool** — choose type, Start Week, Pick Lock mode (`gameKickoff` or `weeklyCutoff`).
+2. **Create Pool** — choose type and Pick Lock mode (`gameKickoff` or `weeklyCutoff`); Start Week is always Week 1.
 3. **Invite** — reusable bearer Pool Invite; join requires auth + contact disclosure acceptance.
 4. **Picks** — autosave on the Week Board; Hidden until Pick Lock; other games stay open under per-game lock.
 5. **Results & scoring** — Verified Results score immediately; projected/live scores are preview only. Corrections, Scoring Holds, and operator overrides exist for repair.

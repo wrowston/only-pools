@@ -59,19 +59,13 @@ const STEPS = [
   { id: 2 as const, label: "Rules" },
 ] as const;
 
+/** Match Input height/radius so native selects don’t look undersized. */
+const FIELD_SELECT_CLASS =
+  "h-11 w-full rounded-lg border border-op-border bg-op-surface px-2.5 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
+
 function absoluteInviteUrl(path: string): string {
   if (typeof window === "undefined") return path;
   return `${window.location.origin}${path}`;
-}
-
-function resolveStartWeek(
-  explicit: number | null,
-  preferred: number | undefined,
-  weeks: number[],
-): number | null {
-  if (explicit != null && weeks.includes(explicit)) return explicit;
-  if (preferred != null && weeks.includes(preferred)) return preferred;
-  return weeks[0] ?? null;
 }
 
 function defaultInviteSelections(
@@ -95,49 +89,33 @@ function WizardProgress({
   const labelId = useId();
   return (
     <div className="mb-5" aria-labelledby={labelId}>
-      <p id={labelId} className="sr-only">
-        Step {step + 1} of {steps.length}: {steps[step].label}
-      </p>
-      <ol className="flex items-center gap-1.5">
-        {steps.map((s, index) => {
-          const complete = index < step;
-          const current = index === step;
-          return (
-            <li key={s.id} className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span
-                className={[
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                  current
-                    ? "bg-op-ink text-white"
-                    : complete
-                      ? "bg-op-selected text-op-selected-fg"
-                      : "bg-op-control text-op-muted",
-                ].join(" ")}
-                aria-current={current ? "step" : undefined}
-              >
-                {complete ? "✓" : index + 1}
-              </span>
-              <span
-                className={[
-                  "truncate text-xs font-medium",
-                  current ? "text-op-text" : "text-op-muted",
-                ].join(" ")}
-              >
-                {s.label}
-              </span>
-              {index < steps.length - 1 ? (
-                <span
-                  className={[
-                    "mx-1 h-px min-w-3 flex-1",
-                    complete ? "bg-op-heat-20" : "bg-op-border",
-                  ].join(" ")}
-                  aria-hidden
-                />
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
+      <div className="flex items-baseline justify-between gap-3">
+        <p id={labelId} className="op-eyebrow text-op-heat">
+          {steps[step].label}
+        </p>
+        <p className="font-mono text-[10px] tracking-[0.08em] text-op-muted">
+          {step + 1} / {steps.length}
+        </p>
+      </div>
+      <div
+        className="mt-2.5 flex gap-1"
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={steps.length}
+        aria-valuenow={step + 1}
+        aria-valuetext={`${steps[step].label}, step ${step + 1} of ${steps.length}`}
+      >
+        {steps.map((s, index) => (
+          <span
+            key={s.id}
+            className={[
+              "h-0.5 flex-1 rounded-full transition-colors",
+              index <= step ? "bg-op-heat" : "bg-op-border",
+            ].join(" ")}
+            aria-hidden
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -162,7 +140,6 @@ function CreatePoolWizard({
   const [templatePoolId, setTemplatePoolId] = useState<Id<"pools"> | "">("");
   const [name, setName] = useState("");
   const [type, setType] = useState<PoolType>("survivor");
-  const [startWeek, setStartWeek] = useState<number | null>(null);
   const [pickLockMode, setPickLockMode] =
     useState<PickLockMode>("gameKickoff");
   const [maxEntriesPerUser, setMaxEntriesPerUser] = useState(1);
@@ -178,23 +155,16 @@ function CreatePoolWizard({
   );
 
   const weeks = startWeeks?.weeks ?? [];
+  const weekOneAvailable = weeks.includes(1);
   const templateOptions = (templates ?? []) as PoolTemplate[];
   const selectedTemplate =
     templateOptions.find((t) => t.poolId === templatePoolId) ?? null;
-  const effectiveStartWeek = resolveStartWeek(
-    startWeek,
-    selectedTemplate?.startWeek,
-    weeks,
-  );
 
   function applyTemplate(template: PoolTemplate) {
     setName(template.name);
     setType(template.type);
     setPickLockMode(template.pickLockMode);
     setMaxEntriesPerUser(template.maxEntriesPerUser ?? 1);
-    setStartWeek(
-      weeks.includes(template.startWeek) ? template.startWeek : null,
-    );
     setInviteSelections(defaultInviteSelections(template.formerParticipants));
   }
 
@@ -214,8 +184,8 @@ function CreatePoolWizard({
       return null;
     }
     if (current === 1) {
-      if (effectiveStartWeek === null || weeks.length === 0) {
-        return "No valid Start Week is available yet.";
+      if (!weekOneAvailable) {
+        return "Week 1 is not available yet — Create Pool opens once the Season slate is ready.";
       }
       return null;
     }
@@ -268,8 +238,10 @@ function CreatePoolWizard({
       setError(message);
       return;
     }
-    if (effectiveStartWeek === null) {
-      setError("No valid Start Week is available yet.");
+    if (!weekOneAvailable) {
+      setError(
+        "Week 1 is not available yet — Create Pool opens once the Season slate is ready.",
+      );
       return;
     }
 
@@ -296,7 +268,7 @@ function CreatePoolWizard({
         const result = await createFromTemplate({
           sourcePoolId: templatePoolId,
           name: name.trim(),
-          startWeek: effectiveStartWeek,
+          startWeek: 1,
           pickLockMode,
           maxEntriesPerUser,
           returningInvites,
@@ -320,7 +292,7 @@ function CreatePoolWizard({
         posthog.capture("pool_created_from_template", {
           pool_id: result.poolId,
           pool_type: type,
-          start_week: effectiveStartWeek,
+          start_week: 1,
           pick_lock_mode: pickLockMode,
         });
         setBusy(false);
@@ -330,7 +302,7 @@ function CreatePoolWizard({
       const result = await createPool({
         name: name.trim(),
         type,
-        startWeek: effectiveStartWeek,
+        startWeek: 1,
         pickLockMode,
         maxEntriesPerUser,
       });
@@ -343,7 +315,7 @@ function CreatePoolWizard({
       posthog.capture("pool_created", {
         pool_id: result.poolId,
         pool_type: type,
-        start_week: effectiveStartWeek,
+        start_week: 1,
         pick_lock_mode: pickLockMode,
       });
       setBusy(false);
@@ -468,7 +440,7 @@ function CreatePoolWizard({
           <>
             <fieldset className="flex flex-col gap-2 text-sm">
               <legend className="font-medium text-op-text">
-                <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1">
                   Setup
                   <FieldInfo label="Setup" title="Setup">
                     <FieldInfoTerm term="New setup">
@@ -477,9 +449,9 @@ function CreatePoolWizard({
                     </FieldInfoTerm>
                     <FieldInfoTerm term="From template">
                       Prefill from a prior Pool you owned — name, Pool Type,
-                      lock mode, Start Week preference, and optional
-                      returning-invite roles. Competitive history and standings
-                      do not carry over.
+                      lock mode, and optional returning-invite roles.
+                      Competition still starts at Week 1. Competitive history
+                      and standings do not carry over.
                     </FieldInfoTerm>
                   </FieldInfo>
                 </span>
@@ -529,7 +501,7 @@ function CreatePoolWizard({
                     );
                     if (template) applyTemplate(template);
                   }}
-                  className="rounded-md border border-op-border bg-op-surface"
+                  className={FIELD_SELECT_CLASS}
                   required
                 >
                   <option value="">Select a Pool Template…</option>
@@ -561,7 +533,7 @@ function CreatePoolWizard({
           <>
             <fieldset className="flex flex-col gap-2 text-sm">
               <legend className="font-medium text-op-text">
-                <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1">
                   Pool Type
                   <FieldInfo label="Pool Type" title="Pool Type">
                     <FieldInfoTerm term="Survivor">
@@ -610,37 +582,9 @@ function CreatePoolWizard({
               ) : null}
             </fieldset>
 
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="inline-flex items-center gap-1.5 font-medium text-op-text">
-                Start Week
-                <FieldInfo label="Start Week" title="Start Week">
-                  <p>
-                    The first NFL regular-season week your Pool includes. Only
-                    weeks whose first game has not kicked off yet are available.
-                  </p>
-                  <p>
-                    New members can join until that Start Week&apos;s earliest
-                    kickoff; after that, admission closes for good.
-                  </p>
-                </FieldInfo>
-              </span>
-              <select
-                value={effectiveStartWeek ?? ""}
-                onChange={(e) => setStartWeek(Number(e.target.value))}
-                disabled={weeks.length === 0}
-                className="rounded-md border border-op-border bg-op-surface"
-              >
-                {weeks.length === 0 ? (
-                  <option value="">No weeks available</option>
-                ) : (
-                  weeks.map((w) => (
-                    <option key={w} value={w}>
-                      Week {w}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
+            <p className="text-xs text-op-muted">
+              Competition always starts at Week 1 of the Available Season.
+            </p>
           </>
         ) : null}
 
@@ -648,7 +592,7 @@ function CreatePoolWizard({
           <>
             <fieldset className="flex flex-col gap-2 text-sm">
               <legend className="font-medium text-op-text">
-                <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1">
                   Pick Lock mode
                   <FieldInfo label="Pick Lock mode" title="Pick Lock mode">
                     <p>
@@ -691,7 +635,7 @@ function CreatePoolWizard({
             </fieldset>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="inline-flex items-center gap-1.5 font-medium text-op-text">
+              <span className="inline-flex items-center gap-1 font-medium text-op-text">
                 Max entries per person
                 <FieldInfo
                   label="Max entries per person"
@@ -707,7 +651,7 @@ function CreatePoolWizard({
               <select
                 value={maxEntriesPerUser}
                 onChange={(e) => setMaxEntriesPerUser(Number(e.target.value))}
-                className="rounded-md border border-op-border bg-op-surface"
+                className={FIELD_SELECT_CLASS}
               >
                 {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                   <option key={n} value={n}>
@@ -748,7 +692,7 @@ function CreatePoolWizard({
                               e.target.value as ProposedRole | "skip",
                             )
                           }
-                          className="rounded-md border border-op-border bg-op-surface"
+                          className={`${FIELD_SELECT_CLASS} sm:w-auto sm:min-w-[11rem]`}
                         >
                           <option value="skip">Don&apos;t invite</option>
                           <option value="member">Invite as Member</option>
@@ -768,7 +712,7 @@ function CreatePoolWizard({
               <p className="mt-0.5">
                 {type === "survivor" ? "Survivor" : "Confidence"}
                 {" · "}
-                Week {effectiveStartWeek ?? "—"}
+                Week 1
                 {" · "}
                 {pickLockMode === "gameKickoff"
                   ? "Game Kickoff Lock"

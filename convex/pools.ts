@@ -6,8 +6,10 @@ import { AuthError, requireParticipant } from "./lib/auth";
 import { markOwnerPoolCreated } from "./helpPrompt";
 import { createLogger } from "./lib/log";
 import {
+  assertPoolStartWeek,
   assertRulesEditable,
   assertValidStartWeekSlate,
+  POOL_START_WEEK,
 } from "./lib/poolRules";
 import {
   computeWeeklyCutoffMs,
@@ -179,6 +181,12 @@ export const createPool = mutation({
     }
     if (args.startWeek < 1 || args.startWeek > 18) {
       throw new PoolError("Start Week must be a regular-season week 1–18");
+    }
+    try {
+      assertPoolStartWeek(args.startWeek);
+    } catch (err) {
+      if (err instanceof Error) throw new PoolError(err.message);
+      throw err;
     }
 
     let description: string | undefined;
@@ -550,8 +558,9 @@ export const dropPoolEntry = mutation({
 });
 
 /**
- * Edit Start Week, Pick Lock mode, or name until rules freeze.
- * Pool Type and Pool Season are never editable.
+ * Edit Pick Lock mode or name until rules freeze.
+ * Pool Type, Pool Season, and Start Week (always week 1) are never editable
+ * to a different week.
  */
 export const updatePoolRules = mutation({
   args: {
@@ -602,8 +611,11 @@ export const updatePoolRules = mutation({
     }
 
     if (args.startWeek !== undefined) {
-      if (args.startWeek < 1 || args.startWeek > 18) {
-        throw new PoolError("Start Week must be a regular-season week 1–18");
+      try {
+        assertPoolStartWeek(args.startWeek);
+      } catch (err) {
+        if (err instanceof Error) throw new PoolError(err.message);
+        throw err;
       }
       const games = await loadWeekGames(ctx, pool.seasonId, args.startWeek);
       assertValidStartWeekSlate({ games, nowMs: Date.now() });
@@ -683,7 +695,8 @@ export const freezePoolRules = internalMutation({
 });
 
 /**
- * Valid Start Weeks for the Available Season (published slate, not kicked off).
+ * Whether week 1 is still a valid Start Week for the Available Season
+ * (published slate, not kicked off). Mid-season starts are not allowed.
  */
 export const listAvailableStartWeeks = query({
   args: {},
@@ -699,23 +712,20 @@ export const listAvailableStartWeeks = query({
     }
 
     const nowMs = Date.now();
-    const games = await ctx.db
+    const week1Games = await ctx.db
       .query("nflGames")
-      .withIndex("by_seasonId", (q) => q.eq("seasonId", season._id))
-      .take(512);
+      .withIndex("by_seasonId_and_week", (q) =>
+        q.eq("seasonId", season._id).eq("week", POOL_START_WEEK),
+      )
+      .take(64);
 
-    const byWeek = new Map<number, number>();
-    for (const g of games) {
-      const prev = byWeek.get(g.week);
-      if (prev === undefined || g.scheduledKickoffMs < prev) {
-        byWeek.set(g.week, g.scheduledKickoffMs);
-      }
+    const weeks: number[] = [];
+    try {
+      assertValidStartWeekSlate({ games: week1Games, nowMs });
+      weeks.push(POOL_START_WEEK);
+    } catch {
+      // Week 1 missing or already kicked off — Create Pool stays gated off.
     }
-
-    const weeks = [...byWeek.entries()]
-      .filter(([, earliest]) => earliest > nowMs)
-      .map(([week]) => week)
-      .sort((a, b) => a - b);
 
     return {
       seasonId: season._id,
