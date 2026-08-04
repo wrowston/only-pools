@@ -1,11 +1,21 @@
 /**
  * Dev-only browse-ready demo seeder — no provider calls.
  *
- * Narrative clock: weeks 1–3 are past/locked (1–2 scored), week 4 is the open
- * board (TNF started; rest of slate still pickable), weeks 5–6 stay fully
- * future for Create Pool start-week options.
+ * Default narrative clock: weeks before `openWeek` are past/locked (all but the
+ * last past week scored), `openWeek` is the open board (TNF started; rest of
+ * slate still pickable), and two later weeks stay fully future for Create Pool.
  *
- *   bunx convex run seedDemo:seedDemoWorld '{"ownerClerkUserId":"user_…"}'
+ * Video showcase (week 5 board, 10 people, multi-entry, eliminations):
+ *
+ *   bunx convex run seedDemo:seedDemoWorld '{
+ *     "ownerClerkUserId":"user_…",
+ *     "reset":true,
+ *     "poolCount":1,
+ *     "fakeUserCount":9,
+ *     "membersPerPool":9,
+ *     "openWeek":5,
+ *     "maxEntriesPerUser":3
+ *   }'
  *
  * Requires the owner to have signed in once (participants row by clerkUserId).
  */
@@ -36,13 +46,24 @@ const SEED_TOKEN_PREFIX = "seed|";
 const SEED_CLERK_PREFIX = "seed_";
 const DEFAULT_OWNER_CLERK_USER_ID = "user_3GYF9xQXL66xX5aTpVwIvUj4bok";
 const SEASON_LABEL = "2025";
-/** Demo slate: weeks before this are past/locked; this week is the open board. */
-const OPEN_WEEK = 4;
-/** Extra future weeks so Create Pool still has Available Start Weeks. */
-const SLATE_END_WEEK = 6;
+/** Default open board week (e2e + casual browse). Override with `openWeek`. */
+const DEFAULT_OPEN_WEEK = 4;
+/** Full NFL regular season so Week Board chips run through Week 18. */
+const SLATE_END_WEEK = 18;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const WEEK_MS = 7 * DAY_MS;
+
+/** How many competitive lines a seeded member gets (capped by maxEntriesPerUser). */
+function seededEntryCountForMember(
+  memberIndex: number,
+  maxEntriesPerUser: number,
+): number {
+  if (maxEntriesPerUser <= 1) return 1;
+  // Mix of 1–3 lines so standings show "Name (2)" without filling every seat.
+  const pattern = [2, 3, 1, 2, 1, 3, 1, 2, 1, 2] as const;
+  return Math.min(maxEntriesPerUser, pattern[memberIndex % pattern.length]!);
+}
 
 const FAKE_PEOPLE: ReadonlyArray<{ slug: string; displayName: string }> = [
   { slug: "alex", displayName: "Alex Rivera" },
@@ -112,7 +133,10 @@ type SeedResult = {
   fakeUserCount: number;
   poolCount: number;
   membershipCount: number;
+  entryCount: number;
   survivorPickCount: number;
+  openWeek: number;
+  maxEntriesPerUser: number;
   reset: boolean;
 };
 
@@ -127,6 +151,12 @@ export const seedDemoWorld = internalMutation({
     reset: v.optional(v.boolean()),
     poolCount: v.optional(v.number()),
     fakeUserCount: v.optional(v.number()),
+    /** Additional members per pool (excluding owner). Caps at fakeUserCount. */
+    membersPerPool: v.optional(v.number()),
+    /** Board week that looks "current" (TNF started). Default 4. */
+    openWeek: v.optional(v.number()),
+    /** Pool max entries per user (1–10). >1 seeds multi-entry lines. */
+    maxEntriesPerUser: v.optional(v.number()),
     nowMs: v.optional(v.number()),
     includeApiSportsGameAliases: v.optional(v.boolean()),
   },
@@ -144,12 +174,29 @@ export const seedDemoWorld = internalMutation({
       1,
       Math.min(args.fakeUserCount ?? FAKE_PEOPLE.length, FAKE_PEOPLE.length),
     );
+    const openWeek = Math.max(
+      2,
+      Math.min(Math.floor(args.openWeek ?? DEFAULT_OPEN_WEEK), 16),
+    );
+    const maxEntriesPerUser = Math.max(
+      1,
+      Math.min(Math.floor(args.maxEntriesPerUser ?? 1), 10),
+    );
     const nowMs = args.nowMs ?? Date.now();
 
-    const owner = await ctx.db
+    const ownerCandidates = await ctx.db
       .query("participants")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", ownerClerkUserId))
-      .unique();
+      .take(8);
+    // Prefer the interactive Clerk session participant over CLI/cutover clones
+    // that reuse the same clerkUserId.
+    const owner =
+      ownerCandidates.find((p) =>
+        p.tokenIdentifier.includes("clerk.accounts.dev"),
+      ) ??
+      ownerCandidates.find((p) => !p.tokenIdentifier.startsWith("https://cli.")) ??
+      ownerCandidates[0] ??
+      null;
     if (owner === null) {
       throw new Error(
         `No participant for clerkUserId=${ownerClerkUserId}. Sign into the app once, then re-run seed.`,
@@ -233,8 +280,8 @@ export const seedDemoWorld = internalMutation({
             (index + week) % CANONICAL_NFL_TEAM_LIST.length
           ]!,
       );
-      const pastWeek = week < OPEN_WEEK;
-      const upcomingWeek = week > OPEN_WEEK;
+      const pastWeek = week < openWeek;
+      const upcomingWeek = week > openWeek;
       for (let i = 0; i + 1 < order.length; i += 2) {
         const home = order[i]!;
         const away = order[i + 1]!;
@@ -248,9 +295,9 @@ export const seedDemoWorld = internalMutation({
         // rest of the slate stays in the future so picks remain editable.
         // Later weeks: fully future so Create Pool still has start-week options.
         const scheduledKickoffMs = pastWeek
-          ? nowMs - (OPEN_WEEK - week) * WEEK_MS - 2 * DAY_MS + slot * HOUR_MS
+          ? nowMs - (openWeek - week) * WEEK_MS - 2 * DAY_MS + slot * HOUR_MS
           : upcomingWeek
-            ? nowMs + (week - OPEN_WEEK) * WEEK_MS + DAY_MS + slot * HOUR_MS
+            ? nowMs + (week - openWeek) * WEEK_MS + DAY_MS + slot * HOUR_MS
             : slot === 0
               ? nowMs - 2 * HOUR_MS
               : nowMs + DAY_MS + (slot - 1) * 3 * HOUR_MS;
@@ -370,11 +417,15 @@ export const seedDemoWorld = internalMutation({
 
     const blueprints = POOL_BLUEPRINTS.slice(0, poolCount);
     let membershipCount = 0;
+    let entryCount = 0;
     let survivorPickCount = 0;
     const poolIds: Id<"pools">[] = [];
     for (let i = 0; i < blueprints.length; i++) {
       const bp = blueprints[i]!;
-      const poolName = `${SEED_POOL_PREFIX}${bp.name}`;
+      const poolName =
+        openWeek === 5 && poolCount === 1 && bp.type === "survivor"
+          ? `${SEED_POOL_PREFIX}Demo Night Survivor`
+          : `${SEED_POOL_PREFIX}${bp.name}`;
       const poolId = await ctx.db.insert("pools", {
         name: poolName,
         type: bp.type,
@@ -384,6 +435,7 @@ export const seedDemoWorld = internalMutation({
         status: "active",
         rulesFrozen: false,
         ownerParticipantId: owner._id,
+        maxEntriesPerUser,
         createdAtMs: nowMs + i,
       });
       poolIds.push(poolId);
@@ -395,19 +447,37 @@ export const seedDemoWorld = internalMutation({
         status: "active",
       });
       membershipCount += 1;
-      const ownerEntryId = await ctx.db.insert("poolEntries", {
-        poolId,
-        participantId: owner._id,
-        membershipId: ownerMembershipId,
-        entryNumber: 1,
-        status: "active",
-        createdAtMs: nowMs + i,
-      });
 
-      const memberCount = 6 + (i % 7); // 6–12
-      const members = rotateSlice(fakeIds, i * 3, memberCount);
-      const entryIds: Id<"poolEntries">[] = [ownerEntryId];
-      const allMemberIds: Id<"participants">[] = [owner._id, ...members];
+      const seedEntries: Array<{
+        participantId: Id<"participants">;
+        entryId: Id<"poolEntries">;
+      }> = [];
+
+      const ownerLineCount = Math.min(
+        maxEntriesPerUser,
+        maxEntriesPerUser >= 2 ? 2 : 1,
+      );
+      for (let n = 1; n <= ownerLineCount; n++) {
+        const entryId = await ctx.db.insert("poolEntries", {
+          poolId,
+          participantId: owner._id,
+          membershipId: ownerMembershipId,
+          entryNumber: n,
+          status: "active",
+          createdAtMs: nowMs + i + n,
+        });
+        seedEntries.push({ participantId: owner._id, entryId });
+        entryCount += 1;
+      }
+
+      const members = rotateSlice(
+        fakeIds,
+        i * 3,
+        Math.max(
+          1,
+          Math.min(args.membersPerPool ?? 6 + (i % 7), fakeUserCount),
+        ),
+      );
       for (let m = 0; m < members.length; m++) {
         const role = m < 2 ? ("admin" as const) : ("member" as const);
         const membershipId = await ctx.db.insert("poolMemberships", {
@@ -417,24 +487,28 @@ export const seedDemoWorld = internalMutation({
           status: "active",
         });
         membershipCount += 1;
-        const entryId = await ctx.db.insert("poolEntries", {
-          poolId,
-          participantId: members[m]!,
-          membershipId,
-          entryNumber: 1,
-          status: "active",
-          createdAtMs: nowMs + i,
-        });
-        entryIds.push(entryId);
+        const lineCount = seededEntryCountForMember(m, maxEntriesPerUser);
+        for (let n = 1; n <= lineCount; n++) {
+          const entryId = await ctx.db.insert("poolEntries", {
+            poolId,
+            participantId: members[m]!,
+            membershipId,
+            entryNumber: n,
+            status: "active",
+            createdAtMs: nowMs + i + m * 10 + n,
+          });
+          seedEntries.push({ participantId: members[m]!, entryId });
+          entryCount += 1;
+        }
       }
 
       if (bp.type === "survivor") {
         survivorPickCount += await seedSurvivorStandingsHistory(ctx, {
           poolId,
-          memberIds: allMemberIds,
-          entryIds,
+          entries: seedEntries,
           teamIds,
           nowMs,
+          openWeek,
         });
       }
     }
@@ -451,7 +525,10 @@ export const seedDemoWorld = internalMutation({
         fakeUserCount: fakeIds.length,
         poolCount: poolIds.length,
         membershipCount,
+        entryCount,
         survivorPickCount,
+        openWeek,
+        maxEntriesPerUser,
         reset,
       }),
     });
@@ -464,7 +541,10 @@ export const seedDemoWorld = internalMutation({
       fakeUserCount: fakeIds.length,
       poolCount: poolIds.length,
       membershipCount,
+      entryCount,
       survivorPickCount,
+      openWeek,
+      maxEntriesPerUser,
       reset,
     };
   },
@@ -472,24 +552,27 @@ export const seedDemoWorld = internalMutation({
 
 /**
  * Demo-only history so Standings shows Splashsports-style week pick cells.
- * Weeks 1–2 locked + scored; week 3 locked pending; open week unlocked (hidden).
+ * Scored weeks: openWeek-2 and earlier; last past week locked pending; open unlocked.
  */
 async function seedSurvivorStandingsHistory(
   ctx: MutationCtx,
   args: {
     poolId: Id<"pools">;
-    memberIds: Id<"participants">[];
-    entryIds: Id<"poolEntries">[];
+    entries: Array<{
+      participantId: Id<"participants">;
+      entryId: Id<"poolEntries">;
+    }>;
     teamIds: Id<"nflTeams">[];
     nowMs: number;
+    openWeek: number;
   },
 ): Promise<number> {
   let pickCount = 0;
   const eliminated = new Set<string>();
-  const lastScoredWeek = OPEN_WEEK - 2;
-  const lastLockedWeek = OPEN_WEEK - 1;
+  const lastScoredWeek = args.openWeek - 2;
+  const lastLockedWeek = args.openWeek - 1;
 
-  for (let week = 1; week <= OPEN_WEEK; week++) {
+  for (let week = 1; week <= args.openWeek; week++) {
     const revisionId =
       week <= lastScoredWeek
         ? await ctx.db.insert("scoringRevisions", {
@@ -498,7 +581,7 @@ async function seedSurvivorStandingsHistory(
             kind: "survivor",
             revisionNumber: 1,
             fingerprint: `seed|${args.poolId}|w${week}`,
-            publishedAtMs: args.nowMs - (OPEN_WEEK + 1 - week) * DAY_MS,
+            publishedAtMs: args.nowMs - (args.openWeek + 1 - week) * DAY_MS,
             status: "published",
           })
         : null;
@@ -514,9 +597,8 @@ async function seedSurvivorStandingsHistory(
       });
     }
 
-    for (let i = 0; i < args.memberIds.length; i++) {
-      const participantId = args.memberIds[i]!;
-      const entryId = args.entryIds[i]!;
+    for (let i = 0; i < args.entries.length; i++) {
+      const { participantId, entryId } = args.entries[i]!;
       if (eliminated.has(entryId)) continue;
 
       const teamId = args.teamIds[(i + week * 3) % args.teamIds.length]!;
@@ -529,7 +611,7 @@ async function seedSurvivorStandingsHistory(
         nflTeamId: teamId,
         locked,
         lockedAtMs: locked
-          ? args.nowMs - (OPEN_WEEK + 1 - week) * DAY_MS
+          ? args.nowMs - (args.openWeek + 1 - week) * DAY_MS
           : undefined,
         provenance: "authored",
         provisional: false,
@@ -548,8 +630,9 @@ async function seedSurvivorStandingsHistory(
       });
 
       if (week <= lastScoredWeek && revisionId) {
-        // Eliminate ~1/3 of the field each scored week so the grid has red cells.
-        const loses = (i + week) % 3 === 0 && i > 0;
+        // Knock out ~1/5 of remaining lines each scored week so week 5 still
+        // has a competitive alive field for demo recordings.
+        const loses = (i + week) % 5 === 0 && i > 0;
         const outcome = loses ? ("loss" as const) : ("win" as const);
         await ctx.db.insert("survivorPickOutcomes", {
           poolId: args.poolId,
@@ -578,9 +661,7 @@ async function seedSurvivorStandingsHistory(
     }
   }
 
-  for (let i = 0; i < args.memberIds.length; i++) {
-    const participantId = args.memberIds[i]!;
-    const entryId = args.entryIds[i]!;
+  for (const { participantId, entryId } of args.entries) {
     if (eliminated.has(entryId)) continue;
     const existing = await ctx.db
       .query("seasonStandings")

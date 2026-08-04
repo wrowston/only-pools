@@ -59,6 +59,7 @@ import type * as lib_operatorAuth from "../lib/operatorAuth.js";
 import type * as lib_pickLock from "../lib/pickLock.js";
 import type * as lib_pinnedResultEvidence from "../lib/pinnedResultEvidence.js";
 import type * as lib_poolArchive from "../lib/poolArchive.js";
+import type * as lib_poolBannerMessage from "../lib/poolBannerMessage.js";
 import type * as lib_poolDescription from "../lib/poolDescription.js";
 import type * as lib_poolEntries from "../lib/poolEntries.js";
 import type * as lib_poolRules from "../lib/poolRules.js";
@@ -179,6 +180,7 @@ declare const fullApi: ApiFromModules<{
   "lib/pickLock": typeof lib_pickLock;
   "lib/pinnedResultEvidence": typeof lib_pinnedResultEvidence;
   "lib/poolArchive": typeof lib_poolArchive;
+  "lib/poolBannerMessage": typeof lib_poolBannerMessage;
   "lib/poolDescription": typeof lib_poolDescription;
   "lib/poolEntries": typeof lib_poolEntries;
   "lib/poolRules": typeof lib_poolRules;
