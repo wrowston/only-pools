@@ -11,7 +11,11 @@ import { BrandMark } from "@/components/BrandMark";
 import { OperatorNavLink } from "@/components/OperatorNavLink";
 import { MyPoolsNavLink } from "@/components/MyPoolsNavLink";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { HELP_FEEDBACK_LABEL } from "@/lib/helpNav";
 import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
+
+const menuItemClassName =
+  "flex w-full rounded-[8px] px-3 py-2 text-left text-[13px] text-op-secondary transition-colors hover:bg-op-control hover:text-op-text";
 
 /**
  * Global top bar. Hidden on in-pool desktop (≥900px) — brand lives in the
@@ -20,6 +24,9 @@ import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
  * `variant="marketing"` shows Guides and omits Convex-backed Operator nav so
  * public pages do not need a Convex provider. `variant="app"` (dashboard)
  * hides Guides — that link lives on the marketing home page instead.
+ *
+ * Below `md`, secondary links collapse into a hamburger menu so the bar
+ * stays a single clean row on phones.
  */
 export function SiteHeader({
   variant = "app",
@@ -41,10 +48,10 @@ export function SiteHeader({
         inPool ? "min-[900px]:hidden" : "",
       ].join(" ")}
     >
-      <div className="mx-auto flex h-[4.5rem] w-full max-w-[1200px] items-center justify-between gap-4 px-5 sm:px-8">
+      <div className="mx-auto flex h-[4.5rem] w-full max-w-[1200px] items-center justify-between gap-3 px-5 sm:px-8">
         <Link
           href="/"
-          className="flex items-center gap-2 text-[15px] font-medium tracking-tight text-op-text"
+          className="flex shrink-0 items-center gap-2 whitespace-nowrap text-[15px] font-medium tracking-tight text-op-text"
         >
           <BrandMark />
           Only Pools
@@ -52,61 +59,157 @@ export function SiteHeader({
             Beta
           </span>
         </Link>
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {variant === "marketing" ? (
-            <Link
-              href="/guides"
-              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-            >
-              Guides
-            </Link>
-          ) : null}
-          <Link
-            href="/help"
-            className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-          >
-            Help & feedback
-          </Link>
+
+        <div className="hidden items-center gap-1.5 sm:gap-2 md:flex">
+          <DesktopNavLinks
+            variant={variant}
+            likelySignedIn={likelySignedIn}
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5 md:hidden">
           {likelySignedIn ? (
-            <>
-              {variant === "app" ? (
-                <MyPoolsNavLink className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]" />
-              ) : (
-                <Link
-                  href={POST_AUTH_HOME}
-                  className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-                >
-                  My Pools
-                </Link>
-              )}
-              {variant === "app" ? <OperatorNavLink /> : null}
-              <div className="ml-1 flex items-center">
-                <UserButton />
-              </div>
-            </>
+            <div className="flex items-center">
+              <UserButton />
+            </div>
           ) : (
-            <>
-              <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
-                <button
-                  type="button"
-                  className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-                >
-                  Log in
-                </button>
-              </SignInButton>
-              <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
-                <button
-                  type="button"
-                  className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
-                >
-                  Sign up
-                </button>
-              </SignUpButton>
-            </>
+            <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
+              <button
+                type="button"
+                className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
+              >
+                Sign up
+              </button>
+            </SignUpButton>
           )}
+          <MobileNavMenu variant={variant} likelySignedIn={likelySignedIn} />
         </div>
       </div>
       <div className="h-px w-full bg-op-border" />
     </header>
+  );
+}
+
+function DesktopNavLinks({
+  variant,
+  likelySignedIn,
+}: {
+  variant: "marketing" | "app";
+  likelySignedIn: boolean;
+}) {
+  return (
+    <>
+      {variant === "marketing" ? (
+        <Link
+          href="/guides"
+          className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+        >
+          Guides
+        </Link>
+      ) : null}
+      <Link
+        href="/help"
+        className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+      >
+        {HELP_FEEDBACK_LABEL}
+      </Link>
+      {likelySignedIn ? (
+        <>
+          {variant === "app" ? (
+            <MyPoolsNavLink className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]" />
+          ) : (
+            <Link
+              href={POST_AUTH_HOME}
+              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+            >
+              My Pools
+            </Link>
+          )}
+          {variant === "app" ? <OperatorNavLink /> : null}
+          <div className="ml-1 flex items-center">
+            <UserButton />
+          </div>
+        </>
+      ) : (
+        <>
+          <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
+            <button
+              type="button"
+              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
+            >
+              Log in
+            </button>
+          </SignInButton>
+          <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
+            <button
+              type="button"
+              className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
+            >
+              Sign up
+            </button>
+          </SignUpButton>
+        </>
+      )}
+    </>
+  );
+}
+
+function MobileNavMenu({
+  variant,
+  likelySignedIn,
+}: {
+  variant: "marketing" | "app";
+  likelySignedIn: boolean;
+}) {
+  return (
+    <details className="group relative">
+      <summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-[8px] text-op-secondary transition-colors hover:bg-op-control hover:text-op-text [&::-webkit-details-marker]:hidden">
+        <span className="sr-only">Open navigation</span>
+        <MenuIcon />
+      </summary>
+      <div className="absolute right-0 top-[calc(100%+0.55rem)] w-48 overflow-hidden rounded-[12px] border border-op-border-strong bg-op-surface p-1.5 shadow-[0_18px_42px_-18px_rgba(38,38,38,0.35)]">
+        {variant === "marketing" ? (
+          <Link href="/guides" className={menuItemClassName}>
+            Guides
+          </Link>
+        ) : null}
+        <Link href="/help" className={menuItemClassName}>
+          {HELP_FEEDBACK_LABEL}
+        </Link>
+        {likelySignedIn ? (
+          <>
+            {variant === "app" ? (
+              <MyPoolsNavLink className={menuItemClassName} />
+            ) : (
+              <Link href={POST_AUTH_HOME} className={menuItemClassName}>
+                My Pools
+              </Link>
+            )}
+            {variant === "app" ? (
+              <OperatorNavLink className={menuItemClassName} />
+            ) : null}
+          </>
+        ) : (
+          <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
+            <button type="button" className={menuItemClassName}>
+              Log in
+            </button>
+          </SignInButton>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden>
+      <path
+        d="M2.5 4.25h10M2.5 7.5h10M2.5 10.75h10"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
