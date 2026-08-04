@@ -43,6 +43,7 @@ import {
   resolveAuditDisplayNames,
 } from "@/lib/poolAuditDisplay";
 import { EmptyState } from "./EmptyState";
+import { LinkifiedText } from "./LinkifiedText";
 import {
   PoolAuditSkeleton,
   PoolPanelSkeleton,
@@ -432,7 +433,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
               <div className="flex flex-col gap-3">
                 {poolDescription ? (
                   <p className="whitespace-pre-wrap text-sm text-op-text">
-                    {poolDescription}
+                    <LinkifiedText text={poolDescription} />
                   </p>
                 ) : (
                   <p className="text-sm text-op-secondary">No description yet.</p>
