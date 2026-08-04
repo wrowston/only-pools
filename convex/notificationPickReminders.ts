@@ -85,7 +85,11 @@ async function incompleteEntryNumbers(args: {
         .query("confidencePicks")
         .withIndex("by_pickSetId", (q) => q.eq("pickSetId", set._id))
         .take(64);
-      if (picks.length === 0) {
+      // Authored but partial sheets still need reminders for blank games.
+      if (
+        picks.length === 0 ||
+        picks.some((p) => p.pickedTeamId === undefined)
+      ) {
         incomplete.push(entry.entryNumber);
       }
     }
@@ -108,6 +112,10 @@ export async function ensurePickReminderScheduled(
   },
 ): Promise<void> {
   const nowMs = args.nowMs ?? Date.now();
+  // Picks are no longer "due soon" once the slate has started.
+  if (args.firstKickoffMs <= nowMs) {
+    return;
+  }
   const fireAtMs = args.firstKickoffMs - PICK_REMINDER_LEAD_MS;
 
   const existing = await ctx.db
@@ -175,6 +183,10 @@ export const firePickRemindersForPoolWeek = internalMutation({
     if (!pool || pool.status !== "active" || isPoolArchived(pool)) {
       return null;
     }
+    // Late or rescheduled jobs must not send after kickoff.
+    if (args.firstKickoffMs <= Date.now()) {
+      return null;
+    }
 
     const memberships = await ctx.db
       .query("poolMemberships")
@@ -222,7 +234,8 @@ export const firePickRemindersForPoolWeek = internalMutation({
 
 /**
  * Hourly/cron: schedule reminders for active pools for weeks whose first
- * kickoff is still in the future (or within the lead window).
+ * kickoff is still in the future (including within the lead window, which
+ * fires immediately via ensurePickReminderScheduled).
  */
 export const ensureUpcomingPickReminders = internalMutation({
   args: { nowMs: v.optional(v.number()) },
@@ -242,10 +255,8 @@ export const ensureUpcomingPickReminders = internalMutation({
           week,
         );
         if (firstKickoffMs === null) continue;
-        // Past kickoff and outside lead window — nothing to schedule.
-        if (firstKickoffMs + PICK_REMINDER_LEAD_MS < nowMs) continue;
-        // Already kicked off more than a day ago relative to lead — skip.
-        if (firstKickoffMs < nowMs - PICK_REMINDER_LEAD_MS) continue;
+        // Slate already started — do not schedule a late "picks due soon".
+        if (firstKickoffMs <= nowMs) continue;
 
         await ensurePickReminderScheduled(ctx, {
           poolId: pool._id,

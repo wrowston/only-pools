@@ -196,31 +196,52 @@ export const sendWeeklySummaries = internalMutation({
   handler: async (ctx, args) => {
     const nowMs = args.nowMs ?? Date.now();
     const seasons = await ctx.db.query("poolSeasons").collect();
-    // Prefer available/active seasons; fall back to any with games.
-    let summaryWeek: number | null = null;
-    let seasonId: Id<"poolSeasons"> | null = null;
-    for (const season of seasons) {
+    // Prefer available seasons (newest year first); fall back to others.
+    const orderedSeasons = [
+      ...seasons
+        .filter((s) => s.status === "available")
+        .sort((a, b) => b.year - a.year),
+      ...seasons
+        .filter((s) => s.status !== "available")
+        .sort((a, b) => b.year - a.year),
+    ];
+
+    const weekBySeason = new Map<Id<"poolSeasons">, number>();
+    for (const season of orderedSeasons) {
       const week = await resolveSummaryWeekForSeason(ctx, season._id, nowMs);
       if (week !== null) {
-        summaryWeek = week;
-        seasonId = season._id;
-        break;
+        weekBySeason.set(season._id, week);
       }
     }
-    if (summaryWeek === null || seasonId === null) {
+    if (weekBySeason.size === 0) {
       return { sentAccounts: 0, week: null };
     }
 
-    const seasonYear =
-      seasons.find((s) => s._id === seasonId)?.year ?? summaryWeek;
-
-    const pools = await ctx.db
-      .query("pools")
-      .withIndex("by_seasonId", (q) => q.eq("seasonId", seasonId!))
-      .collect();
-    const activePools = pools.filter(
-      (p) => p.status === "active" && !isPoolArchived(p),
+    // Canonical week from the preferred season; include every season that
+    // resolves to that same week so active pools across seasons are covered.
+    const preferredSeason = orderedSeasons.find((s) =>
+      weekBySeason.has(s._id),
+    )!;
+    const summaryWeek = weekBySeason.get(preferredSeason._id)!;
+    const seasonYear = preferredSeason.year;
+    const matchingSeasonIds = new Set(
+      [...weekBySeason.entries()]
+        .filter(([, week]) => week === summaryWeek)
+        .map(([id]) => id),
     );
+
+    const activePools: Array<Doc<"pools">> = [];
+    for (const seasonId of matchingSeasonIds) {
+      const pools = await ctx.db
+        .query("pools")
+        .withIndex("by_seasonId", (q) => q.eq("seasonId", seasonId))
+        .collect();
+      for (const pool of pools) {
+        if (pool.status === "active" && !isPoolArchived(pool)) {
+          activePools.push(pool);
+        }
+      }
+    }
 
     const byParticipant = new Map<
       Id<"participants">,
