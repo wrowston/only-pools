@@ -78,6 +78,11 @@ export function SurvivorPickGrid({
     (r) => r.eligibility === "eliminated",
   );
   const focusedWeekIndex = weeks.indexOf(focusWeek);
+  // Sticky player/status borders collapse over the focused week edge — match
+  // heat so the highlight keeps all four sides when W1 or the last week is focused.
+  const focusTouchesPlayer = focusedWeekIndex === 0;
+  const focusTouchesStatus =
+    focusedWeekIndex >= 0 && focusedWeekIndex === weeks.length - 1;
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRefs = useRef<Map<number, HTMLTableCellElement>>(new Map());
   const didInitScrollRef = useRef(false);
@@ -121,7 +126,7 @@ export function SurvivorPickGrid({
           <thead>
             <tr className="bg-op-control">
               <th
-                className={`op-sticky-control sticky left-0 z-20 overflow-hidden border-r border-op-border px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5 ${PLAYER_COL} ${uiType.eyebrow}`}
+                className={`op-sticky-control sticky left-0 z-20 overflow-hidden border-r border-op-border px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5 ${PLAYER_COL} ${uiType.eyebrow} ${focusTouchesPlayer ? "border-r-op-heat-40" : ""}`}
               >
                 Player
               </th>
@@ -163,7 +168,7 @@ export function SurvivorPickGrid({
                 );
               })}
               <th
-                className={`op-sticky-control sticky right-0 z-20 overflow-hidden border-l border-op-border px-2 py-2.5 text-right min-[900px]:px-5 min-[900px]:py-3.5 ${STATUS_COL} ${uiType.eyebrow}`}
+                className={`op-sticky-control sticky right-0 z-20 overflow-hidden border-l border-op-border px-2 py-2.5 text-right min-[900px]:px-5 min-[900px]:py-3.5 ${STATUS_COL} ${uiType.eyebrow} ${focusTouchesStatus ? "border-l-op-heat-40" : ""}`}
               >
                 Status
               </th>
@@ -219,7 +224,10 @@ export function SurvivorPickGrid({
                         "sticky left-0 z-10 overflow-hidden border-r border-op-border border-t px-2.5 py-2.5 min-[900px]:px-5 min-[900px]:py-3.5",
                         PLAYER_COL,
                         playerBg,
-                      ].join(" ")}
+                        focusTouchesPlayer ? "border-r-op-heat-40" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
                       <div className="flex min-w-0 items-start gap-2 min-[900px]:gap-3">
                         <span className="mt-0.5 shrink-0">
@@ -281,7 +289,10 @@ export function SurvivorPickGrid({
                         "sticky right-0 z-10 overflow-hidden border-l border-op-border border-t px-2 py-2.5 min-[900px]:px-3 min-[900px]:py-3.5",
                         STATUS_COL,
                         playerBg,
-                      ].join(" ")}
+                        focusTouchesStatus ? "border-l-op-heat-40" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
                       <div className="flex justify-end">
                         <StatusChip
