@@ -25,8 +25,9 @@ const menuItemClassName =
  * public pages do not need a Convex provider. `variant="app"` (dashboard)
  * hides Guides — that link lives on the marketing home page instead.
  *
- * Below `md`, secondary links collapse into a hamburger menu so the bar
- * stays a single clean row on phones.
+ * Secondary links (Help, My Pools, Incidents, Guides, Log in) always live
+ * behind a hamburger so the bar stays a single clean row on every width.
+ * Brand + the primary auth control (UserButton or Sign up) stay visible.
  */
 export function SiteHeader({
   variant = "app",
@@ -60,14 +61,7 @@ export function SiteHeader({
           </span>
         </Link>
 
-        <div className="hidden items-center gap-1.5 sm:gap-2 md:flex">
-          <DesktopNavLinks
-            variant={variant}
-            likelySignedIn={likelySignedIn}
-          />
-        </div>
-
-        <div className="flex items-center gap-1.5 md:hidden">
+        <div className="flex items-center gap-1.5">
           {likelySignedIn ? (
             <div className="flex items-center">
               <UserButton />
@@ -82,7 +76,7 @@ export function SiteHeader({
               </button>
             </SignUpButton>
           )}
-          <MobileNavMenu variant={variant} likelySignedIn={likelySignedIn} />
+          <NavMenu variant={variant} likelySignedIn={likelySignedIn} />
         </div>
       </div>
       <div className="h-px w-full bg-op-border" />
@@ -90,71 +84,7 @@ export function SiteHeader({
   );
 }
 
-function DesktopNavLinks({
-  variant,
-  likelySignedIn,
-}: {
-  variant: "marketing" | "app";
-  likelySignedIn: boolean;
-}) {
-  return (
-    <>
-      {variant === "marketing" ? (
-        <Link
-          href="/guides"
-          className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-        >
-          Guides
-        </Link>
-      ) : null}
-      <Link
-        href="/help"
-        className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-      >
-        {HELP_FEEDBACK_LABEL}
-      </Link>
-      {likelySignedIn ? (
-        <>
-          {variant === "app" ? (
-            <MyPoolsNavLink className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]" />
-          ) : (
-            <Link
-              href={POST_AUTH_HOME}
-              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-            >
-              My Pools
-            </Link>
-          )}
-          {variant === "app" ? <OperatorNavLink /> : null}
-          <div className="ml-1 flex items-center">
-            <UserButton />
-          </div>
-        </>
-      ) : (
-        <>
-          <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
-            <button
-              type="button"
-              className="op-btn op-btn-ghost h-8 px-2.5 text-[13px]"
-            >
-              Log in
-            </button>
-          </SignInButton>
-          <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
-            <button
-              type="button"
-              className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
-            >
-              Sign up
-            </button>
-          </SignUpButton>
-        </>
-      )}
-    </>
-  );
-}
-
-function MobileNavMenu({
+function NavMenu({
   variant,
   likelySignedIn,
 }: {

@@ -20,8 +20,8 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("@/components/OperatorNavLink", () => ({
-  OperatorNavLink: () =>
-    createElement("a", { href: "/operator" }, "Incidents"),
+  OperatorNavLink: ({ className }: { className?: string }) =>
+    createElement("a", { href: "/operator", className }, "Incidents"),
 }));
 
 vi.mock("@/components/MyPoolsNavLink", () => ({
@@ -40,7 +40,7 @@ vi.mock("@/components/BrandMark", () => ({
 
 import { SiteHeader } from "@/components/SiteHeader";
 
-describe("SiteHeader mobile chrome", () => {
+describe("SiteHeader hamburger chrome", () => {
   beforeEach(() => {
     usePathname.mockReturnValue("/guides");
     useLikelySignedIn.mockReturnValue(false);
@@ -54,21 +54,21 @@ describe("SiteHeader mobile chrome", () => {
     expect(markup).toBe("");
   });
 
-  it("keeps desktop links and collapses secondary nav behind a hamburger on mobile", () => {
+  it("keeps secondary links behind a hamburger on every width", () => {
     const markup = renderToStaticMarkup(
       createElement(SiteHeader, { variant: "marketing" }),
     );
 
     expect(markup).toContain('class="sr-only">Open navigation');
-    expect(markup).toContain("hidden items-center gap-1.5 sm:gap-2 md:flex");
-    expect(markup).toContain("flex items-center gap-1.5 md:hidden");
+    expect(markup).not.toContain("md:flex");
+    expect(markup).not.toContain("md:hidden");
     expect(markup).toContain("Guides");
     expect(markup).toContain("Help &amp; feedback");
     expect(markup).toContain("Log in");
     expect(markup).toContain("Sign up");
   });
 
-  it("keeps the signed-in user control outside the mobile menu", () => {
+  it("keeps the signed-in user control outside the menu", () => {
     useLikelySignedIn.mockReturnValue(true);
     usePathname.mockReturnValue("/my-pools");
     const markup = renderToStaticMarkup(
@@ -76,8 +76,10 @@ describe("SiteHeader mobile chrome", () => {
     );
 
     expect(markup).toContain('data-testid="user-button"');
+    expect(markup).toContain('class="sr-only">Open navigation');
     expect(markup).toContain("My Pools");
     expect(markup).toContain("Help &amp; feedback");
+    expect(markup).toContain("Incidents");
     expect(markup).not.toContain("Sign up");
   });
 });
