@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 import { InviteSkeleton } from "./InviteSkeleton";
 
@@ -78,7 +79,10 @@ export function JoinReturningInviteView({ token }: { token: string }) {
           Sign in with the invited account to preview this invite. Opening the
           link alone does not enroll you.
         </p>
-        <SignInButton mode="modal">
+        <SignInButton
+          mode="modal"
+          initialValues={clerkPhoneFirstInitialValues}
+        >
           <button
             type="button"
             className="op-btn op-btn-primary"

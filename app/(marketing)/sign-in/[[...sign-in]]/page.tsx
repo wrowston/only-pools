@@ -1,5 +1,6 @@
 import { SignIn } from "@clerk/nextjs";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 
 /** Auth UI is client-hydrated; keep the route shell cacheable when possible. */
 export const dynamic = "force-static";
@@ -10,6 +11,7 @@ export default function SignInPage() {
       <SignIn
         fallbackRedirectUrl={POST_AUTH_HOME}
         signUpFallbackRedirectUrl={POST_AUTH_HOME}
+        initialValues={clerkPhoneFirstInitialValues}
       />
     </div>
   );

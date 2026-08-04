@@ -1,5 +1,6 @@
 import { SignUp } from "@clerk/nextjs";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 
 export const dynamic = "force-static";
 
@@ -9,6 +10,7 @@ export default function SignUpPage() {
       <SignUp
         fallbackRedirectUrl={POST_AUTH_HOME}
         signInFallbackRedirectUrl={POST_AUTH_HOME}
+        initialValues={clerkPhoneFirstInitialValues}
       />
     </div>
   );

@@ -11,6 +11,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { OperatorNavLink } from "@/components/OperatorNavLink";
 import { MyPoolsNavLink } from "@/components/MyPoolsNavLink";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
+import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 import { HELP_FEEDBACK_LABEL } from "@/lib/helpNav";
 import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
 
@@ -67,7 +68,10 @@ export function SiteHeader({
               <UserButton />
             </div>
           ) : (
-            <SignUpButton forceRedirectUrl={POST_AUTH_HOME}>
+            <SignUpButton
+              forceRedirectUrl={POST_AUTH_HOME}
+              initialValues={clerkPhoneFirstInitialValues}
+            >
               <button
                 type="button"
                 className="op-btn op-btn-secondary h-8 px-3 text-[13px]"
@@ -120,7 +124,10 @@ function NavMenu({
             ) : null}
           </>
         ) : (
-          <SignInButton forceRedirectUrl={POST_AUTH_HOME}>
+          <SignInButton
+            forceRedirectUrl={POST_AUTH_HOME}
+            initialValues={clerkPhoneFirstInitialValues}
+          >
             <button type="button" className={menuItemClassName}>
               Log in
             </button>
