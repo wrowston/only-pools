@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JoinInviteView } from "@/components/JoinInviteView";
+import { JoinInviteClient } from "@/components/JoinInviteView";
 
 export const metadata: Metadata = {
   title: "Join a pool · Only Pools",
@@ -21,5 +21,5 @@ export const metadata: Metadata = {
 };
 
 export default function JoinPage() {
-  return <JoinInviteView token="" />;
+  return <JoinInviteClient token="">{null}</JoinInviteClient>;
 }

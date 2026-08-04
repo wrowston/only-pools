@@ -81,6 +81,9 @@ export default function RootLayout({
           signUpFallbackRedirectUrl={POST_AUTH_HOME}
           // Avoid unhandled NetworkErrors when ad blockers drop clerk-telemetry.com
           telemetry={false}
+          // Focus/visibility session touches fail often on mobile invite opens
+          // (flaky network, backgrounded tabs). Token refresh via getToken is enough.
+          touchSession={false}
         >
           <HelpOriginPathTracker />
           {children}

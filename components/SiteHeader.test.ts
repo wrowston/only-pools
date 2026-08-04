@@ -39,6 +39,7 @@ vi.mock("@/components/BrandMark", () => ({
 }));
 
 import { SiteHeader } from "@/components/SiteHeader";
+import { postAuthRedirect } from "@/lib/postAuthRedirect";
 
 describe("SiteHeader hamburger chrome", () => {
   beforeEach(() => {
@@ -66,6 +67,19 @@ describe("SiteHeader hamburger chrome", () => {
     expect(markup).toContain("Help &amp; feedback");
     expect(markup).toContain("Log in");
     expect(markup).toContain("Sign up");
+  });
+
+  it("returns invite visitors to the join URL after header auth", () => {
+    usePathname.mockReturnValue("/join/invite-token");
+    const markup = renderToStaticMarkup(
+      createElement(SiteHeader, { variant: "marketing" }),
+    );
+    // SignUpButton / SignInButton mocks pass children through; redirect is a
+    // prop we cannot see in markup — assert the join path is still rendered
+    // as a public invite surface with auth CTAs.
+    expect(markup).toContain("Sign up");
+    expect(markup).toContain("Log in");
+    expect(postAuthRedirect("/join/invite-token")).toBe("/join/invite-token");
   });
 
   it("keeps the signed-in user control outside the menu", () => {

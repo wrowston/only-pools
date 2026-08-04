@@ -81,6 +81,7 @@ export function JoinReturningInviteView({ token }: { token: string }) {
         </p>
         <SignInButton
           mode="modal"
+          forceRedirectUrl={`/return/${token}`}
           initialValues={clerkPhoneFirstInitialValues}
         >
           <button

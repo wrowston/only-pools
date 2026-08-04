@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { JoinInviteView } from "@/components/JoinInviteView";
+import { JoinInviteClient } from "@/components/JoinInviteView";
+import { JoinInviteGuest } from "@/components/JoinInviteGuest";
 import { fetchInviteSharePreview } from "@/lib/fetchInviteSharePreview";
 import { inviteShareMetadata } from "@/lib/inviteShareMetadata";
 
@@ -19,5 +20,11 @@ export default async function JoinWithTokenPage({
   params,
 }: JoinWithTokenPageProps) {
   const { token } = await params;
-  return <JoinInviteView token={token} />;
+  const preview = await fetchInviteSharePreview(token);
+
+  return (
+    <JoinInviteClient token={token}>
+      <JoinInviteGuest token={token} preview={preview} />
+    </JoinInviteClient>
+  );
 }

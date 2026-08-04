@@ -13,6 +13,7 @@ import { MyPoolsNavLink } from "@/components/MyPoolsNavLink";
 import { POST_AUTH_HOME } from "@/lib/authRoutes";
 import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 import { HELP_FEEDBACK_LABEL } from "@/lib/helpNav";
+import { postAuthRedirect } from "@/lib/postAuthRedirect";
 import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
 
 const menuItemClassName =
@@ -38,6 +39,7 @@ export function SiteHeader({
   const pathname = usePathname() ?? "";
   const inPool = pathname.startsWith("/pools/");
   const likelySignedIn = useLikelySignedIn();
+  const authRedirectUrl = postAuthRedirect(pathname);
 
   if (pathname === "/") {
     return null;
@@ -69,7 +71,7 @@ export function SiteHeader({
             </div>
           ) : (
             <SignUpButton
-              forceRedirectUrl={POST_AUTH_HOME}
+              forceRedirectUrl={authRedirectUrl}
               initialValues={clerkPhoneFirstInitialValues}
             >
               <button
@@ -80,7 +82,11 @@ export function SiteHeader({
               </button>
             </SignUpButton>
           )}
-          <NavMenu variant={variant} likelySignedIn={likelySignedIn} />
+          <NavMenu
+            variant={variant}
+            likelySignedIn={likelySignedIn}
+            authRedirectUrl={authRedirectUrl}
+          />
         </div>
       </div>
       <div className="h-px w-full bg-op-border" />
@@ -91,9 +97,11 @@ export function SiteHeader({
 function NavMenu({
   variant,
   likelySignedIn,
+  authRedirectUrl,
 }: {
   variant: "marketing" | "app";
   likelySignedIn: boolean;
+  authRedirectUrl: string;
 }) {
   return (
     <details className="group relative">
@@ -128,7 +136,7 @@ function NavMenu({
           </>
         ) : (
           <SignInButton
-            forceRedirectUrl={POST_AUTH_HOME}
+            forceRedirectUrl={authRedirectUrl}
             initialValues={clerkPhoneFirstInitialValues}
           >
             <button type="button" className={menuItemClassName}>

@@ -1,26 +1,70 @@
 "use client";
 
 import posthog from "posthog-js";
-import { SignInButton, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
-import { clerkPhoneFirstInitialValues } from "@/lib/clerkPhoneFirst";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
-import { poolTypeLabel } from "@/lib/inviteShareMetadata";
+import { useLikelySignedIn } from "@/lib/useLikelySignedIn";
 import { EmptyState } from "./EmptyState";
 import { InviteSkeleton } from "./InviteSkeleton";
 
-export function JoinInviteView({ token }: { token: string }) {
+/**
+ * Client gate for /join/[token]: unsigned visitors keep the SSR guest tree
+ * (children). Likely-signed-in visitors get the accept flow without flashing
+ * guest CTAs.
+ */
+export function JoinInviteClient({
+  token,
+  children,
+}: {
+  token: string;
+  children: ReactNode;
+}) {
+  const likelySignedIn = useLikelySignedIn();
+  const { isSignedIn, isLoaded } = useAuth();
+
+  if (!token) {
+    return (
+      <EmptyState
+        title="Join a Pool"
+        description="Open a Pool Invite link from a Pool Owner or Pool Admin to join. Opening a link alone does not enroll you."
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              href="/my-pools"
+              className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+            >
+              Back to My Pools
+            </Link>
+            <Link
+              href="/guides/invites-and-joining"
+              className="rounded-md px-4 py-2.5 text-sm font-medium text-op-selected-fg underline underline-offset-4"
+            >
+              How joining works
+            </Link>
+          </div>
+        }
+      />
+    );
+  }
+
+  const showAcceptFlow =
+    likelySignedIn || (isLoaded && Boolean(isSignedIn));
+
+  if (showAcceptFlow) {
+    return <JoinInviteAcceptFlow token={token} />;
+  }
+
+  return <>{children}</>;
+}
+
+function JoinInviteAcceptFlow({ token }: { token: string }) {
   const router = useRouter();
-  const { isSignedIn } = useAuth();
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const sharePreview = useQuery(
-    api.invites.sharePreview,
-    token ? { token } : "skip",
-  );
   const preview = useQuery(
     api.invites.previewInvite,
     isAuthenticated && token ? { token } : "skip",
@@ -51,83 +95,7 @@ export function JoinInviteView({ token }: { token: string }) {
     }
   }
 
-  if (!token) {
-    return (
-      <EmptyState
-        title="Join a Pool"
-        description="Open a Pool Invite link from a Pool Owner or Pool Admin to join. Opening a link alone does not enroll you."
-        action={
-          <div className="flex flex-wrap justify-center gap-2">
-            <Link href="/my-pools" className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text">Back to My Pools</Link>
-            <Link href="/guides/invites-and-joining" className="rounded-md px-4 py-2.5 text-sm font-medium text-op-selected-fg underline underline-offset-4">How joining works</Link>
-          </div>
-        }
-      />
-    );
-  }
-
-  if (!isSignedIn) {
-    if (sharePreview === undefined) {
-      return <InviteSkeleton />;
-    }
-
-    if (sharePreview === null) {
-      return (
-        <EmptyState
-          title="Invite unavailable"
-          description="This invite link is invalid, expired, or no longer active."
-          action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <SignInButton
-                mode="modal"
-                forceRedirectUrl={`/join/${token}`}
-                initialValues={clerkPhoneFirstInitialValues}
-              >
-                <button type="button" className="op-btn op-btn-primary">
-                  Sign in
-                </button>
-              </SignInButton>
-              <Link href="/guides/invites-and-joining" className="op-btn op-btn-ghost">
-                Troubleshoot invites
-              </Link>
-            </div>
-          }
-        />
-      );
-    }
-
-    return (
-      <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-op-text">
-          Join {sharePreview.poolName}
-        </h1>
-        <p className="text-sm text-op-secondary">
-          {poolTypeLabel(sharePreview.poolType)} · Start Week{" "}
-          {sharePreview.startWeek}
-        </p>
-        <p className="text-sm text-op-secondary">
-          Sign in with a verified email and phone to accept this Pool Invite.
-          Opening the link alone does not enroll you.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <SignInButton
-            mode="modal"
-            forceRedirectUrl={`/join/${token}`}
-            initialValues={clerkPhoneFirstInitialValues}
-          >
-            <button type="button" className="op-btn op-btn-primary">
-              Sign in to continue
-            </button>
-          </SignInButton>
-          <Link href="/guides/invites-and-joining" className="op-btn op-btn-ghost">
-            Joining guide
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (isLoading || preview === undefined) {
+  if (isLoading || !isAuthenticated || preview === undefined) {
     return <InviteSkeleton />;
   }
 
@@ -138,8 +106,18 @@ export function JoinInviteView({ token }: { token: string }) {
         description="This invite link is invalid, expired, or no longer active."
         action={
           <div className="flex flex-wrap justify-center gap-2">
-            <Link href="/my-pools" className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text">Back to My Pools</Link>
-            <Link href="/guides/invites-and-joining" className="rounded-md px-4 py-2.5 text-sm font-medium text-op-selected-fg underline underline-offset-4">Troubleshoot invites</Link>
+            <Link
+              href="/my-pools"
+              className="rounded-md border border-op-border-strong px-4 py-2.5 text-sm font-medium text-op-text"
+            >
+              Back to My Pools
+            </Link>
+            <Link
+              href="/guides/invites-and-joining"
+              className="rounded-md px-4 py-2.5 text-sm font-medium text-op-selected-fg underline underline-offset-4"
+            >
+              Troubleshoot invites
+            </Link>
           </div>
         }
       />
@@ -199,7 +177,10 @@ export function JoinInviteView({ token }: { token: string }) {
           {error}
         </p>
       ) : null}
-      <Link href="/guides/invites-and-joining" className="text-sm font-medium text-op-selected-fg underline underline-offset-4">
+      <Link
+        href="/guides/invites-and-joining"
+        className="text-sm font-medium text-op-selected-fg underline underline-offset-4"
+      >
         Read the joining guide
       </Link>
     </div>
