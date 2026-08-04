@@ -84,6 +84,12 @@ export default defineSchema({
     operatorStepUpVerifiedAtMs: v.optional(v.number()),
     /** Marker is valid only for this exact authenticated Clerk session. */
     operatorStepUpSessionId: v.optional(v.string()),
+    /**
+     * Account email notification prefs. Absent/undefined = on; explicit false = off.
+     */
+    emailPickReminders: v.optional(v.boolean()),
+    emailPoolUpdates: v.optional(v.boolean()),
+    emailWeeklySummary: v.optional(v.boolean()),
   })
     .index("by_tokenIdentifier", ["tokenIdentifier"])
     .index("by_clerkUserId", ["clerkUserId"]),
@@ -1781,4 +1787,66 @@ export default defineSchema({
     retired: v.boolean(),
     updatedAtMs: v.number(),
   }).index("by_participantId", ["participantId"]),
+
+  /**
+   * Product notification delivery ledger — idempotency + audit for Resend sends.
+   */
+  notificationDeliveries: defineTable({
+    participantId: v.id("participants"),
+    kind: v.union(
+      v.literal("pick_reminder"),
+      v.literal("pool_description"),
+      v.literal("pool_banner"),
+      v.literal("weekly_summary"),
+    ),
+    /** Unique send key, e.g. pick_reminder:{poolId}:{week}:{participantId}. */
+    dedupeKey: v.string(),
+    toEmail: v.string(),
+    subject: v.string(),
+    bodyText: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    attemptCount: v.number(),
+    nextAttemptAtMs: v.optional(v.number()),
+    scheduledForMs: v.optional(v.number()),
+    sentAtMs: v.optional(v.number()),
+    providerMessageId: v.optional(v.string()),
+    failureClass: v.optional(v.string()),
+    lastAttemptAtMs: v.optional(v.number()),
+    poolId: v.optional(v.id("pools")),
+    week: v.optional(v.number()),
+    payloadSummary: v.optional(v.string()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_participantId", ["participantId"])
+    .index("by_status_and_nextAttemptAtMs", ["status", "nextAttemptAtMs"]),
+
+  /**
+   * 15-minute coalesce window for Pool description / banner change emails.
+   */
+  notificationDebounces: defineTable({
+    poolId: v.id("pools"),
+    field: v.union(v.literal("description"), v.literal("banner")),
+    flushAtMs: v.number(),
+    /** Latest text; empty string means cleared. */
+    latestText: v.string(),
+    editorParticipantId: v.id("participants"),
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+  }).index("by_poolId_and_field", ["poolId", "field"]),
+
+  /**
+   * Scheduled pick-reminder jobs keyed by pool + week so kickoff moves can
+   * cancel and reschedule without double-sending (delivery ledger owns send once).
+   */
+  notificationPickReminderJobs: defineTable({
+    poolId: v.id("pools"),
+    week: v.number(),
+    firstKickoffMs: v.number(),
+    fireAtMs: v.number(),
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+  }).index("by_poolId_and_week", ["poolId", "week"]),
 });

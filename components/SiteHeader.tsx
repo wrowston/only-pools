@@ -112,6 +112,9 @@ function NavMenu({
         </Link>
         {likelySignedIn ? (
           <>
+            <Link href="/settings/notifications" className={menuItemClassName}>
+              Notifications
+            </Link>
             {variant === "app" ? (
               <MyPoolsNavLink className={menuItemClassName} />
             ) : (

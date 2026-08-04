@@ -154,6 +154,18 @@ export const CLEAN_ACTIVATION_POLICY = {
     disposition: "delete",
     reason: "Feedback prompt eligibility belongs to deleted Participants.",
   },
+  notificationDeliveries: {
+    disposition: "delete",
+    reason: "Product notification ledger references deleted Participants and Pools.",
+  },
+  notificationDebounces: {
+    disposition: "delete",
+    reason: "Pool update debounce windows belong to deleted Pools.",
+  },
+  notificationPickReminderJobs: {
+    disposition: "delete",
+    reason: "Pick reminder schedules belong to deleted Pools.",
+  },
   syncGate: {
     disposition: "preserve",
     reason: "The deployment Sync Gate is service-level configuration.",
@@ -305,6 +317,9 @@ export const CLEAN_ACTIVATION_DELETE_ORDER = [
   "helpIntake",
   "helpThrottle",
   "feedbackPromptState",
+  "notificationDeliveries",
+  "notificationDebounces",
+  "notificationPickReminderJobs",
   "pools",
   "syncWorkItems",
   "syncSurfaceHealth",

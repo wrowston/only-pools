@@ -42,4 +42,26 @@ crons.interval(
   {},
 );
 
+/**
+ * Keep pick-reminder jobs aligned with current earliest kickoffs.
+ * Delivery ledger prevents double-sends after reschedule.
+ */
+crons.interval(
+  "ensure-pick-reminders",
+  { hours: 1 },
+  internal.notificationPickReminders.ensureUpcomingPickReminders,
+  {},
+);
+
+/**
+ * Tuesday 14:00 UTC ≈ 10:00 America/New_York during EDT.
+ * EST (UTC−5) lands at 9:00 a.m. — accepted for v1.
+ */
+crons.cron(
+  "weekly-notification-summary",
+  "0 14 * * 2",
+  internal.notificationWeeklySummary.sendWeeklySummaries,
+  {},
+);
+
 export default crons;

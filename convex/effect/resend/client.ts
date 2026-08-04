@@ -44,18 +44,27 @@ function normalizeReplyTo(
   return replyTo;
 }
 
+export type SendEmailOptions = {
+  /**
+   * When set, overrides the Help-only production gate.
+   * Product notifications pass `canDeliverProductEmail(env)`.
+   */
+  realDelivery?: boolean;
+};
+
 export function sendEmail(
   input: SendEmailInput,
   env: Record<string, string | undefined> = process.env as Record<
     string,
     string | undefined
   >,
+  options?: SendEmailOptions,
 ): Effect.Effect<
   SendEmailResult,
   ResendHttpError | ResendDecodeError | ResendConfigError
 > {
   return Effect.gen(function* () {
-    const useRealApi = canDeliverRealEmail(env);
+    const useRealApi = options?.realDelivery ?? canDeliverRealEmail(env);
 
     if (!useRealApi) {
       const recorded = yield* Effect.try({
