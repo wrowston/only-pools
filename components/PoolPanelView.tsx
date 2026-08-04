@@ -165,6 +165,9 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
     api.pools.updateMaxEntriesPerUser,
   );
   const updatePoolDescription = useMutation(api.pools.updatePoolDescription);
+  const updatePoolBannerMessage = useMutation(
+    api.pools.updatePoolBannerMessage,
+  );
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
     isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
@@ -181,6 +184,8 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const [maxEntriesDraft, setMaxEntriesDraft] = useState<number | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
+  const [bannerDraft, setBannerDraft] = useState("");
+  const [editingBanner, setEditingBanner] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [reasonDraft, setReasonDraft] = useState("");
@@ -335,8 +340,11 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const isAdmin =
     members.callerRole === "owner" || members.callerRole === "admin";
   const canEditDescription = isAdmin && !members.archived;
+  const canEditBanner = canEditDescription;
   const poolDescription = members.description ?? "";
   const descriptionDirty = descriptionDraft.trim() !== poolDescription.trim();
+  const poolBanner = members.bannerMessage ?? "";
+  const bannerDirty = bannerDraft.trim() !== poolBanner.trim();
   const needsReason =
     confirm?.kind === "remove" || confirm?.kind === "reinstate";
   const auditNameByParticipantId = new Map(
@@ -351,6 +359,16 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   function cancelEditDescription() {
     setEditingDescription(false);
     setDescriptionDraft("");
+  }
+
+  function beginEditBanner() {
+    setBannerDraft(poolBanner);
+    setEditingBanner(true);
+  }
+
+  function cancelEditBanner() {
+    setEditingBanner(false);
+    setBannerDraft("");
   }
 
   return (
@@ -384,6 +402,99 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
       ) : null}
 
       <div className="flex flex-col gap-4">
+        {poolBanner || canEditBanner ? (
+          <PoolPanelSection
+            id="pool-banner"
+            title="Pool banner"
+            description="Shown at the top of every view in this Pool so important notes are hard to miss. Clear it when it no longer applies."
+          >
+            {editingBanner && canEditBanner ? (
+              <div className="flex flex-col gap-2">
+                <textarea
+                  id="pool-banner-input"
+                  maxLength={500}
+                  rows={2}
+                  value={bannerDraft}
+                  onChange={(e) => setBannerDraft(e.target.value)}
+                  placeholder="e.g. Buy-in due Friday — Venmo @owner"
+                  aria-label="Pool banner message"
+                  className={textareaClassName}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy || !bannerDirty}
+                    onClick={() =>
+                      void runAdminAction(async () => {
+                        await updatePoolBannerMessage({
+                          poolId,
+                          bannerMessage: bannerDraft,
+                        });
+                        setEditingBanner(false);
+                        setBannerDraft("");
+                      })
+                    }
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={cancelEditBanner}
+                  >
+                    Cancel
+                  </Button>
+                  {poolBanner ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        void runAdminAction(async () => {
+                          await updatePoolBannerMessage({
+                            poolId,
+                            bannerMessage: "",
+                          });
+                          setEditingBanner(false);
+                          setBannerDraft("");
+                        })
+                      }
+                    >
+                      Clear banner
+                    </Button>
+                  ) : null}
+                  <span className="text-xs text-op-secondary">
+                    {bannerDraft.trim().length}/500
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {poolBanner ? (
+                  <p className="whitespace-pre-wrap rounded-md border border-op-banner-border bg-op-banner-bg px-3 py-2 text-sm text-op-banner-fg">
+                    <LinkifiedText text={poolBanner} />
+                  </p>
+                ) : (
+                  <p className="text-sm text-op-secondary">No banner yet.</p>
+                )}
+                {canEditBanner ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="self-start"
+                    disabled={busy}
+                    onClick={beginEditBanner}
+                  >
+                    {poolBanner ? "Edit" : "Add banner"}
+                  </Button>
+                ) : null}
+              </div>
+            )}
+          </PoolPanelSection>
+        ) : null}
+
         {poolDescription || canEditDescription ? (
           <PoolPanelSection id="pool-description" title="About this Pool">
             {editingDescription && canEditDescription ? (

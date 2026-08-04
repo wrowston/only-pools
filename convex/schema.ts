@@ -726,6 +726,11 @@ export default defineSchema({
      * (not outcome-affecting). Absent/empty = no description.
      */
     description: v.optional(v.string()),
+    /**
+     * Optional announcement shown as a top banner on every in-pool view.
+     * Owner/Admin may edit anytime (not outcome-affecting). Absent/empty = no banner.
+     */
+    bannerMessage: v.optional(v.string()),
     type: poolType,
     seasonId: v.id("poolSeasons"),
     startWeek: v.number(),

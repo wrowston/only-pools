@@ -19,6 +19,7 @@ export type PoolChromeShell = {
   name: string;
   type: "survivor" | "confidence";
   status: "active" | "completed";
+  bannerMessage: string | null;
 };
 
 type PoolChromeContextValue = {
@@ -83,6 +84,7 @@ export function PoolChromeProvider({
         poolId={poolId}
         poolName={poolName}
         poolType={shell?.type}
+        bannerMessage={shell?.bannerMessage ?? null}
         contextRail={contextRail}
       >
         {children}

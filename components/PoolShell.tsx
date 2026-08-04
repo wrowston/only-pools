@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { MyPoolsNavLink } from "@/components/MyPoolsNavLink";
 import { OperatorNavLink } from "@/components/OperatorNavLink";
+import { PoolOwnerBanner } from "@/components/PoolOwnerBanner";
 import { PoolPicker } from "@/components/PoolPicker";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -138,6 +139,7 @@ export function PoolShell({
   poolType,
   children,
   contextRail,
+  bannerMessage,
 }: {
   poolId: string;
   poolName?: string;
@@ -145,6 +147,8 @@ export function PoolShell({
   children: ReactNode;
   /** Week Board only — Confidence/Survivor peek. Hidden below 900px. */
   contextRail?: ReactNode;
+  /** Owner/Admin announcement shown atop every in-pool section. */
+  bannerMessage?: string | null;
 }) {
   const pathname = usePathname() ?? `/pools/${poolId}`;
   const section: PoolSection = poolSectionFromPath(pathname);
@@ -270,7 +274,12 @@ export function PoolShell({
         </div>
 
         <div className="flex min-w-0 flex-1 gap-0">
-          <div className="min-w-0 flex-1">{children}</div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {bannerMessage ? (
+              <PoolOwnerBanner message={bannerMessage} />
+            ) : null}
+            <div className="min-w-0 flex-1">{children}</div>
+          </div>
           {contextRail ? (
             <div
               className={`${chrome.contextRail} w-56 shrink-0 flex-col border-l border-op-border bg-op-canvas p-5`}
