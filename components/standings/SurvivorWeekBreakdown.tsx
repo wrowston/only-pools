@@ -65,19 +65,19 @@ function WeekStat({
 }) {
   const styles = STAT_TONES[tone];
   return (
-    <div className={`rounded-[10px] border px-3 py-2.5 ${styles.card}`}>
-      <div className="flex items-center justify-between gap-2">
-        <p className={`flex min-w-0 items-center gap-1.5 text-xs font-medium ${styles.label}`}>
+    <div className={`rounded-[10px] border px-2 py-2 min-[560px]:px-3 min-[560px]:py-2.5 ${styles.card}`}>
+      <div className="flex items-center justify-between gap-1 min-[560px]:gap-2">
+        <p className={`flex min-w-0 items-center gap-1 text-[11px] font-medium min-[560px]:gap-1.5 min-[560px]:text-xs ${styles.label}`}>
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} aria-hidden />
           <span className="truncate">{label}</span>
         </p>
-        <span className="shrink-0 text-sm font-medium tabular-nums text-op-text">
+        <span className="shrink-0 text-xs font-medium tabular-nums text-op-text min-[560px]:text-sm">
           {percentLabel(percentage)}
         </span>
       </div>
-      <p className="mt-1.5 flex items-baseline gap-1.5">
-        <span className="text-xl font-medium tabular-nums text-op-text">{value}</span>
-        <span className="text-[11px] text-op-muted">entries</span>
+      <p className="mt-1 flex items-baseline gap-1 min-[560px]:mt-1.5 min-[560px]:gap-1.5">
+        <span className="text-lg font-medium tabular-nums text-op-text min-[560px]:text-xl">{value}</span>
+        <span className="text-[10px] text-op-muted min-[560px]:text-[11px]">entries</span>
       </p>
     </div>
   );
@@ -156,7 +156,7 @@ export function SurvivorWeekBreakdown({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 border-b border-op-border bg-op-canvas-lighter p-2.5 min-[560px]:grid-cols-3 min-[900px]:p-3">
+      <div className="grid grid-cols-3 gap-2 border-b border-op-border bg-op-canvas-lighter p-2.5 min-[900px]:p-3">
         <WeekStat
           label="Survived"
           value={breakdown.survived}
