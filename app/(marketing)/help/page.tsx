@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { HelpFeedbackPage } from "@/components/help/HelpFeedbackPage";
 
+export const dynamic = "force-static";
+
 export const metadata: Metadata = {
   title: "Help & feedback",
   description:
