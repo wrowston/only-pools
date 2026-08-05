@@ -48,7 +48,7 @@ import {
   PoolAuditSkeleton,
   PoolPanelSkeleton,
 } from "./PoolPanelSkeleton";
-import { usePoolChromeName } from "./PoolChrome";
+import { usePoolChrome, usePoolChromeName } from "./PoolChrome";
 import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
 
 function memberRoleBadgeVariant(
@@ -120,10 +120,10 @@ type ConfirmState =
 
 export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const [panelNowMs] = useState(() => Date.now());
+  const { sessionNowMs } = usePoolChrome();
   const membersLive = useQuery(
     api.invites.listPoolMembers,
-    isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
+    isAuthenticated ? { poolId, nowMs: sessionNowMs } : "skip",
   );
   const { value: members, isPrevious: membersPrevious } = resolveKeepPrevious(
     `poolMembers:${poolId}`,
@@ -132,7 +132,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   const inviteStatus = useQuery(
     api.invites.getInviteStatus,
     isAuthenticated && members?.canManageInvites && !members.archived
-      ? { poolId, nowMs: panelNowMs }
+      ? { poolId, nowMs: sessionNowMs }
       : "skip",
   );
   const ownership = useQuery(
@@ -170,7 +170,7 @@ export function PoolPanelView({ poolId }: { poolId: Id<"pools"> }) {
   );
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
-    isAuthenticated ? { poolId, nowMs: panelNowMs } : "skip",
+    isAuthenticated ? { poolId, nowMs: sessionNowMs } : "skip",
   );
 
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);

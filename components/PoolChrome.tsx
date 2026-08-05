@@ -1,6 +1,6 @@
 "use client";
 
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import {
   createContext,
   useContext,
@@ -11,7 +11,9 @@ import {
 } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { prewarmInPool } from "@/lib/convexRouteData";
 import { resolveKeepPrevious } from "@/lib/keepPreviousQuery";
+import { PoolSectionDataWarm } from "./PoolSectionDataWarm";
 import { PoolShell } from "./PoolShell";
 
 export type PoolChromeShell = {
@@ -26,6 +28,11 @@ type PoolChromeContextValue = {
   poolId: Id<"pools">;
   shell: PoolChromeShell | null | undefined;
   poolType: "survivor" | "confidence" | undefined;
+  /**
+   * Stable wall-clock for in-pool nowMs-keyed queries so Board / Pool panel
+   * share the same Convex cache entries as the layout warm subscriptions.
+   */
+  sessionNowMs: number;
   setPoolName: (name: string | undefined) => void;
   setContextRail: (rail: ReactNode) => void;
 };
@@ -35,7 +42,8 @@ const PoolChromeContext = createContext<PoolChromeContextValue | null>(null);
 /**
  * Persistent in-pool chrome. Lives in the pool route layout so Board /
  * Standings / Pool navigations do not remount the shell.
- * Subscribes to thin getPoolShell once for name + type across sections.
+ * Subscribes to getPoolShell plus section data (via PoolSectionDataWarm) so
+ * tab switches reuse live Convex subscriptions instead of cold-loading.
  */
 export function PoolChromeProvider({
   poolId,
@@ -45,6 +53,7 @@ export function PoolChromeProvider({
   children: ReactNode;
 }) {
   const typedPoolId = poolId as Id<"pools">;
+  const convex = useConvex();
   const { isAuthenticated } = useConvexAuth();
   const liveShell = useQuery(
     api.pools.getPoolShell,
@@ -59,27 +68,42 @@ export function PoolChromeProvider({
   const shell = isPrevious && keptShell === null ? undefined : keptShell;
   /** Optional override from section views; shell name is the default. */
   const [nameOverride, setPoolName] = useState<string | undefined>();
+  const [sessionNowMs, setSessionNowMs] = useState(() => Date.now());
   const [seenPoolId, setSeenPoolId] = useState(poolId);
   if (seenPoolId !== poolId) {
     setSeenPoolId(poolId);
     setPoolName(undefined);
+    setSessionNowMs(Date.now());
   }
   const [contextRail, setContextRail] = useState<ReactNode>(null);
   const poolName = nameOverride ?? shell?.name;
+
+  // Kick remote prewarm as soon as auth is ready; refine when pool type resolves.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    prewarmInPool(convex, typedPoolId, shell?.type);
+  }, [convex, isAuthenticated, typedPoolId, shell?.type]);
 
   const value = useMemo(
     () => ({
       poolId: typedPoolId,
       shell,
       poolType: shell?.type,
+      sessionNowMs,
       setPoolName,
       setContextRail,
     }),
-    [typedPoolId, shell],
+    [typedPoolId, shell, sessionNowMs],
   );
 
   return (
     <PoolChromeContext.Provider value={value}>
+      <PoolSectionDataWarm
+        poolId={typedPoolId}
+        poolType={shell?.type}
+        sessionNowMs={sessionNowMs}
+        enabled={isAuthenticated}
+      />
       <PoolShell
         poolId={poolId}
         poolName={poolName}

@@ -3,6 +3,7 @@ import { hasClerkSessionCookie } from "./clerkSessionHint";
 import {
   buildQueryKey,
   getBoardEssentialSpecs,
+  getInPoolWarmSpecs,
   getMyPoolsEssentialSpecs,
   getPoolPanelEssentialSpecs,
   getStandingsEssentialSpecs,
@@ -67,7 +68,28 @@ describe("convexRouteData", () => {
     expect(getStandingsEssentialSpecs(poolId, "confidence")).toHaveLength(2);
     expect(getStandingsEssentialSpecs(poolId, "survivor")).toHaveLength(2);
     expect(getStandingsEssentialSpecs(poolId, null).length).toBeGreaterThan(2);
-    expect(getPoolPanelEssentialSpecs(poolId)).toHaveLength(1);
+    expect(getPoolPanelEssentialSpecs(poolId).map((s) => s.key)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("getPoolShell"),
+        expect.stringContaining("getOwnershipTransferStatus"),
+        expect.stringContaining("listPoolAuditEvents"),
+      ]),
+    );
+  });
+
+  it("builds a deduped in-pool warm set covering every section", () => {
+    const poolId = "jd7abc123" as Id<"pools">;
+    const warm = getInPoolWarmSpecs(poolId, "survivor");
+    const keys = warm.map((s) => s.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("getWeekBoard"),
+        expect.stringContaining("getSurvivorStandingsGrid"),
+        expect.stringContaining("listPoolAuditEvents"),
+      ]),
+    );
+    expect(keys.filter((k) => k.includes("getPoolShell"))).toHaveLength(1);
+    expect(keys.some((k) => k.includes("getConfidenceStandings"))).toBe(false);
   });
 
   it("dedupes prewarmSpecs within the dedupe window", () => {

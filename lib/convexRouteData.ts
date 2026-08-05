@@ -138,7 +138,38 @@ export function getStandingsEssentialSpecs(
 
 export function getPoolPanelEssentialSpecs(poolId: Id<"pools">) {
   // Avoid nowMs-keyed queries here — wall-clock args miss the client cache.
-  return [makeRouteQuerySpec(api.pools.getPoolShell, { poolId })];
+  // Members / invite status use nowMs and are warmed by PoolSectionDataWarm
+  // with the shared in-pool session clock instead.
+  return [
+    makeRouteQuerySpec(api.pools.getPoolShell, { poolId }),
+    makeRouteQuerySpec(api.membershipAdmin.getOwnershipTransferStatus, {
+      poolId,
+    }),
+    makeRouteQuerySpec(api.membershipAdmin.listPoolAuditEvents, {
+      poolId,
+      limit: 20,
+    }),
+  ];
+}
+
+/**
+ * Stable (no nowMs) queries for every in-pool section. Used to prewarm Board +
+ * Standings + Pool as soon as the user enters a pool.
+ */
+export function getInPoolWarmSpecs(
+  poolId: Id<"pools">,
+  poolType?: PoolType | null,
+) {
+  const board = getBoardEssentialSpecs(poolId);
+  const standings = getStandingsEssentialSpecs(poolId, poolType).filter(
+    (spec) => !board.some((b) => b.key === spec.key),
+  );
+  const panel = getPoolPanelEssentialSpecs(poolId).filter(
+    (spec) =>
+      !board.some((b) => b.key === spec.key) &&
+      !standings.some((s) => s.key === spec.key),
+  );
+  return [...board, ...standings, ...panel];
 }
 
 export function getPoolSectionEssentialSpecs(
@@ -169,4 +200,17 @@ export function prewarmPoolSection(
     convex,
     getPoolSectionEssentialSpecs(poolId, section, poolType),
   );
+}
+
+/** Warm every in-pool section once on pool entry (or when pool type resolves). */
+export function prewarmInPool(
+  convex: ConvexReactClient,
+  poolId: Id<"pools">,
+  poolType?: PoolType | null,
+): void {
+  prewarmSpecs(convex, getInPoolWarmSpecs(poolId, poolType), {
+    // Stay ahead of section remounts for a full browsing session.
+    extendSubscriptionFor: 60_000,
+    dedupeMs: 10_000,
+  });
 }
