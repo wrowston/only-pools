@@ -22,12 +22,25 @@ describe("notificationEmailLayout", () => {
       settingsUrl: "https://tryonlypools.com/settings/notifications",
     });
     expect(html).toContain("Only Pools");
+    expect(html).toContain('src="https://tryonlypools.com/brand-mark.png"');
     expect(html).toContain("#fa5d19");
     expect(html).toContain("#f9f9f9");
     expect(html).toContain("#262626");
     expect(html).toContain("Make picks");
     expect(html).toContain("Manage email notifications");
     expect(html).toContain("border-radius:16px");
+  });
+
+  it("places the brand mark image beside the Only Pools wordmark", () => {
+    const html = renderNotificationEmailHtml({
+      preheader: "Preheader",
+      headline: "Headline",
+      blocks: [],
+      settingsUrl: "https://example.test/settings/notifications",
+    });
+    expect(html).toMatch(
+      /brand-mark\.png[^>]*>[\s\S]*?<\/td>\s*<td[^>]*>Only Pools<\/td>/,
+    );
   });
 });
 

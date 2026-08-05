@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { Switch } from "@/components/ui/switch";
 import { convexErrorMessage } from "@/lib/convexErrorMessage";
 
 type PrefKey =
@@ -66,17 +67,18 @@ export function NotificationSettingsClient() {
     );
   }
 
-  async function toggle(key: PrefKey) {
-    if (!local || saving) return;
-    const next = { ...local, [key]: !local[key] };
+  async function setPref(key: PrefKey, value: boolean) {
+    if (!local || saving || local[key] === value) return;
+    const previous = local;
+    const next = { ...local, [key]: value };
     setLocal(next);
     setSaving(true);
     setError(null);
     try {
-      const saved = await updatePrefs({ [key]: next[key] });
+      const saved = await updatePrefs({ [key]: value });
       setLocal(saved);
     } catch (err) {
-      setLocal(local);
+      setLocal(previous);
       setError(convexErrorMessage(err, "Could not save preferences"));
     } finally {
       setSaving(false);
@@ -98,14 +100,12 @@ export function NotificationSettingsClient() {
               </p>
             </div>
             <label className="flex shrink-0 items-center gap-2 pt-0.5 text-[13px] text-op-secondary">
-              <input
-                type="checkbox"
-                className="size-4 accent-op-text"
+              <Switch
                 checked={local[row.key]}
                 disabled={saving}
-                onChange={() => void toggle(row.key)}
+                onCheckedChange={(checked) => void setPref(row.key, checked)}
+                aria-label={row.title}
               />
-              <span className="sr-only">{row.title}</span>
               {local[row.key] ? "On" : "Off"}
             </label>
           </li>
