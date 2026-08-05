@@ -54,7 +54,7 @@ function benchAuthProxy(request: NextRequest) {
 }
 
 const clerkAuthProxy = clerkMiddleware(async (auth, request) => {
-  // Matcher already excludes public routes; every hit here must be signed in.
+  // Callers must only invoke this for protected product routes.
   const session = await auth();
   if (!session.userId) {
     log.warn("protected_route_unauthenticated", {
@@ -72,8 +72,14 @@ const clerkAuthProxy = clerkMiddleware(async (auth, request) => {
 });
 
 function authProxy(request: NextRequest, event: NextFetchEvent) {
+  // Matcher `"/"` also expands to `/index` and App Router transport forms.
+  // Only the exact home path does the cookie-hint redirect; other expansions
+  // must not fall through into auth.protect().
   if (request.nextUrl.pathname === "/") {
     return redirectSignedInHome(request) ?? NextResponse.next();
+  }
+  if (!isProtectedRoute(request)) {
+    return NextResponse.next();
   }
   return clerkAuthProxy(request, event);
 }
