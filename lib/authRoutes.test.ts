@@ -12,6 +12,12 @@ describe("POST_AUTH_HOME", () => {
   });
 });
 
+describe("PUBLIC_ROUTE_PATTERNS home", () => {
+  it("keeps `/` public for signed-out visitors and link previews", () => {
+    expect(PUBLIC_ROUTE_PATTERNS).toContain("/");
+  });
+});
+
 describe("PUBLIC_ROUTE_PATTERNS", () => {
   it("keeps the complete guides section available without signing in", () => {
     expect(PUBLIC_ROUTE_PATTERNS).toContain("/guides(.*)");
