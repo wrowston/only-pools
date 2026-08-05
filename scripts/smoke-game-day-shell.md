@@ -11,7 +11,7 @@ Automated seams already covered:
 
 ## 45 — Navigation contract
 
-- [ ] Sign in → **My Pools** is home (`/my-pools`)
+- [ ] Sign in → **My Pools** is home (`/my-pools`); opening `/` while signed in redirects there
 - [ ] Open a membership → lands on **Week Board** (`/pools/{poolId}`)
 - [ ] Phone (&lt;900px): chips show **Board · Standings · Pool** (not equal-weight bottom tabs)
 - [ ] Desktop (≥900px): same hierarchy in left sidebar; Week Board shows context rail

@@ -21,7 +21,8 @@ export const PUBLIC_ROUTE_PATTERNS = [
 
 /**
  * Paths that require a signed-in Participant. Kept in sync with `proxy.ts`
- * matcher — public HTML never enters clerkMiddleware.
+ * matcher (except exact `/`, which only does a cookie-hint home redirect and
+ * never calls clerkMiddleware). Other public HTML never enters the proxy.
  */
 export const PROTECTED_ROUTE_PATTERNS = [
   "/my-pools(.*)",
