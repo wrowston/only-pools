@@ -29,4 +29,13 @@ describe("signedInHomeRedirectPath", () => {
       signedInHomeRedirectPath("/join/token", "__session=abc"),
     ).toBeNull();
   });
+
+  it("does not treat root matcher expansions as the marketing home", () => {
+    expect(
+      signedInHomeRedirectPath("/index", "__client_uat=1710000000"),
+    ).toBeNull();
+    expect(
+      signedInHomeRedirectPath("/index.json", "__session=abc"),
+    ).toBeNull();
+  });
 });
