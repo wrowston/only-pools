@@ -28,11 +28,22 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function brandMarkSvg(): string {
-  // Bracket glyph — same paths as components/BrandMark.tsx
-  return `<svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;">
-  <path d="M1.5 2H5.5V5H9.5 M1.5 8H5.5V5 M1.5 10H5.5V13H9.5 M1.5 16H5.5V13 M9.5 5V13 M9.5 9H16.5" stroke="${COLORS.heat}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>`;
+/**
+ * Hosted PNG brand mark — Gmail and many clients strip inline SVG.
+ * Asset: public/brand-mark.png (same bracket glyph as BrandMark.tsx).
+ */
+function brandMarkImg(settingsUrl: string): string {
+  let origin = "https://tryonlypools.com";
+  try {
+    const parsed = new URL(settingsUrl);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      origin = parsed.origin;
+    }
+  } catch {
+    // keep default production origin
+  }
+  const src = `${origin}/brand-mark.png`;
+  return `<img src="${escapeHtml(src)}" width="20" height="20" alt="" style="display:block;border:0;outline:none;width:20px;height:20px;" />`;
 }
 
 export type EmailCta = {
@@ -123,7 +134,7 @@ export function renderNotificationEmailHtml(args: {
             <td style="padding:28px 28px 8px;">
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="padding-right:8px;vertical-align:middle;">${brandMarkSvg()}</td>
+                  <td style="padding-right:8px;vertical-align:middle;line-height:0;">${brandMarkImg(args.settingsUrl)}</td>
                   <td style="vertical-align:middle;font-family:${FONT_STACK};font-size:15px;font-weight:500;letter-spacing:-0.02em;color:${COLORS.text};">Only Pools</td>
                 </tr>
               </table>
