@@ -58,10 +58,10 @@ export function WeekBoardView({
   );
   const [selectedEntryId, setSelectedEntryId] =
     useState<Id<"poolEntries"> | null>(null);
-  const [entriesNowMs] = useState(() => Date.now());
+  const { setContextRail, sessionNowMs } = usePoolChrome();
   const myEntries = useQuery(
     api.pools.listMyPoolEntries,
-    isAuthenticated ? { poolId, nowMs: entriesNowMs } : "skip",
+    isAuthenticated ? { poolId, nowMs: sessionNowMs } : "skip",
   );
   const activeEntryId =
     myEntries === undefined
@@ -191,7 +191,6 @@ export function WeekBoardView({
   const [addingEntry, setAddingEntry] = useState(false);
   const [droppingEntry, setDroppingEntry] = useState(false);
 
-  const { setContextRail } = usePoolChrome();
   usePoolChromeName(shellBoard?.pool.name);
 
   useEffect(() => {
