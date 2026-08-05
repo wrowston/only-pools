@@ -48,6 +48,10 @@ const PAGES = [
   { path: "/guides/pool-rules-and-lifecycle", name: "guides-rules" },
   { path: "/guides/accounts-verification-and-privacy", name: "guides-accounts" },
   { path: "/guides/faq", name: "guides-faq" },
+  { path: "/help", name: "help" },
+  { path: "/terms", name: "terms" },
+  { path: "/privacy", name: "privacy" },
+  { path: "/shadcn-pools-demo", name: "shadcn-pools-demo" },
   { path: "/sign-in", name: "sign-in" },
   { path: "/sign-up", name: "sign-up" },
   // Invite join stays public for Open Graph / iMessage previews.
@@ -55,6 +59,11 @@ const PAGES = [
   { path: "/join/bench-fixture-token", name: "join-token" },
   // Protected shells (unauthenticated → redirect). Still part of the suite.
   { path: "/my-pools", name: "my-pools", allowRedirect: true },
+  {
+    path: "/settings/notifications",
+    name: "settings-notifications",
+    allowRedirect: true,
+  },
   { path: "/return/bench-fixture-token", name: "return-token", allowRedirect: true },
   { path: "/pools/benchfixture000000000000000", name: "pool-week", allowRedirect: true },
   {
