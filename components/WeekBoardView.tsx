@@ -146,12 +146,37 @@ export function WeekBoardView({
     message: string;
     title?: string;
     tone?: ToastTone;
+    key: number;
   } | null>(null);
   const [pendingTeamId, setPendingTeamId] = useState<Id<"nflTeams"> | null>(
     null,
   );
+  const saveEpochRef = useRef(0);
+  const toastKeyRef = useRef(0);
   const materializedWeekRef = useRef<number | null>(null);
   const sheetEnsuredKeyRef = useRef<string | null>(null);
+
+  function bumpSaveEpoch() {
+    saveEpochRef.current += 1;
+  }
+
+  function beginSave(): number {
+    saveEpochRef.current += 1;
+    return saveEpochRef.current;
+  }
+
+  function isCurrentSave(epoch: number): boolean {
+    return epoch === saveEpochRef.current;
+  }
+
+  function showToast(next: {
+    message: string;
+    title?: string;
+    tone?: ToastTone;
+  }) {
+    toastKeyRef.current += 1;
+    setToast({ ...next, key: toastKeyRef.current });
+  }
   const [localConfidenceDraft, setLocalConfidenceDraft] = useState<{
     sourceKey: string;
     values: Record<string, number>;
@@ -186,6 +211,7 @@ export function WeekBoardView({
 
   function selectWeek(nextWeek: number) {
     if (nextWeek === selectedWeek) return;
+    bumpSaveEpoch();
     setSelectedWeek(nextWeek);
     setTrust({ status: "idle" });
     setToast(null);
@@ -197,6 +223,7 @@ export function WeekBoardView({
 
   function selectEntry(nextEntryId: Id<"poolEntries">) {
     if (nextEntryId === activeEntryId) return;
+    bumpSaveEpoch();
     setSelectedEntryId(nextEntryId);
     setTrust({ status: "idle" });
     setToast(null);
@@ -213,7 +240,7 @@ export function WeekBoardView({
       const result = await addPoolEntry({ poolId });
       selectEntry(result.entryId);
     } catch (err) {
-      setToast({
+      showToast({
         title: "Couldn't add entry",
         message: convexErrorMessage(err, "Could not add entry"),
       });
@@ -229,7 +256,7 @@ export function WeekBoardView({
       await dropPoolEntry({ poolId, entryId: activeEntryId });
       setSelectedEntryId(null);
     } catch (err) {
-      setToast({
+      showToast({
         title: "Couldn't drop entry",
         message: convexErrorMessage(err, "Could not drop entry"),
       });
@@ -440,7 +467,7 @@ export function WeekBoardView({
       const explanation = priorUse.abbreviation
         ? `${priorUse.abbreviation} is already used in week ${priorUse.week}. Survivor picks are one-use — choose a different team.`
         : SURVIVOR_ONE_USE_MESSAGE;
-      setToast({
+      showToast({
         title: priorUse.abbreviation
           ? `${priorUse.abbreviation} already used`
           : "Team already used",
@@ -450,6 +477,7 @@ export function WeekBoardView({
       return;
     }
 
+    const epoch = beginSave();
     setPendingTeamId(nflTeamId);
     setTrust({ status: "saving" });
     try {
@@ -459,8 +487,9 @@ export function WeekBoardView({
         nflTeamId,
         ...(activeEntryId ? { entryId: activeEntryId } : {}),
       });
+      if (!isCurrentSave(epoch)) return;
       setTrust({ status: "saved" });
-      setToast({
+      showToast({
         tone: "success",
         title: "Pick saved",
         message: "Hidden from others until Pick Lock.",
@@ -471,11 +500,12 @@ export function WeekBoardView({
         week: board!.week,
       });
     } catch (err) {
+      if (!isCurrentSave(epoch)) return;
       const explanation = convexErrorMessage(
         err,
         "Save failed — tap a team to retry",
       );
-      setToast({
+      showToast({
         title: "Couldn't save pick",
         message: explanation,
       });
@@ -490,6 +520,7 @@ export function WeekBoardView({
     locked: boolean,
   ) {
     if (!isConfidence || locked) return;
+    const epoch = beginSave();
     setTrust({ status: "saving" });
     try {
       const result = await autosaveConfidence({
@@ -498,6 +529,7 @@ export function WeekBoardView({
         ...(activeEntryId ? { entryId: activeEntryId } : {}),
         predictions: [{ gameId, pickedTeamId }],
       });
+      if (!isCurrentSave(epoch)) return;
       if (result.saveTrust.status === "error") {
         setTrust({
           status: "error",
@@ -505,7 +537,7 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
-        setToast({
+        showToast({
           tone: "success",
           title: "Pick saved",
           message: "Hidden from others until Pick Lock.",
@@ -516,6 +548,7 @@ export function WeekBoardView({
         });
       }
     } catch (err) {
+      if (!isCurrentSave(epoch)) return;
       setTrust({
         status: "error",
         explanation: convexErrorMessage(err, "Save failed — try again"),
@@ -591,6 +624,7 @@ export function WeekBoardView({
       return;
     }
 
+    const epoch = beginSave();
     setTrust({ status: "saving" });
     try {
       const result = await autosaveConfidence({
@@ -599,6 +633,7 @@ export function WeekBoardView({
         ...(activeEntryId ? { entryId: activeEntryId } : {}),
         confidenceReorder: reorder,
       });
+      if (!isCurrentSave(epoch)) return;
       if (result.units.confidenceReorder?.ok === false) {
         setTrust({
           status: "error",
@@ -619,13 +654,14 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
-        setToast({
+        showToast({
           tone: "success",
           title: "Pick saved",
           message: "Your confidence values were saved.",
         });
       }
     } catch (err) {
+      if (!isCurrentSave(epoch)) return;
       setTrust({
         status: "error",
         explanation: convexErrorMessage(err, "Save failed — try again"),
@@ -650,6 +686,7 @@ export function WeekBoardView({
       return;
     }
     if (parsed === mySet.tiebreakerPrediction) return;
+    const epoch = beginSave();
     setTrust({ status: "saving" });
     try {
       const result = await autosaveConfidence({
@@ -658,6 +695,7 @@ export function WeekBoardView({
         ...(activeEntryId ? { entryId: activeEntryId } : {}),
         tiebreakerPrediction: parsed,
       });
+      if (!isCurrentSave(epoch)) return;
       if (result.units.tiebreaker?.ok === false) {
         setTrust({
           status: "error",
@@ -665,13 +703,14 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
-        setToast({
+        showToast({
           tone: "success",
           title: "Pick saved",
           message: "Your tiebreaker was saved.",
         });
       }
     } catch (err) {
+      if (!isCurrentSave(epoch)) return;
       setTrust({
         status: "error",
         explanation: convexErrorMessage(err, "Save failed — try again"),
@@ -690,6 +729,7 @@ export function WeekBoardView({
   return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8 min-[900px]:max-w-3xl min-[900px]:px-8">
       <Toast
+        key={toast?.key}
         message={toast?.message ?? null}
         title={toast?.title}
         tone={toast?.tone}
