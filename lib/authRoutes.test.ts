@@ -46,6 +46,7 @@ describe("PROTECTED_ROUTE_PATTERNS", () => {
         "/return(.*)",
         "/operator(.*)",
         "/prototype(.*)",
+        "/settings(.*)",
       ]),
     );
   });

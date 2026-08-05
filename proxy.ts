@@ -99,5 +99,6 @@ export const config = {
     "/return/:path*",
     "/operator/:path*",
     "/prototype/:path*",
+    "/settings/:path*",
   ],
 };
