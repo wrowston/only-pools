@@ -35,9 +35,12 @@ export function escapeHtml(value: string): string {
 function brandMarkImg(settingsUrl: string): string {
   let origin = "https://tryonlypools.com";
   try {
-    origin = new URL(settingsUrl).origin;
+    const parsed = new URL(settingsUrl);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      origin = parsed.origin;
+    }
   } catch {
-    // keep default
+    // keep default production origin
   }
   const src = `${origin}/brand-mark.png`;
   return `<img src="${escapeHtml(src)}" width="20" height="20" alt="" style="display:block;border:0;outline:none;width:20px;height:20px;" />`;
