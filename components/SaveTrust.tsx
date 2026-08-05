@@ -8,8 +8,8 @@ type SaveTrustProps = {
 };
 
 /**
- * Quiet inline save confirmation — no toast. Polite live region for
- * save-trust only (scenario 47 / shell contract).
+ * Quiet inline save confirmation. Pair with Toast success on pick save.
+ * Polite live region for save-trust only (scenario 47 / shell contract).
  */
 export function SaveTrust({ status, explanation }: SaveTrustProps) {
   if (status === "idle") {

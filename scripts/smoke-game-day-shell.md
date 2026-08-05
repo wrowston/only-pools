@@ -28,8 +28,8 @@ Automated seams already covered:
 
 ## 47 — SaveTrust + live regions
 
-- [ ] Successful autosave shows quiet inline **Saved** (no toast)
-- [ ] Failed save shows inline error + retry path on the control
+- [ ] Successful autosave shows quiet inline **Saved** plus a success toast (`data-toast-tone="success"`)
+- [ ] Failed save shows inline error + retry path on the control (and toast when applicable)
 - [ ] `aria-live="polite"` only on SaveTrust (`data-live-region`)
 - [ ] Live score ticks do **not** announce via aria-live
 
