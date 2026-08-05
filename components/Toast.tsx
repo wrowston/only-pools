@@ -2,12 +2,13 @@
 
 import {
   CircleAlertIcon,
+  CircleCheckBigIcon,
   CircleXIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import { useEffect, useEffectEvent } from "react";
 
-export type ToastTone = "error" | "warning";
+export type ToastTone = "error" | "warning" | "success";
 
 type ToastProps = {
   message: string | null;
@@ -53,11 +54,22 @@ const TONE_STYLES: Record<
     defaultTitle: "Heads up",
     Icon: TriangleAlertIcon,
   },
+  success: {
+    shell:
+      "border-op-won-border bg-op-won-bg text-op-won-fg shadow-md ring-1 ring-op-won-border/60",
+    icon: "text-op-won-fg",
+    title: "text-op-won-fg",
+    body: "text-op-won-fg/90",
+    dismiss:
+      "text-op-won-fg/70 hover:bg-op-won-border/40 hover:text-op-won-fg",
+    defaultTitle: "Pick saved",
+    Icon: CircleCheckBigIcon,
+  },
 };
 
 /**
- * Ephemeral feedback for user-triggered rule violations (e.g. Survivor one-use).
- * Not used for routine save trust — that stays inline via SaveTrust.
+ * Ephemeral feedback for user-triggered outcomes (save success, rule
+ * violations). Inline SaveTrust still tracks quiet save state.
  * Uses role="alert" (assertive) — not polite aria-live (scenario 47).
  */
 export function Toast({
@@ -85,6 +97,7 @@ export function Toast({
     <div
       role="alert"
       data-toast="true"
+      data-toast-tone={tone}
       className="pointer-events-none fixed inset-x-0 top-6 z-[60] flex justify-center px-4 animate-in fade-in-0 slide-in-from-top-2 duration-200"
     >
       <div

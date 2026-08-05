@@ -104,6 +104,10 @@ test("create → invite → pick → lock → score → standings", async ({
       await expect(
         ownerPage.locator('[data-save-trust="saved"]'),
       ).toBeVisible();
+      await expect(
+        ownerPage.locator('[data-toast-tone="success"]'),
+      ).toBeVisible();
+      await expect(ownerPage.getByText("Pick saved")).toBeVisible();
 
       await memberPage.reload();
       const ownerPickState = memberPage

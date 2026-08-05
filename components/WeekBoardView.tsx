@@ -460,6 +460,11 @@ export function WeekBoardView({
         ...(activeEntryId ? { entryId: activeEntryId } : {}),
       });
       setTrust({ status: "saved" });
+      setToast({
+        tone: "success",
+        title: "Pick saved",
+        message: "Hidden from others until Pick Lock.",
+      });
       setPendingTeamId(null);
       posthog.capture("survivor_pick_saved", {
         pool_id: poolId,
@@ -500,6 +505,11 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
+        setToast({
+          tone: "success",
+          title: "Pick saved",
+          message: "Hidden from others until Pick Lock.",
+        });
         posthog.capture("confidence_pick_saved", {
           pool_id: poolId,
           week: board!.week,
@@ -609,6 +619,11 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
+        setToast({
+          tone: "success",
+          title: "Pick saved",
+          message: "Your confidence values were saved.",
+        });
       }
     } catch (err) {
       setTrust({
@@ -650,6 +665,11 @@ export function WeekBoardView({
         });
       } else {
         setTrust({ status: "saved" });
+        setToast({
+          tone: "success",
+          title: "Pick saved",
+          message: "Your tiebreaker was saved.",
+        });
       }
     } catch (err) {
       setTrust({
