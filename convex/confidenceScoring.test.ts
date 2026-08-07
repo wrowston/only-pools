@@ -596,4 +596,74 @@ describe("Confidence scoring (scenarios 15–18, 32–33)", () => {
     });
     expect(weekly!.points).toBe(16);
   });
+
+  it("creates Automatic Confidence Pick Sets at score time without a board visit", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedConfidenceWorld(t);
+    const { poolId, blakeId, asAlex } = await createPoolWithBlake(t);
+
+    // Alex freezes the sheet and starts a set. Blake never opens the board.
+    await asAlex.mutation(api.confidencePicks.ensurePickSheet, {
+      poolId,
+      week: 1,
+    });
+    await asAlex.mutation(api.confidencePicks.autosaveConfidence, {
+      poolId,
+      week: 1,
+      predictions: [{ gameId: s.game1Id, pickedTeamId: s.buf }],
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.game1Id, {
+        scheduledKickoffMs: Date.now() - 60_000,
+      });
+    });
+
+    await verifyGame(t, s.game1Id, 27, 24);
+    await t.mutation(internal.confidenceScoring.applyConfidenceScoringRevision, {
+      poolId,
+      week: 1,
+    });
+
+    const blakeSet = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("confidencePickSets")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", blakeId)
+            .eq("week", 1),
+        )
+        .unique();
+    });
+    expect(blakeSet?.origin).toBe("automatic");
+
+    const blakePicks = await t.run(async (ctx) => {
+      if (!blakeSet) return [];
+      return await ctx.db
+        .query("confidencePicks")
+        .withIndex("by_pickSetId", (q) => q.eq("pickSetId", blakeSet._id))
+        .collect();
+    });
+    const g1 = blakePicks.find((p) => p.gameId === s.game1Id);
+    expect(g1).toMatchObject({
+      pickedTeamId: s.kc,
+      confidenceValue: 16,
+      provenance: "automatic",
+    });
+
+    const blakeWeek = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("weeklyStandings")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", blakeId)
+            .eq("week", 1),
+        )
+        .unique();
+    });
+    // Home KC wins game 1 at confidence 16.
+    expect(blakeWeek?.points).toBe(16);
+  });
 });

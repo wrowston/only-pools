@@ -334,6 +334,57 @@ describe("Game Kickoff Lock rejection (acceptance scenario 20)", () => {
       }),
     ).rejects.toThrow(/Pick Lock|kickoff|locked|started/i);
   });
+
+  it("rejects changing away from a kickoff-locked prior pick without materialize", async () => {
+    const t = convexTest(schema, modules);
+    const earlyKickoff = Date.now() + 60 * 60 * 1000;
+    const laterKickoff = earlyKickoff + 3 * 60 * 60 * 1000;
+    const seeded = await seedSurvivorSlate(t, {
+      week1KickoffMs: earlyKickoff,
+      extraWeek1Game: true,
+    });
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const pool = await asAlex.mutation(api.pools.createPool, {
+      name: "Prior Lock Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    // Early game team (KC). Later slate game stays unlocked.
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId: pool.poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.week1GameId, {
+        scheduledKickoffMs: Date.now() - 60_000,
+      });
+      // Keep the later game unlocked and in the future.
+      if (seeded.week1ExtraGameId) {
+        await ctx.db.patch(seeded.week1ExtraGameId, {
+          scheduledKickoffMs: laterKickoff,
+        });
+      }
+    });
+
+    await expect(
+      asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: pool.poolId,
+        week: 1,
+        nflTeamId: seeded.phi,
+      }),
+    ).rejects.toThrow(/Pick Lock|kickoff|locked/i);
+
+    const pick = await asAlex.query(api.survivorPicks.getMySurvivorPick, {
+      poolId: pool.poolId,
+      week: 1,
+    });
+    expect(pick?.nflTeamId).toEqual(seeded.kc);
+  });
 });
 
 describe("Hidden Picks until lock (acceptance scenarios 22, 37)", () => {
