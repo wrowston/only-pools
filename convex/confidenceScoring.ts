@@ -14,6 +14,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { AuthError, requireParticipant } from "./lib/auth";
+import { materializeConfidenceLocksForPool } from "./confidencePicks";
 import {
   computeWeeklyCutoffMs,
   isConfidenceGameLocked,
@@ -312,6 +313,15 @@ export const applyConfidenceScoringRevision = internalMutation({
           };
       }
     }
+
+    // Board materialize is client-triggered; scoring must still create
+    // Automatic Confidence Pick Sets before publishing a revision.
+    await materializeConfidenceLocksForPool(ctx, {
+      pool,
+      week: args.week,
+      nowMs,
+    });
+
     const memberships = (
       await ctx.db
         .query("poolMemberships")

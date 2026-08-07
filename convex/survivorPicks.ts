@@ -293,6 +293,34 @@ export const autosaveSurvivorPick = mutation({
       );
     }
 
+    // Prior pick's game owns the lock even before materialize latches
+    // survivorPicks.locked. Same-team re-save stays idempotent; pre-lock
+    // cancellation invalidation may still replace.
+    if (
+      existingPick &&
+      existingPick.nflTeamId !== undefined &&
+      existingPick.nflTeamId !== args.nflTeamId &&
+      existingPick.invalidated !== true &&
+      existingPick.gameId !== undefined
+    ) {
+      const priorGame =
+        games.find((g) => g._id === existingPick.gameId) ??
+        (await ctx.db.get(existingPick.gameId));
+      if (
+        priorGame &&
+        isSurvivorPickLocked({
+          pickLockMode: pool.pickLockMode,
+          game: priorGame,
+          weeklyCutoffMs,
+          nowMs,
+        })
+      ) {
+        throw new SurvivorPickError(
+          "Pick Lock has been reached for this Survivor Pick — changes are rejected",
+        );
+      }
+    }
+
     // One-use: refuse if team reserved on another week (per entry).
     const conflict = await loadActiveReservation(
       ctx,
