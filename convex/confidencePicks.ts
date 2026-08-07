@@ -682,6 +682,188 @@ export const autosaveConfidence = mutation({
 });
 
 /**
+ * Auth-free lock materialization shared by the board mutation and scoring.
+ * Automatic Confidence Pick Sets must exist before a revision publishes.
+ */
+export async function materializeConfidenceLocksForPool(
+  ctx: MutationCtx,
+  args: {
+    pool: Doc<"pools">;
+    week: number;
+    nowMs: number;
+  },
+): Promise<{
+  lockedPickCount: number;
+  automaticSetCount: number;
+  tiebreakerLockedCount: number;
+}> {
+  const { pool, week, nowMs } = args;
+  if (pool.type !== "confidence") {
+    return {
+      lockedPickCount: 0,
+      automaticSetCount: 0,
+      tiebreakerLockedCount: 0,
+    };
+  }
+
+  const sheet = await ensurePickSheetDoc(ctx, pool, week, nowMs);
+  const games = await loadWeekGames(ctx, pool.seasonId, week);
+  const gameById = new Map(games.map((g) => [g._id, g] as const));
+  const weeklyCutoffMs = weeklyCutoffForPool(pool, games);
+
+  const dueGameIds = sheet.gameIds.filter((gid) => {
+    const g = gameById.get(gid);
+    if (!g) return false;
+    return isConfidenceGameLocked({
+      pickLockMode: pool.pickLockMode,
+      game: g,
+      weeklyCutoffMs,
+      nowMs,
+    });
+  });
+
+  const firstRequiredLockReached = dueGameIds.length > 0;
+  const tbGame = gameById.get(sheet.tiebreakerGameId);
+  const tbDue =
+    tbGame !== undefined &&
+    isTiebreakerLocked({
+      pickLockMode: pool.pickLockMode,
+      tiebreakerGame: tbGame,
+      weeklyCutoffMs,
+      nowMs,
+    });
+
+  const memberships = (
+    await ctx.db
+      .query("poolMemberships")
+      .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
+      .take(MAX_POOL_ENTRIES)
+  ).filter((m) => m.status === "active");
+
+  for (const m of memberships) {
+    await ensurePrimaryEntryIfMissing(ctx, {
+      poolId: pool._id,
+      participantId: m.participantId,
+      membershipId: m._id,
+      nowMs,
+    });
+  }
+
+  const entries = await listActivePoolEntries(ctx, pool._id);
+
+  let lockedPickCount = 0;
+  let automaticSetCount = 0;
+  let tiebreakerLockedCount = 0;
+
+  for (const entry of entries) {
+    let { pickSet, picks } = await loadOrCreatePickSet(ctx, {
+      pool,
+      sheet,
+      participantId: entry.participantId,
+      entryId: entry._id,
+      week,
+      nowMs,
+    });
+
+    if (firstRequiredLockReached && pickSet.origin === "untouched") {
+      const ranking = defaultConfidenceRanking(
+        sheet.gameIds.length,
+        sheet.scaleMax,
+      );
+      for (let i = 0; i < sheet.gameIds.length; i++) {
+        const gameId = sheet.gameIds[i]!;
+        const game = gameById.get(gameId);
+        const pick = picks.find((p) => p.gameId === gameId);
+        if (!game || !pick) continue;
+        await ctx.db.patch(pick._id, {
+          pickedTeamId: game.homeTeamId,
+          confidenceValue: ranking[i]!,
+          provenance: "automatic",
+          updatedAtMs: nowMs,
+        });
+      }
+      await ctx.db.patch(pickSet._id, {
+        origin: "automatic",
+        updatedAtMs: nowMs,
+      });
+      automaticSetCount += 1;
+      picks = await ctx.db
+        .query("confidencePicks")
+        .withIndex("by_pickSetId", (q) => q.eq("pickSetId", pickSet._id))
+        .take(64);
+      const refreshed = await ctx.db.get(pickSet._id);
+      if (refreshed) pickSet = refreshed;
+    }
+
+    for (const pick of picks) {
+      if (pick.locked) continue;
+      const game = gameById.get(pick.gameId);
+      if (!game) continue;
+      if (
+        !isConfidenceGameLocked({
+          pickLockMode: pool.pickLockMode,
+          game,
+          weeklyCutoffMs,
+          nowMs,
+        })
+      ) {
+        continue;
+      }
+
+      const hasPrediction = pick.pickedTeamId !== undefined;
+      const isStarted =
+        pickSet.origin === "authored" || pickSet.origin === "automatic";
+
+      if (!hasPrediction && isStarted) {
+        await ctx.db.patch(pick._id, {
+          locked: true,
+          lockedAtMs: nowMs,
+          provenance: "omission",
+          updatedAtMs: nowMs,
+        });
+      } else {
+        await ctx.db.patch(pick._id, {
+          locked: true,
+          lockedAtMs: nowMs,
+          updatedAtMs: nowMs,
+        });
+      }
+      lockedPickCount += 1;
+    }
+
+    if (tbDue && !pickSet.tiebreakerLocked) {
+      await ctx.db.patch(pickSet._id, {
+        tiebreakerLocked: true,
+        updatedAtMs: nowMs,
+      });
+      tiebreakerLockedCount += 1;
+    }
+  }
+
+  if (
+    (lockedPickCount > 0 ||
+      automaticSetCount > 0 ||
+      tiebreakerLockedCount > 0) &&
+    !pool.rulesFrozen
+  ) {
+    await ctx.db.patch(pool._id, { rulesFrozen: true });
+  }
+  if (lockedPickCount > 0) {
+    await recordScoringDependencyEvent(ctx, pool.seasonId, week);
+  }
+
+  log.info("confidence_locks_materialized", {
+    poolId: pool._id,
+    week,
+    lockedPickCount,
+    automaticSetCount,
+    tiebreakerLockedCount,
+  });
+
+  return { lockedPickCount, automaticSetCount, tiebreakerLockedCount };
+}
+
+/**
  * Materialize Confidence Pick Locks: lock due components, create Automatic
  * Confidence Pick Sets for untouched participants at first required lock,
  * and mark locked blanks in started sets as omissions.
@@ -698,176 +880,11 @@ export const materializeConfidenceLocks = mutation({
       throw new ConfidencePickError("Pool not found");
     }
     await requirePoolMembership(ctx, pool._id, participant._id);
-    if (pool.type !== "confidence") {
-      return {
-        lockedPickCount: 0,
-        automaticSetCount: 0,
-        tiebreakerLockedCount: 0,
-      };
-    }
-
-    const nowMs = Date.now();
-    const sheet = await ensurePickSheetDoc(ctx, pool, args.week, nowMs);
-    const games = await loadWeekGames(ctx, pool.seasonId, args.week);
-    const gameById = new Map(games.map((g) => [g._id, g] as const));
-    const weeklyCutoffMs = weeklyCutoffForPool(pool, games);
-
-    const dueGameIds = sheet.gameIds.filter((gid) => {
-      const g = gameById.get(gid);
-      if (!g) return false;
-      return isConfidenceGameLocked({
-        pickLockMode: pool.pickLockMode,
-        game: g,
-        weeklyCutoffMs,
-        nowMs,
-      });
-    });
-
-    const firstRequiredLockReached = dueGameIds.length > 0;
-    const tbGame = gameById.get(sheet.tiebreakerGameId);
-    const tbDue =
-      tbGame !== undefined &&
-      isTiebreakerLocked({
-        pickLockMode: pool.pickLockMode,
-        tiebreakerGame: tbGame,
-        weeklyCutoffMs,
-        nowMs,
-      });
-
-    const memberships = (
-      await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(MAX_POOL_ENTRIES)
-    ).filter((m) => m.status === "active");
-
-    for (const m of memberships) {
-      await ensurePrimaryEntryIfMissing(ctx, {
-        poolId: pool._id,
-        participantId: m.participantId,
-        membershipId: m._id,
-        nowMs,
-      });
-    }
-
-    const entries = await listActivePoolEntries(ctx, pool._id);
-
-    let lockedPickCount = 0;
-    let automaticSetCount = 0;
-    let tiebreakerLockedCount = 0;
-
-    for (const entry of entries) {
-      let { pickSet, picks } = await loadOrCreatePickSet(ctx, {
-        pool,
-        sheet,
-        participantId: entry.participantId,
-        entryId: entry._id,
-        week: args.week,
-        nowMs,
-      });
-
-      // Automatic Confidence Pick Set at first required lock if still untouched.
-      if (firstRequiredLockReached && pickSet.origin === "untouched") {
-        const ranking = defaultConfidenceRanking(
-          sheet.gameIds.length,
-          sheet.scaleMax,
-        );
-        for (let i = 0; i < sheet.gameIds.length; i++) {
-          const gameId = sheet.gameIds[i]!;
-          const game = gameById.get(gameId);
-          const pick = picks.find((p) => p.gameId === gameId);
-          if (!game || !pick) continue;
-          await ctx.db.patch(pick._id, {
-            pickedTeamId: game.homeTeamId,
-            confidenceValue: ranking[i]!,
-            provenance: "automatic",
-            updatedAtMs: nowMs,
-          });
-        }
-        await ctx.db.patch(pickSet._id, {
-          origin: "automatic",
-          updatedAtMs: nowMs,
-        });
-        automaticSetCount += 1;
-        // Reload picks after automatic fill.
-        picks = await ctx.db
-          .query("confidencePicks")
-          .withIndex("by_pickSetId", (q) => q.eq("pickSetId", pickSet._id))
-          .take(64);
-        const refreshed = await ctx.db.get(pickSet._id);
-        if (refreshed) pickSet = refreshed;
-      }
-
-      for (const pick of picks) {
-        if (pick.locked) continue;
-        const game = gameById.get(pick.gameId);
-        if (!game) continue;
-        if (
-          !isConfidenceGameLocked({
-            pickLockMode: pool.pickLockMode,
-            game,
-            weeklyCutoffMs,
-            nowMs,
-          })
-        ) {
-          continue;
-        }
-
-        const hasPrediction = pick.pickedTeamId !== undefined;
-        const isStarted =
-          pickSet.origin === "authored" || pickSet.origin === "automatic";
-
-        if (!hasPrediction && isStarted) {
-          await ctx.db.patch(pick._id, {
-            locked: true,
-            lockedAtMs: nowMs,
-            provenance: "omission",
-            updatedAtMs: nowMs,
-          });
-        } else {
-          await ctx.db.patch(pick._id, {
-            locked: true,
-            lockedAtMs: nowMs,
-            updatedAtMs: nowMs,
-          });
-        }
-        lockedPickCount += 1;
-      }
-
-      if (tbDue && !pickSet.tiebreakerLocked) {
-        await ctx.db.patch(pickSet._id, {
-          tiebreakerLocked: true,
-          updatedAtMs: nowMs,
-        });
-        tiebreakerLockedCount += 1;
-      }
-    }
-
-    if (
-      (lockedPickCount > 0 ||
-        automaticSetCount > 0 ||
-        tiebreakerLockedCount > 0) &&
-      !pool.rulesFrozen
-    ) {
-      await ctx.db.patch(pool._id, { rulesFrozen: true });
-    }
-    if (lockedPickCount > 0) {
-      await recordScoringDependencyEvent(
-        ctx,
-        pool.seasonId,
-        args.week,
-      );
-    }
-
-    log.info("confidence_locks_materialized", {
-      poolId: args.poolId,
+    return await materializeConfidenceLocksForPool(ctx, {
+      pool,
       week: args.week,
-      lockedPickCount,
-      automaticSetCount,
-      tiebreakerLockedCount,
+      nowMs: Date.now(),
     });
-
-    return { lockedPickCount, automaticSetCount, tiebreakerLockedCount };
   },
 });
 
