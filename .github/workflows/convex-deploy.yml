@@ -1,0 +1,69 @@
+# Deploy Convex backend when `convex/` changes.
+#
+# Targets:
+#   - push to main          → production (next-badger-300)
+#   - push to other branches → development (dusty-lobster-276)
+#
+# Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
+#   CONVEX_DEPLOY_KEY_PRODUCTION
+#     Production deploy key from https://dashboard.convex.dev/d/next-badger-300
+#     Permission: deployment:deploy
+#   CONVEX_DEPLOY_KEY_DEVELOPMENT
+#     Development deploy key from https://dashboard.convex.dev/d/dusty-lobster-276
+#     Permission: deployment:deploy
+#
+# Generate keys in the Convex dashboard for each deployment, then paste them
+# into the secrets above. Cloud agents only need to push a remote branch;
+# this workflow runs on push (merge to main is a push to main).
+
+name: Deploy Convex
+
+on:
+  push:
+    paths:
+      - "convex/**"
+
+jobs:
+  deploy-production:
+    name: Deploy to Convex production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: convex-deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Deploy to Convex production
+        run: bunx convex deploy -y
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PRODUCTION }}
+
+  deploy-development:
+    name: Deploy to Convex development
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: convex-deploy-development
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Deploy to Convex development
+        run: bunx convex deploy -y
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEVELOPMENT }}
