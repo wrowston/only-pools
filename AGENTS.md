@@ -51,11 +51,11 @@ The repository uses a single-context domain-document layout. See `docs/agents/do
 
 ## Cursor Cloud specific instructions
 
-Cloud Agents boot from `.cursor/environment.json`. `install` prepares `node_modules` during a Build; the `web` terminal starts Next.js at http://127.0.0.1:3000.
+Cloud Agents boot from `.cursor/environment.json`. `install` prepares `node_modules` during a Build. `start` boots Next.js at http://127.0.0.1:3000 on every agent (placeholders let the marketing site render; dashboard secrets override them).
 
 - Demo **http://127.0.0.1:3000** only. Do not open Vercel preview URLs; they are SSO-gated and look like a login wall.
-- Wait until the local server is serving before opening a browser (`curl -sf http://127.0.0.1:3000/` should return HTML).
+- Wait until the local server is serving before opening a browser (`curl -sf http://127.0.0.1:3000/` should return HTML). If it is already up, do not start a second `next dev`.
 - Convex: if a task needs a live backend, use `CONVEX_AGENT_MODE=anonymous npx convex dev`. Do not expect a Convex dashboard login.
-- Clerk keys belong in [Cloud Agents Secrets](https://cursor.com/dashboard/cloud-agents) (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`). Use a **development** Clerk instance and allow `http://localhost:3000`.
+- Sign-in and authenticated pages need real **development** Clerk keys in [Cloud Agents Secrets](https://cursor.com/dashboard/cloud-agents) (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) with `http://localhost:3000` allowed. Marketing HTML demos do not.
 - For any user-facing UI change: RecordScreen a short clip of localhost plus a screenshot. Attach both as run artifacts. Do not finish with only a PR.
 - If RecordScreen fails, take screenshots and say the video failed. Do not claim a demo you did not capture.

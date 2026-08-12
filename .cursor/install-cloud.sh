@@ -10,4 +10,12 @@ if ! command -v bun >/dev/null 2>&1; then
   export PATH="$BUN_INSTALL/bin:$PATH"
 fi
 
+if [ -f "$HOME/.bashrc" ] && ! grep -q 'BUN_INSTALL' "$HOME/.bashrc"; then
+  {
+    echo ''
+    echo 'export BUN_INSTALL="$HOME/.bun"'
+    echo 'export PATH="$BUN_INSTALL/bin:$PATH"'
+  } >> "$HOME/.bashrc"
+fi
+
 bun install --frozen-lockfile

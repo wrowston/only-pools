@@ -1,10 +1,11 @@
 {
   "name": "only-pools",
   "install": "bash .cursor/install-cloud.sh",
+  "start": "bash .cursor/start-cloud.sh",
   "terminals": [
     {
       "name": "web",
-      "command": "export PATH=\"$HOME/.bun/bin:$PATH\" && bun run dev -- --hostname 127.0.0.1 --port 3000",
+      "command": "bash .cursor/start-cloud.sh",
       "description": "Next.js at http://127.0.0.1:3000. Wait until it is serving before opening a browser. Demo this URL only — never a Vercel preview."
     }
   ],
