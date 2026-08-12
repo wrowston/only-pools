@@ -1,0 +1,12 @@
+---
+description: Cloud Agent UI changes must be demoed on localhost with a recording
+alwaysApply: true
+---
+
+When running as a Cursor Cloud Agent and the task changes user-facing UI:
+
+1. Use the prepared environment. Do not reinvent install. The app is `bun run dev` at http://127.0.0.1:3000.
+2. Demo localhost only. Do not open Vercel preview URLs (SSO / Deployment Protection).
+3. After the change, wait until localhost is serving, then RecordScreen the result and take a screenshot.
+4. Attach those artifacts to this run so the user can see them without checking out the branch.
+5. A pull request without a recording or screenshot is incomplete.

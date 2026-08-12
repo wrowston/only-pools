@@ -48,3 +48,14 @@ The repository uses the standard engineering-skill triage labels. See `docs/agen
 ### Domain docs
 
 The repository uses a single-context domain-document layout. See `docs/agents/domain.md`.
+
+## Cursor Cloud specific instructions
+
+Cloud Agents boot from `.cursor/environment.json`. `install` prepares `node_modules` during a Build; the `web` terminal starts Next.js at http://127.0.0.1:3000.
+
+- Demo **http://127.0.0.1:3000** only. Do not open Vercel preview URLs; they are SSO-gated and look like a login wall.
+- Wait until the local server is serving before opening a browser (`curl -sf http://127.0.0.1:3000/` should return HTML).
+- Convex: if a task needs a live backend, use `CONVEX_AGENT_MODE=anonymous npx convex dev`. Do not expect a Convex dashboard login.
+- Clerk keys belong in [Cloud Agents Secrets](https://cursor.com/dashboard/cloud-agents) (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`). Use a **development** Clerk instance and allow `http://localhost:3000`.
+- For any user-facing UI change: RecordScreen a short clip of localhost plus a screenshot. Attach both as run artifacts. Do not finish with only a PR.
+- If RecordScreen fails, take screenshots and say the video failed. Do not claim a demo you did not capture.
