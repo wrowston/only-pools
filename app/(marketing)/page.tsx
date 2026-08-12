@@ -6,6 +6,7 @@ import {
   LandingHeader,
   PrimaryPoolAction,
 } from "@/components/landing/LandingAuthChrome";
+import { LandingDemoBanner } from "@/components/landing/LandingDemoBanner";
 
 /** Prerender marketing HTML; Clerk chrome hydrates on the client. */
 export const dynamic = "force-static";
@@ -35,9 +36,12 @@ const MarketingShowcase = nextDynamic(
 export default function Home() {
   return (
     <main className="op-landing relative isolate overflow-clip bg-op-canvas">
-      <LandingHeader />
+      <div className="fixed inset-x-0 top-0 z-[70]">
+        <LandingDemoBanner />
+        <LandingHeader />
+      </div>
 
-      <section className="relative px-5 pb-10 pt-32 text-center sm:px-8 sm:pb-14 sm:pt-36">
+      <section className="relative px-5 pb-10 pt-40 text-center sm:px-8 sm:pb-14 sm:pt-44">
         <div
           className="op-grid-bg-soft pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,black_0%,black_76%,transparent_100%)]"
           aria-hidden
