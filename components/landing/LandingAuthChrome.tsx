@@ -15,7 +15,7 @@ export function LandingHeader() {
   const likelySignedIn = useLikelySignedIn();
 
   return (
-    <header className="pointer-events-none fixed inset-x-0 top-0 z-[60] px-3 pt-3 sm:px-5 sm:pt-4">
+    <header className="pointer-events-none fixed inset-x-0 top-10 z-[60] px-3 pt-3 sm:px-5 sm:pt-4">
       <nav
         aria-label="Landing page"
         className="pointer-events-auto relative mx-auto flex h-14 max-w-[1040px] items-center gap-3 rounded-full border border-op-border-strong bg-op-surface/92 px-3 shadow-[0_12px_36px_-20px_rgba(38,38,38,0.35)] backdrop-blur-xl sm:px-4"

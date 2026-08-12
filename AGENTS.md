@@ -48,3 +48,18 @@ The repository uses the standard engineering-skill triage labels. See `docs/agen
 ### Domain docs
 
 The repository uses a single-context domain-document layout. See `docs/agents/domain.md`.
+
+## Cursor Cloud specific instructions
+
+Cloud Agents should verify visible UI changes with a screenshot or screen
+recording, not only a code diff.
+
+1. Use the Cloud Agent environment linked to this repo. `.cursor/environment.json`
+   installs dependencies with `bun install` and starts Next.js on port 3000.
+2. Add Clerk, Convex, and other app secrets in the Cloud Agents Secrets tab so
+   `bun run dev` can boot. The marketing home page at `/` is mostly static, but
+   Clerk still needs `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`.
+3. After a landing-page change, open `http://localhost:3000` and capture a
+   screenshot or recording that shows the change on screen.
+4. Launch the agent from a saved environment with a successful Build. A
+   just-in-time run with no linked environment will not start the app for you.

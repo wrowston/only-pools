@@ -14,6 +14,10 @@ The project uses the five canonical triage labels. See `docs/agents/triage-label
 
 This is a single-context repository using the root `CONTEXT.md` glossary and relevant ADRs under `docs/adr/`. See `docs/agents/domain.md`.
 
+## Cursor Cloud specific instructions
+
+See `AGENTS.md` for Cloud Agent environment, screenshot, and recording setup.
+
 <!-- convex-ai-start -->
 
 This project uses [Convex](https://convex.dev) as its backend.

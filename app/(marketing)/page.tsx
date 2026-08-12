@@ -6,6 +6,7 @@ import {
   LandingHeader,
   PrimaryPoolAction,
 } from "@/components/landing/LandingAuthChrome";
+import { LandingDemoBanner } from "@/components/landing/LandingDemoBanner";
 
 /** Prerender marketing HTML; Clerk chrome hydrates on the client. */
 export const dynamic = "force-static";
@@ -35,6 +36,7 @@ const MarketingShowcase = nextDynamic(
 export default function Home() {
   return (
     <main className="op-landing relative isolate overflow-clip bg-op-canvas">
+      <LandingDemoBanner />
       <LandingHeader />
 
       <section className="relative px-5 pb-10 pt-32 text-center sm:px-8 sm:pb-14 sm:pt-36">
