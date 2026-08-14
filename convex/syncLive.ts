@@ -37,7 +37,10 @@ import {
 import {
   recordNflGameSchedule,
 } from "./providers/sportsData/identityStore";
-import { isLivePollingActive } from "./providers/sportsData/liveSyncPolicy";
+import {
+  isLivePollingActive,
+  needsUnresolvedResultCatchUp,
+} from "./providers/sportsData/liveSyncPolicy";
 
 const log = createLogger("syncLive");
 
@@ -343,9 +346,42 @@ async function budgetUsageInWindow(
 const MAX_AVAILABLE_SEASONS_PER_DISPATCH = 4;
 const MAX_NFL_GAMES_PER_SEASON = 400;
 
+async function enqueueTargetedLiveRecovery(
+  ctx: MutationCtx,
+  gameId: Id<"nflGames">,
+  nowMs: number,
+): Promise<void> {
+  const scopeKey = `live-recovery:${gameId}`;
+  const existing = await ctx.db
+    .query("syncWorkItems")
+    .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scopeKey))
+    .unique();
+  if (existing) {
+    if (existing.status !== "claimed") {
+      await ctx.db.patch(existing._id, {
+        status: "due",
+        dueAtMs: nowMs,
+        priority: "recovery",
+      });
+    }
+    return;
+  }
+  await ctx.db.insert("syncWorkItems", {
+    surface: "live",
+    scopeKey,
+    priority: "recovery",
+    status: "due",
+    dueAtMs: nowMs,
+    attemptCount: 0,
+    gameId,
+    purpose: "targeted_live_recovery",
+  });
+}
+
 /**
  * Enqueue league-live (and light schedule) work when any NFL Game is in an
- * active window: within 15 minutes of kickoff or in progress.
+ * active window: within 15 minutes of kickoff or in progress. After that
+ * window, unresolved kicked-off games still get targeted recovery.
  */
 async function enqueuePhaseAwareWork(
   ctx: MutationCtx,
@@ -392,9 +428,12 @@ async function enqueuePhaseAwareWork(
       });
     }
 
-    needsLeagueLive ||= games.some((game) =>
-      isLivePollingActive(game, nowMs),
-    );
+    for (const game of games) {
+      needsLeagueLive ||= isLivePollingActive(game, nowMs);
+      if (needsUnresolvedResultCatchUp(game, nowMs)) {
+        await enqueueTargetedLiveRecovery(ctx, game._id, nowMs);
+      }
+    }
   }
 
   const scopeKey = "live:nfl";

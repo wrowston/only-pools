@@ -1,6 +1,7 @@
 export const LIVE_REFRESH_CADENCE_MS = 60_000;
 export const LIVE_LEAD_MS = 15 * 60_000;
 export const SCHEDULED_LIVE_GRACE_MS = 4 * 60 * 60_000;
+export const UNRESOLVED_RESULT_CATCH_UP_MS = 24 * 60 * 60_000;
 export const SUCCESSFUL_SLATE_MISS_THRESHOLD = 2;
 
 export type LiveLifecycle =
@@ -15,6 +16,12 @@ export type LiveLifecycle =
 export type LiveWindowGame = Readonly<{
   lifecycle: LiveLifecycle;
   scheduledKickoffMs: number;
+}>;
+
+export type UnresolvedCatchUpGame = Readonly<{
+  lifecycle: LiveLifecycle;
+  scheduledKickoffMs: number;
+  resultAuthority?: string;
 }>;
 
 export type LiveObservation = Readonly<{
@@ -88,6 +95,25 @@ export function isExpectedInSuccessfulLiveSlate(
     nowMs >= game.scheduledKickoffMs &&
     nowMs <= game.scheduledKickoffMs + SCHEDULED_LIVE_GRACE_MS
   );
+}
+
+/**
+ * After league-wide live=all polling stops, keep fetching unresolved
+ * kicked-off games by id until a Verified Result lands or the catch-up
+ * window expires.
+ */
+export function needsUnresolvedResultCatchUp(
+  game: UnresolvedCatchUpGame,
+  nowMs: number,
+): boolean {
+  if (game.resultAuthority === "verified") return false;
+  if (nowMs < game.scheduledKickoffMs) return false;
+  if (nowMs > game.scheduledKickoffMs + UNRESOLVED_RESULT_CATCH_UP_MS) {
+    return false;
+  }
+  if (game.lifecycle === "postponed") return false;
+  if (isLivePollingActive(game, nowMs)) return false;
+  return true;
 }
 
 export function advanceSuccessfulSlateMiss(input: {

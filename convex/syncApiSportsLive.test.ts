@@ -295,6 +295,50 @@ describe("API-Sports live slate ingestion", () => {
     ).toHaveLength(0);
   });
 
+  it("claims targeted recovery for an unresolved scheduled game after the live window", async () => {
+    const t = convexTest(schema, modules);
+    const { gameId, asOwner, poolId } = await seed(t);
+    await t.mutation(internal.sync.ensureSyncGate, { enabled: true });
+
+    const afterGrace = await t.mutation(
+      internal.syncLive.dispatchSyncWork,
+      {
+        nowMs: NOW_MS + 4 * 60 * 60_000 + 1,
+        maxClaims: 20,
+      },
+    );
+    expect(
+      afterGrace.claimed.filter((item) => item.scopeKey === "live:nfl"),
+    ).toHaveLength(0);
+    expect(afterGrace.claimed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          surface: "live",
+          purpose: "targeted_live_recovery",
+          gameId,
+          scopeKey: `live-recovery:${gameId}`,
+        }),
+      ]),
+    );
+
+    await t.mutation(internal.syncApiSportsLive.applyObservation, {
+      observation: terminalObservation({
+        observedAtMs: NOW_MS + 4 * 60 * 60_000 + 30_000,
+      }),
+    });
+    const board = await asOwner.query(api.pools.getWeekBoard, {
+      poolId,
+      week: 1,
+    });
+    expect(board.slate[0]).toMatchObject({
+      gameId,
+      projectedHomeScore: 27,
+      projectedAwayScore: 24,
+      resultAuthority: "verified",
+      isOfficial: true,
+    });
+  });
+
   it("shows valid scores as a participant-visible Projected Result and keeps duplicates/stale rows idempotent", async () => {
     const t = convexTest(schema, modules);
     const { asOwner, poolId, gameId } = await seed(t);

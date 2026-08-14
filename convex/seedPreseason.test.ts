@@ -300,5 +300,14 @@ describe("preseason pool persistence", () => {
     expect(
       await t.run(async (ctx) => (await ctx.db.get(second.poolId))?.finalWeek),
     ).toBe(PRESEASON_FINAL_WEEK);
+
+    const discovered = await t.query(
+      internal.seedPreseason.getPreseasonRefreshTarget,
+      {},
+    );
+    expect(discovered).toEqual({
+      poolId: first.poolId,
+      seasonId: first.seasonId,
+    });
   });
 });
