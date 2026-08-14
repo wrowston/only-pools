@@ -318,18 +318,33 @@ export function assertCompletePreseasonSlate<
 }
 
 export const getPreseasonRefreshTarget = internalQuery({
-  args: { poolId: v.id("pools") },
+  args: { poolId: v.optional(v.id("pools")) },
   handler: async (ctx, args): Promise<PreseasonRefreshTarget | null> => {
-    const pool = await ctx.db.get(args.poolId);
-    if (
-      !pool ||
-      pool.type !== "survivor" ||
-      pool.startWeek !== 1 ||
-      pool.finalWeek !== PRESEASON_FINAL_WEEK
-    ) {
-      return null;
+    if (args.poolId !== undefined) {
+      const pool = await ctx.db.get(args.poolId);
+      if (
+        !pool ||
+        pool.type !== "survivor" ||
+        pool.startWeek !== 1 ||
+        pool.finalWeek !== PRESEASON_FINAL_WEEK
+      ) {
+        return null;
+      }
+      const season = await ctx.db.get(pool.seasonId);
+      if (
+        !season ||
+        season.year !== PRESEASON_YEAR ||
+        season.competitionPhase !== "preseason"
+      ) {
+        return null;
+      }
+      return { poolId: pool._id, seasonId: season._id };
     }
-    const season = await ctx.db.get(pool.seasonId);
+
+    const season = await ctx.db
+      .query("poolSeasons")
+      .withIndex("by_label", (q) => q.eq("label", PRESEASON_SEASON_LABEL))
+      .unique();
     if (
       !season ||
       season.year !== PRESEASON_YEAR ||
@@ -337,7 +352,18 @@ export const getPreseasonRefreshTarget = internalQuery({
     ) {
       return null;
     }
-    return { poolId: pool._id, seasonId: season._id };
+    const pools = await ctx.db
+      .query("pools")
+      .withIndex("by_seasonId", (q) => q.eq("seasonId", season._id))
+      .take(8);
+    const matches = pools.filter(
+      (pool) =>
+        pool.type === "survivor" &&
+        pool.startWeek === 1 &&
+        pool.finalWeek === PRESEASON_FINAL_WEEK,
+    );
+    if (matches.length !== 1) return null;
+    return { poolId: matches[0]!._id, seasonId: season._id };
   },
 });
 
@@ -732,15 +758,19 @@ export const seedApiSportsPreseasonPool = internalAction({
  * does not enable the deployment-wide qualified Sync Gate.
  */
 export const refreshApiSportsPreseasonPool = internalAction({
-  args: { poolId: v.id("pools") },
+  args: { poolId: v.optional(v.id("pools")) },
   handler: async (ctx, args): Promise<PreseasonRefreshResult> => {
     assertDevelopmentDeployment();
     const target: PreseasonRefreshTarget | null = await ctx.runQuery(
       internal.seedPreseason.getPreseasonRefreshTarget,
-      args,
+      args.poolId !== undefined ? { poolId: args.poolId } : {},
     );
     if (!target) {
-      throw new Error("The selected Pool is not the 2026 preseason test pool");
+      throw new Error(
+        args.poolId !== undefined
+          ? "The selected Pool is not the 2026 preseason test pool"
+          : "Could not find a unique 2026 preseason test pool; pass poolId",
+      );
     }
     const apiKey = env.API_SPORTS_KEY?.trim();
     if (!apiKey) {
