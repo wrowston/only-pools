@@ -4,12 +4,14 @@ import {
   LIVE_LEAD_MS,
   LIVE_REFRESH_CADENCE_MS,
   SCHEDULED_LIVE_GRACE_MS,
+  UNRESOLVED_RESULT_CATCH_UP_MS,
   advanceSuccessfulSlateMiss,
   classifyLiveObservation,
   isBeforeLiveWindowStart,
   isExpectedInSuccessfulLiveSlate,
   isLivePollingActive,
   liveObservationFingerprint,
+  needsUnresolvedResultCatchUp,
 } from "./liveSyncPolicy";
 
 const KICKOFF_MS = Date.UTC(2026, 8, 13, 17);
@@ -82,6 +84,52 @@ describe("API-Sports live sync policy", () => {
         KICKOFF_MS,
       ),
     ).toBe(false);
+  });
+
+  it("catches up unresolved kicked-off games after the live=all window closes", () => {
+    const scheduled = {
+      lifecycle: "scheduled" as const,
+      scheduledKickoffMs: KICKOFF_MS,
+      resultAuthority: "none",
+    };
+    expect(UNRESOLVED_RESULT_CATCH_UP_MS).toBe(24 * 60 * 60_000);
+    expect(needsUnresolvedResultCatchUp(scheduled, KICKOFF_MS)).toBe(
+      false,
+    );
+    expect(
+      needsUnresolvedResultCatchUp(
+        scheduled,
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS,
+      ),
+    ).toBe(false);
+    expect(
+      needsUnresolvedResultCatchUp(
+        scheduled,
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
+      ),
+    ).toBe(true);
+    expect(
+      needsUnresolvedResultCatchUp(
+        { ...scheduled, resultAuthority: "verified" },
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
+      ),
+    ).toBe(false);
+    expect(
+      needsUnresolvedResultCatchUp(
+        scheduled,
+        KICKOFF_MS + UNRESOLVED_RESULT_CATCH_UP_MS + 1,
+      ),
+    ).toBe(false);
+    expect(
+      needsUnresolvedResultCatchUp(
+        {
+          lifecycle: "terminal",
+          scheduledKickoffMs: KICKOFF_MS,
+          resultAuthority: "none",
+        },
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
+      ),
+    ).toBe(true);
   });
 
   it("does not count a scheduled pre-kickoff game as missing from a successful slate", () => {
