@@ -741,6 +741,130 @@ describe("scenario 26 — Survivor and Confidence cancellation paths", () => {
     ).toBe("alive");
   });
 
+  it("post-lock Survivor cancel yields No-Contest Advance without materialize", async () => {
+    const t = convexTest(schema, modules);
+    const s = await seedWorld(t);
+    const { asAlex, poolId, memberIds } = await createSurvivorPool(t, ["blake"]);
+
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: s.kc,
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: s.phi,
+    });
+
+    // Kickoff passes but nobody opens the board — pick.locked stays false.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.week1GameId, {
+        scheduledKickoffMs: Date.now() - 2 * 60 * 60 * 1000,
+      });
+      await ctx.db.patch(s.week1Game2Id, {
+        scheduledKickoffMs: Date.now() - 60 * 60 * 1000,
+      });
+    });
+
+    const pickBefore = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 1),
+        )
+        .unique();
+    });
+    expect(pickBefore?.locked).not.toBe(true);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(s.week1GameId, {
+        resultAuthority: "verified",
+        lifecycle: "canceled",
+        homeScore: 0,
+        awayScore: 0,
+        verifiedResult: {
+          homeScore: 0,
+          awayScore: 0,
+          verifiedAtMs: Date.now(),
+          status: "CANC",
+        },
+      });
+      await ctx.db.patch(s.week1Game2Id, {
+        resultAuthority: "verified",
+        lifecycle: "terminal",
+        homeScore: 21,
+        awayScore: 17,
+        verifiedResult: {
+          homeScore: 21,
+          awayScore: 17,
+          verifiedAtMs: Date.now(),
+          status: "FT",
+        },
+      });
+    });
+
+    vi.useFakeTimers();
+    try {
+      const handled = await t.mutation(
+        internal.survivorScoring.handleVerifiedCancellation,
+        { gameId: s.week1GameId },
+      );
+      expect(handled).toEqual({ scheduledPools: 1 });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const after = await t.run(async (ctx) => {
+      const pick = await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 1),
+        )
+        .unique();
+      const outcome = await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("week", 1),
+        )
+        .unique();
+      const reservation = await ctx.db
+        .query("survivorTeamReservations")
+        .withIndex("by_poolId_and_participantId_and_nflTeamId", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex)
+            .eq("nflTeamId", s.kc),
+        )
+        .unique();
+      return { pick, outcome, reservation };
+    });
+
+    expect(after.pick?.invalidated).not.toBe(true);
+    expect(after.outcome?.outcome).toBe("no_contest_advance");
+    expect(after.reservation?.released).toBe(false);
+
+    // Post-lock swap onto the other week's slate game must still be rejected.
+    await expect(
+      asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId,
+        week: 1,
+        nflTeamId: s.dal,
+      }),
+    ).rejects.toThrow(/Pick Lock|kickoff|locked/i);
+  });
+
   it("post-freeze Confidence cancel keeps slot, scores 0, no renumber", async () => {
     const t = convexTest(schema, modules);
     const s = await seedWorld(t);

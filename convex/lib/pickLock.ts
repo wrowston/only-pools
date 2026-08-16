@@ -169,6 +169,37 @@ export function isSurvivorPickLocked(args: {
   return false;
 }
 
+/**
+ * Post-lock vs pre-lock for verified cancellation cleanup.
+ *
+ * Verified CANC apply may latch `kickoffLockReachedAtMs` at the cancel
+ * observation time even before scheduled kickoff. That latch must not flip a
+ * still-open pick into No-Contest Advance. Count only:
+ * - an already-latched Survivor pick row,
+ * - cancel time at/after scheduled kickoff or weekly cutoff,
+ * - or a kickoff latch from an earlier moment (play started / prior kickoff).
+ */
+export function isSurvivorCancelPostLock(args: {
+  pickLocked: boolean;
+  pickLockMode: "gameKickoff" | "weeklyCutoff";
+  scheduledKickoffMs: number;
+  weeklyCutoffMs: number | null;
+  nowMs: number;
+  kickoffLockReachedAtMs?: number | null;
+}): boolean {
+  if (args.pickLocked) return true;
+  if (args.nowMs >= args.scheduledKickoffMs) return true;
+  if (
+    args.pickLockMode === "weeklyCutoff" &&
+    args.weeklyCutoffMs !== null &&
+    args.nowMs >= args.weeklyCutoffMs
+  ) {
+    return true;
+  }
+  const latch = args.kickoffLockReachedAtMs ?? null;
+  return latch != null && latch < args.nowMs;
+}
+
 /** Alias — Confidence prediction + confidence value lock with the game. */
 export const isConfidenceGameLocked = isSurvivorPickLocked;
 
