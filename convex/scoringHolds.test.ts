@@ -821,10 +821,11 @@ describe("Scoring Holds", () => {
       }));
       expect(state.histories).toHaveLength(1);
       if (direction === "ft_to_canc") {
+        // Seeded game kickoff is already past — cancel is post-lock.
         expect(state.game?.verifiedResult?.status).toBe("CANC");
+        expect(state.pick?.invalidated).not.toBe(true);
         expect(state.pick).toMatchObject({
-          invalidated: true,
-          invalidationReason: "pre_lock_cancellation",
+          locked: true,
         });
       } else {
         expect(state.game?.verifiedResult?.status).toBe("FT");

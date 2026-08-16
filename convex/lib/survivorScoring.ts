@@ -49,7 +49,7 @@ export type SurvivorPickInput = {
   provisional: boolean;
   invalidated?: boolean;
   invalidationReason?: SurvivorPickInvalidationReason;
-  /** True when Pick Lock has been reached for this pick. */
+  /** True when Pick Lock has been reached for this pick (latched or derived). */
   locked?: boolean;
 };
 
@@ -91,6 +91,7 @@ export function resolveSurvivorPickOutcome(args: {
   if (game.verifiedStatus === "CANC") {
     // Post-lock: No-Contest Advance (Alive, team consumed).
     // Pre-lock: caller invalidates + releases; stay pending until replaced.
+    // `locked` must reflect Game Pick Lock, not only the materialize latch.
     if (pick.locked) {
       return "no_contest_advance";
     }
