@@ -199,6 +199,43 @@ describe("pick reminders", () => {
     resendSink.reset();
   });
 
+  it("does not email pick reminders after kickoff has passed", async () => {
+    const t = convexTest(schema, modules);
+    const kickoff = Date.now() + 25 * 60 * 60 * 1000;
+    await seedSeason(t, {
+      week1KickoffMs: kickoff,
+      week2KickoffMs: kickoff + 7 * 24 * 60 * 60 * 1000,
+    });
+    const { poolId } = await createSurvivorPool(t);
+
+    await t.run(async (ctx) => {
+      const games = await ctx.db.query("nflGames").collect();
+      for (const game of games) {
+        if (game.week === 1) {
+          await ctx.db.patch(game._id, {
+            scheduledKickoffMs: Date.now() - 60 * 60 * 1000,
+          });
+        }
+      }
+    });
+
+    await t.mutation(
+      internal.notificationPickReminders.firePickRemindersForPoolWeek,
+      {
+        poolId,
+        week: 1,
+        firstKickoffMs: Date.now() - 60 * 60 * 1000,
+      },
+    );
+    await t.finishAllScheduledFunctions(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(
+      resendSink.emails.filter((e) => e.subject.includes("picks due")),
+    ).toHaveLength(0);
+  });
+
   it("emails incomplete pickers once and is idempotent on re-fire", async () => {
     const t = convexTest(schema, modules);
     const kickoff = Date.now() + 25 * 60 * 60 * 1000;
@@ -227,6 +264,99 @@ describe("pick reminders", () => {
       e.subject.includes("picks due"),
     ).length;
     expect(firstCount).toBe(1);
+
+    await t.mutation(
+      internal.notificationPickReminders.firePickRemindersForPoolWeek,
+      {
+        poolId: pool.poolId,
+        week: 1,
+        firstKickoffMs: kickoff,
+      },
+    );
+    await t.finishAllScheduledFunctions(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(
+      resendSink.emails.filter((e) => e.subject.includes("picks due")),
+    ).toHaveLength(1);
+  });
+
+  it("reminds confidence members with authored but partially blank pick sheets", async () => {
+    const t = convexTest(schema, modules);
+    const kickoff = Date.now() + 25 * 60 * 60 * 1000;
+    const seeded = await t.run(async (ctx) => {
+      const seasonId = await ctx.db.insert("poolSeasons", {
+        label: "2025",
+        year: 2025,
+        status: "available",
+        usableStartWeek: 1,
+        bootstrappedAtMs: Date.now(),
+      });
+      const homeId = await ctx.db.insert("nflTeams", {
+        stableKey: "nfl:kc",
+        name: "Kansas City Chiefs",
+        abbreviation: "KC",
+      });
+      const awayId = await ctx.db.insert("nflTeams", {
+        stableKey: "nfl:buf",
+        name: "Buffalo Bills",
+        abbreviation: "BUF",
+      });
+      const phiId = await ctx.db.insert("nflTeams", {
+        stableKey: "nfl:phi",
+        name: "Philadelphia Eagles",
+        abbreviation: "PHI",
+      });
+      const dalId = await ctx.db.insert("nflTeams", {
+        stableKey: "nfl:dal",
+        name: "Dallas Cowboys",
+        abbreviation: "DAL",
+      });
+      const game1Id = await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w1:buf@kc",
+        seasonId,
+        seasonLabel: "2025",
+        week: 1,
+        homeTeamId: homeId,
+        awayTeamId: awayId,
+        scheduledKickoffMs: kickoff,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+      });
+      await ctx.db.insert("nflGames", {
+        stableKey: "nfl:2025:w1:dal@phi",
+        seasonId,
+        seasonLabel: "2025",
+        week: 1,
+        homeTeamId: phiId,
+        awayTeamId: dalId,
+        scheduledKickoffMs: kickoff + 3 * 60 * 60 * 1000,
+        lifecycle: "scheduled",
+        homeScore: null,
+        awayScore: null,
+      });
+      return { game1Id, homeId };
+    });
+
+    const asUser = t.withIdentity(fullyVerifiedIdentity());
+    await asUser.mutation(api.participants.ensureMyParticipant, {});
+    const pool = await asUser.mutation(api.pools.createPool, {
+      name: "Partial Confidence",
+      type: "confidence",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+    await asUser.mutation(api.confidencePicks.ensurePickSheet, {
+      poolId: pool.poolId,
+      week: 1,
+    });
+    await asUser.mutation(api.confidencePicks.autosaveConfidence, {
+      poolId: pool.poolId,
+      week: 1,
+      predictions: [{ gameId: seeded.game1Id, pickedTeamId: seeded.homeId }],
+    });
 
     await t.mutation(
       internal.notificationPickReminders.firePickRemindersForPoolWeek,
@@ -325,6 +455,97 @@ describe("weekly summary", () => {
       { nowMs: now },
     );
     expect(again.sentAccounts).toBe(0);
+  });
+
+  it("prefers available seasons when choosing the digest week", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const pastKickoff = now - 2 * 24 * 60 * 60 * 1000;
+
+    await t.run(async (ctx) => {
+      const bootstrappingSeasonId = await ctx.db.insert("poolSeasons", {
+        label: "2024",
+        year: 2024,
+        status: "bootstrapping",
+        usableStartWeek: 1,
+        bootstrappedAtMs: now,
+      });
+      const homeId = await ctx.db.insert("nflTeams", {
+        stableKey: "nfl:legacy-kc",
+        name: "Kansas City Chiefs",
+        abbreviation: "KC",
+      });
+      const awayId = await ctx.db.insert("nflTeams", {
+        stableKey: "nfl:legacy-buf",
+        name: "Buffalo Bills",
+        abbreviation: "BUF",
+      });
+
+      for (const week of [9, 10]) {
+        await ctx.db.insert("nflGames", {
+          stableKey: `nfl:2024:w${week}:buf@kc`,
+          seasonId: bootstrappingSeasonId,
+          seasonLabel: "2024",
+          week,
+          homeTeamId: homeId,
+          awayTeamId: awayId,
+          scheduledKickoffMs: pastKickoff - week * 24 * 60 * 60 * 1000,
+          lifecycle: "terminal",
+          homeScore: 24,
+          awayScore: 17,
+          resultAuthority: "verified",
+        });
+      }
+    });
+
+    const { poolId } = await createSurvivorPool(t);
+
+    await t.run(async (ctx) => {
+      const games = await ctx.db.query("nflGames").collect();
+      for (const game of games) {
+        if (game.seasonLabel === "2025" && game.week === 1) {
+          await ctx.db.patch(game._id, { scheduledKickoffMs: pastKickoff });
+        }
+      }
+      const membership = await ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId", (q) => q.eq("poolId", poolId))
+        .unique();
+      if (!membership) throw new Error("missing membership");
+      const entry = await ctx.db
+        .query("poolEntries")
+        .withIndex("by_poolId_and_participantId", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", membership.participantId),
+        )
+        .unique();
+      if (!entry) throw new Error("missing entry");
+      await ctx.db.insert("seasonStandings", {
+        poolId,
+        participantId: membership.participantId,
+        entryId: entry._id,
+        eligibility: "alive",
+        updatedAtMs: now,
+      });
+    });
+
+    const result = await t.mutation(
+      internal.notificationWeeklySummary.sendWeeklySummaries,
+      { nowMs: now },
+    );
+    expect(result.week).toBe(1);
+    expect(result.sentAccounts).toBe(1);
+
+    await t.finishAllScheduledFunctions(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const weeklyEmail = resendSink.emails.find((e) =>
+      e.subject.includes("weekly summary"),
+    );
+    expect(weeklyEmail?.subject).toContain("Week 1");
+    expect(weeklyEmail?.subject).not.toContain("Week 10");
   });
 
   it("does not send when weekly summary pref is off", async () => {

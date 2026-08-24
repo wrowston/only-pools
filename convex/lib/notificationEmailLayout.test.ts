@@ -42,6 +42,15 @@ describe("notificationEmailLayout", () => {
       /brand-mark\.png[^>]*>[\s\S]*?<\/td>\s*<td[^>]*>Only Pools<\/td>/,
     );
   });
+  it("falls back to the production brand-mark origin for non-http settings URLs", () => {
+    const html = renderNotificationEmailHtml({
+      preheader: "Preheader",
+      headline: "Headline",
+      blocks: [],
+      settingsUrl: "mailto:will@tryonlypools.com",
+    });
+    expect(html).toContain('src="https://tryonlypools.com/brand-mark.png"');
+  });
 });
 
 describe("formatted notification HTML", () => {
