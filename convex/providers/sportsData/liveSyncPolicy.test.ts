@@ -196,6 +196,19 @@ describe("API-Sports live sync policy", () => {
     ).toEqual({ misses: 1, enqueueTargetedRecovery: false });
   });
 
+  it("does not catch up postponed games after the live window", () => {
+    expect(
+      needsUnresolvedResultCatchUp(
+        {
+          lifecycle: "postponed",
+          scheduledKickoffMs: KICKOFF_MS,
+          resultAuthority: "none",
+        },
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
+      ),
+    ).toBe(false);
+  });
+
   it("excludes observedAt from fingerprints and rejects stale or duplicate regressions", () => {
     const observation = {
       provider: "api-sports",
