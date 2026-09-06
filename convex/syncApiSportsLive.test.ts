@@ -2411,7 +2411,10 @@ describe("API-Sports live slate ingestion", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
-      const { asOwner, poolId, homeTeamId } = await seed(t);
+      const futureKickoffMs = NOW_MS + 7 * 24 * 60 * 60_000;
+      const { asOwner, poolId, homeTeamId } = await seed(t, {
+        scheduledKickoffMs: futureKickoffMs,
+      });
       await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
         poolId,
         week: 1,
@@ -2460,6 +2463,8 @@ describe("API-Sports live slate ingestion", () => {
       });
       expect(state.reservations[0]?.released).toBe(true);
       expect(state.outcomes).toHaveLength(1);
+      // Single-game week: verified CANC latches kickoff lock, so the week
+      // settles and the invalidated pick scores as missing_pick.
       expect(state.outcomes[0]?.outcome).toBe("missing_pick");
     } finally {
       vi.useRealTimers();

@@ -15,6 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { AuthError, requireParticipant } from "./lib/auth";
 import {
   computeWeeklyCutoffMs,
+  isSurvivorCancelPostLock,
   isSurvivorPickLocked,
 } from "./lib/pickLock";
 import {
@@ -410,6 +411,14 @@ export const applySurvivorScoringRevision = internalMutation({
     for (let w = pool.startWeek; w <= args.week; w++) {
       const games = await loadWeekGames(ctx, pool.seasonId, w);
       const locked = weekFullyLocked(pool, games, nowMs);
+      const earliestKickoff =
+        games.length === 0
+          ? null
+          : Math.min(...games.map((g) => g.scheduledKickoffMs));
+      const weeklyCutoffMs =
+        pool.pickLockMode === "weeklyCutoff" && earliestKickoff !== null
+          ? computeWeeklyCutoffMs(earliestKickoff)
+          : null;
       const picks = await ctx.db
         .query("survivorPicks")
         .withIndex("by_poolId_and_week", (q) =>
@@ -470,6 +479,16 @@ export const applySurvivorScoringRevision = internalMutation({
             ? (games.find((g) => g._id === pick.gameId) ?? null)
             : null;
 
+        const pickLockReached =
+          pick?.locked === true ||
+          (game !== null &&
+            isSurvivorPickLocked({
+              pickLockMode: pool.pickLockMode,
+              game,
+              weeklyCutoffMs,
+              nowMs,
+            }));
+
         const outcome = resolveSurvivorPickOutcome({
           pick: pick
             ? {
@@ -482,7 +501,8 @@ export const applySurvivorScoringRevision = internalMutation({
                 provisional: pick.provisional,
                 invalidated: pick.invalidated,
                 invalidationReason: pick.invalidationReason,
-                locked: pick.locked,
+                // Game Pick Lock, not only the materialize latch.
+                locked: pickLockReached,
               }
             : null,
           game: game
@@ -891,6 +911,27 @@ export const handleVerifiedCancellationForPool = internalMutation({
       return { invalidated: 0, replayScheduled: false };
     }
 
+    const weekGames = await loadWeekGames(ctx, pool.seasonId, game.week);
+    const earliestKickoff = Math.min(
+      ...weekGames.map((g) => g.scheduledKickoffMs),
+      game.scheduledKickoffMs,
+    );
+    const weeklyCutoffMs =
+      pool.pickLockMode === "weeklyCutoff"
+        ? computeWeeklyCutoffMs(earliestKickoff)
+        : null;
+    // Game Pick Lock owns the cancel path even before materialize latches
+    // survivorPicks.locked. Ignore a kickoff latch written at this cancel's
+    // observation time (verified CANC apply always sets one).
+    const gamePickLockReached = isSurvivorCancelPostLock({
+      pickLocked: false,
+      pickLockMode: pool.pickLockMode,
+      scheduledKickoffMs: game.scheduledKickoffMs,
+      weeklyCutoffMs,
+      nowMs: args.nowMs,
+      kickoffLockReachedAtMs: game.kickoffLockReachedAtMs,
+    });
+
     const picks = await ctx.db
       .query("survivorPicks")
       .withIndex("by_poolId_and_week", (q) =>
@@ -901,7 +942,16 @@ export const handleVerifiedCancellationForPool = internalMutation({
     let invalidated = 0;
     for (const pick of picks) {
       if (pick.gameId !== game._id) continue;
-      if (pick.locked) continue; // No-Contest Advance path
+      if (pick.locked || gamePickLockReached) {
+        // No-Contest Advance path — latch locked when materialize never ran.
+        if (!pick.locked) {
+          await ctx.db.patch(pick._id, {
+            locked: true,
+            lockedAtMs: args.nowMs,
+          });
+        }
+        continue;
+      }
 
       const newlyInvalidated = !pick.invalidated;
       if (
