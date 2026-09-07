@@ -42,3 +42,15 @@ export function resolveKeepPrevious<T>(
   const previous = peekQueryValue<T>(key);
   return { value: previous, isPrevious: previous !== undefined };
 }
+
+/**
+ * A cached null from getPoolShell is a prior non-member denial — treat as
+ * loading while the live query is undefined (refetch / remount).
+ */
+export function resolvePoolShellFromKeepPrevious<T>(
+  kept: T | null | undefined,
+  isPrevious: boolean,
+): T | null | undefined {
+  if (isPrevious && kept === null) return undefined;
+  return kept;
+}

@@ -18,6 +18,7 @@ import {
   rememberQueryValue,
   resetKeepPreviousQueryForTests,
   resolveKeepPrevious,
+  resolvePoolShellFromKeepPrevious,
 } from "./keepPreviousQuery";
 import { createRoutePrewarmIntent } from "./useRoutePrewarmIntent";
 import { api } from "@/convex/_generated/api";
@@ -138,6 +139,21 @@ describe("keepPreviousQuery", () => {
     );
     expect(after.value).toBeUndefined();
     expect(after.isPrevious).toBe(false);
+  });
+
+  it("treats a cached null pool shell as loading during refetch", () => {
+    expect(
+      resolvePoolShellFromKeepPrevious(null, true),
+    ).toBeUndefined();
+    expect(
+      resolvePoolShellFromKeepPrevious(null, false),
+    ).toBeNull();
+    expect(
+      resolvePoolShellFromKeepPrevious(
+        { poolId: "pool1", name: "Test" },
+        true,
+      ),
+    ).toEqual({ poolId: "pool1", name: "Test" });
   });
 });
 
