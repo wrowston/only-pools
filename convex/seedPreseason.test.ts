@@ -310,4 +310,57 @@ describe("preseason pool persistence", () => {
       seasonId: first.seasonId,
     });
   });
+
+  test("refuses ambiguous preseason refresh when multiple test pools match", async () => {
+    const t = convexTest(schema, modules);
+    const ownerParticipantId = await t.run(async (ctx) => {
+      return await ctx.db.insert("participants", {
+        tokenIdentifier: "test|preseason-owner-2",
+        clerkUserId: "user_preseason_ambiguous",
+        displayName: "Preseason Owner",
+        emailVerified: true,
+        phoneVerified: true,
+        ageConfirmed: true,
+        suspended: false,
+      });
+    });
+    const games = [
+      seedGame(1, "ARI", "ATL"),
+      seedGame(2, "BAL", "BUF"),
+      seedGame(3, "CAR", "CHI"),
+    ];
+
+    const first = await t.mutation(
+      internal.seedPreseason.persistApiSportsPreseasonPool,
+      {
+        ownerParticipantId,
+        poolName: "Preseason Test",
+        games,
+        nowMs: NOW_MS,
+      },
+    );
+
+    await t.run(async (ctx) => {
+      const season = await ctx.db.get(first.seasonId);
+      if (!season) throw new Error("missing season");
+      await ctx.db.insert("pools", {
+        name: "Preseason Test duplicate",
+        type: "survivor",
+        seasonId: season._id,
+        startWeek: 1,
+        finalWeek: PRESEASON_FINAL_WEEK,
+        pickLockMode: "gameKickoff",
+        status: "active",
+        rulesFrozen: false,
+        ownerParticipantId,
+        createdAtMs: NOW_MS,
+      });
+    });
+
+    const discovered = await t.query(
+      internal.seedPreseason.getPreseasonRefreshTarget,
+      {},
+    );
+    expect(discovered).toBeNull();
+  });
 });

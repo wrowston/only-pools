@@ -79,4 +79,49 @@ describe("formatted notification HTML", () => {
     expect(weekly.bodyHtml).toContain("Week 3 summary");
     expect(weekly.bodyHtml).toContain("View standings");
   });
+
+  it("uses cleared copy when a pool update removes banner or description text", () => {
+    const cleared = formatPoolUpdateEmail({
+      poolName: "Office",
+      poolId: "pools_1",
+      field: "description",
+      latestText: "   ",
+      env: { CLIENT_ORIGIN: "https://example.test" },
+    });
+    expect(cleared.subject).toBe("Office: description updated");
+    expect(cleared.bodyText).toContain("(description cleared)");
+    expect(cleared.bodyHtml).toContain("(description cleared)");
+    expect(cleared.bodyText).toContain("https://example.test/pools/pools_1");
+  });
+
+  it("pluralizes weekly summary pool count and pick-reminder entry labels", () => {
+    const weekly = formatWeeklySummaryEmail({
+      week: 2,
+      sections: [
+        {
+          poolName: "A",
+          poolId: "p1",
+          poolType: "confidence",
+          lines: ["line"],
+        },
+        {
+          poolName: "B",
+          poolId: "p2",
+          poolType: "survivor",
+          lines: ["line"],
+        },
+      ],
+    });
+    expect(weekly.bodyText).toContain("across 2 pools");
+
+    const singleEntry = formatPickReminderEmail({
+      poolName: "Office",
+      poolId: "pools_1",
+      week: 1,
+      incompleteEntryNumbers: [3],
+      firstKickoffMs: Date.UTC(2025, 8, 14, 17, 0, 0),
+    });
+    expect(singleEntry.bodyText).toContain("entry 3");
+    expect(singleEntry.bodyText).not.toContain("entries");
+  });
 });
