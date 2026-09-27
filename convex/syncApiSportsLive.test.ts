@@ -2411,7 +2411,12 @@ describe("API-Sports live slate ingestion", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
-      const { asOwner, poolId, homeTeamId } = await seed(t);
+      // Wall-clock future: createPool rejects start-week slates already kicked off.
+      const futureKickoffMs = Date.now() + 7 * 24 * 60 * 60_000;
+      const cancelNowMs = futureKickoffMs - 60 * 60_000;
+      const { asOwner, poolId, homeTeamId } = await seed(t, {
+        scheduledKickoffMs: futureKickoffMs,
+      });
       await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
         poolId,
         week: 1,
@@ -2424,6 +2429,7 @@ describe("API-Sports live slate ingestion", () => {
             lifecycle: "canceled",
             homeScore: null,
             awayScore: null,
+            observedAtMs: cancelNowMs,
             providerStatus: {
               rawShort: "CANC",
               rawLong: "Cancelled",
@@ -2432,7 +2438,7 @@ describe("API-Sports live slate ingestion", () => {
             },
           }),
         ],
-        nowMs: NOW_MS + 30_000,
+        nowMs: cancelNowMs,
       });
       await t.finishAllScheduledFunctions(() => vi.runAllTimers());
 
@@ -2460,6 +2466,8 @@ describe("API-Sports live slate ingestion", () => {
       });
       expect(state.reservations[0]?.released).toBe(true);
       expect(state.outcomes).toHaveLength(1);
+      // Single-game week: verified CANC latches kickoff lock, so the week
+      // settles and the invalidated pick scores as missing_pick.
       expect(state.outcomes[0]?.outcome).toBe("missing_pick");
     } finally {
       vi.useRealTimers();
@@ -2470,7 +2478,10 @@ describe("API-Sports live slate ingestion", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
-      const { asOwner, poolId, gameId, homeTeamId } = await seed(t);
+      const futureKickoffMs = Date.now() + 7 * 24 * 60 * 60_000;
+      const { asOwner, poolId, gameId, homeTeamId } = await seed(t, {
+        scheduledKickoffMs: futureKickoffMs,
+      });
       await asOwner.mutation(api.survivorPicks.autosaveSurvivorPick, {
         poolId,
         week: 1,
@@ -2486,12 +2497,14 @@ describe("API-Sports live slate ingestion", () => {
         { poolId, week: 1 },
       );
 
+      const cancelNowMs = Date.now();
       await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
         observations: [
           terminalObservation({
             lifecycle: "canceled",
             homeScore: null,
             awayScore: null,
+            observedAtMs: cancelNowMs,
             providerStatus: {
               rawShort: "CANC",
               rawLong: "Cancelled",
@@ -2500,7 +2513,7 @@ describe("API-Sports live slate ingestion", () => {
             },
           }),
         ],
-        nowMs: NOW_MS + 30_000,
+        nowMs: cancelNowMs,
       });
       await t.finishAllScheduledFunctions(() => vi.runAllTimers());
 

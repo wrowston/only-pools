@@ -3,6 +3,7 @@ import {
   applyKickoffScheduleChange,
   computeWeeklyCutoffMs,
   isGameKickoffLocked,
+  isSurvivorCancelPostLock,
   isSurvivorPickLocked,
   isTiebreakerLocked,
 } from "./pickLock";
@@ -161,6 +162,47 @@ describe("isSurvivorPickLocked", () => {
         game,
         weeklyCutoffMs: 3_000,
         nowMs: 3_000,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("isSurvivorCancelPostLock", () => {
+  it("treats same-ms cancel latch as pre-lock before kickoff", () => {
+    expect(
+      isSurvivorCancelPostLock({
+        pickLocked: false,
+        pickLockMode: "gameKickoff",
+        scheduledKickoffMs: 5_000_000,
+        weeklyCutoffMs: null,
+        nowMs: 2_000,
+        kickoffLockReachedAtMs: 2_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats kickoff-passed cancel as post-lock without pick latch", () => {
+    expect(
+      isSurvivorCancelPostLock({
+        pickLocked: false,
+        pickLockMode: "gameKickoff",
+        scheduledKickoffMs: 5_000_000,
+        weeklyCutoffMs: null,
+        nowMs: 5_000_001,
+        kickoffLockReachedAtMs: 5_000_001,
+      }),
+    ).toBe(true);
+  });
+
+  it("counts an earlier play-start latch as post-lock", () => {
+    expect(
+      isSurvivorCancelPostLock({
+        pickLocked: false,
+        pickLockMode: "gameKickoff",
+        scheduledKickoffMs: 5_000_000,
+        weeklyCutoffMs: null,
+        nowMs: 4_000_000,
+        kickoffLockReachedAtMs: 3_500_000,
       }),
     ).toBe(true);
   });
