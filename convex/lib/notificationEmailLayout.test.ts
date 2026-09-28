@@ -55,15 +55,34 @@ describe("formatted notification HTML", () => {
     expect(update.bodyHtml).toContain("Buy-in Friday");
     expect(update.bodyHtml).toContain("Open pool");
 
+    const clearedBanner = formatPoolUpdateEmail({
+      poolName: "Office",
+      poolId: "pools_1",
+      field: "banner",
+      latestText: "   ",
+    });
+    expect(clearedBanner.bodyText).toContain("(banner cleared)");
+    expect(clearedBanner.bodyHtml).toContain("(banner cleared)");
+
     const reminder = formatPickReminderEmail({
+      poolName: "Office",
+      poolId: "pools_1",
+      week: 3,
+      incompleteEntryNumbers: [1],
+      firstKickoffMs: Date.UTC(2025, 8, 14, 17, 0, 0),
+    });
+    expect(reminder.bodyHtml).toContain("Picks due soon");
+    expect(reminder.bodyHtml).toContain("Make picks");
+    expect(reminder.bodyText).toMatch(/entry 1/);
+
+    const multiEntryReminder = formatPickReminderEmail({
       poolName: "Office",
       poolId: "pools_1",
       week: 3,
       incompleteEntryNumbers: [1, 2],
       firstKickoffMs: Date.UTC(2025, 8, 14, 17, 0, 0),
     });
-    expect(reminder.bodyHtml).toContain("Picks due soon");
-    expect(reminder.bodyHtml).toContain("Make picks");
+    expect(multiEntryReminder.bodyText).toMatch(/entries 1, 2/);
 
     const weekly = formatWeeklySummaryEmail({
       week: 3,
