@@ -123,6 +123,16 @@ describe("API-Sports live sync policy", () => {
     expect(
       needsUnresolvedResultCatchUp(
         {
+          lifecycle: "postponed",
+          scheduledKickoffMs: KICKOFF_MS,
+          resultAuthority: "none",
+        },
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
+      ),
+    ).toBe(false);
+    expect(
+      needsUnresolvedResultCatchUp(
+        {
           lifecycle: "terminal",
           scheduledKickoffMs: KICKOFF_MS,
           resultAuthority: "none",

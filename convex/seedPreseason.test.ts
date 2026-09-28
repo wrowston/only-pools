@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import {
   afterAll,
@@ -309,5 +307,55 @@ describe("preseason pool persistence", () => {
       poolId: first.poolId,
       seasonId: first.seasonId,
     });
+  });
+
+  test("returns null when more than one preseason test pool matches", async () => {
+    const t = convexTest(schema, modules);
+    const ownerClerkUserId = "user_preseason_ambiguous";
+    const ownerParticipantId = await t.run(async (ctx) => {
+      return await ctx.db.insert("participants", {
+        tokenIdentifier: "test|preseason-ambiguous",
+        clerkUserId: ownerClerkUserId,
+        displayName: "Preseason Owner",
+        emailVerified: true,
+        phoneVerified: true,
+        ageConfirmed: true,
+        suspended: false,
+      });
+    });
+    const games = [
+      seedGame(1, "ARI", "ATL"),
+      seedGame(2, "BAL", "BUF"),
+      seedGame(3, "CAR", "CHI"),
+    ];
+    const first = await t.mutation(
+      internal.seedPreseason.persistApiSportsPreseasonPool,
+      {
+        ownerParticipantId,
+        poolName: "Preseason A",
+        games,
+        nowMs: NOW_MS,
+      },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pools", {
+        name: "Preseason B",
+        type: "survivor",
+        seasonId: first.seasonId,
+        startWeek: 1,
+        finalWeek: PRESEASON_FINAL_WEEK,
+        pickLockMode: "gameKickoff",
+        status: "active",
+        rulesFrozen: false,
+        ownerParticipantId,
+        createdAtMs: NOW_MS,
+      });
+    });
+
+    const discovered = await t.query(
+      internal.seedPreseason.getPreseasonRefreshTarget,
+      {},
+    );
+    expect(discovered).toBeNull();
   });
 });

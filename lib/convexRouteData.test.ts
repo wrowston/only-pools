@@ -92,6 +92,15 @@ describe("convexRouteData", () => {
     expect(keys.some((k) => k.includes("getConfidenceStandings"))).toBe(false);
   });
 
+  it("warms confidence standings but not survivor grid when type is confidence", () => {
+    const poolId = "jd7abc123" as Id<"pools">;
+    const keys = getInPoolWarmSpecs(poolId, "confidence").map((s) => s.key);
+    expect(keys.some((k) => k.includes("getConfidenceStandings"))).toBe(true);
+    expect(keys.some((k) => k.includes("getSurvivorStandingsGrid"))).toBe(
+      false,
+    );
+  });
+
   it("dedupes prewarmSpecs within the dedupe window", () => {
     const prewarmQuery = vi.fn();
     const convex = { prewarmQuery } as unknown as Parameters<
