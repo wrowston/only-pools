@@ -310,4 +310,51 @@ describe("preseason pool persistence", () => {
       seasonId: first.seasonId,
     });
   });
+
+  test("refuses ambiguous preseason pool discovery when multiple survivors match", async () => {
+    const t = convexTest(schema, modules);
+    const ownerParticipantId = await t.run(async (ctx) => {
+      return await ctx.db.insert("participants", {
+        tokenIdentifier: "test|preseason-ambiguous",
+        clerkUserId: "user_preseason_ambiguous",
+        displayName: "Preseason Owner",
+        emailVerified: true,
+        phoneVerified: true,
+        ageConfirmed: true,
+        suspended: false,
+      });
+    });
+    const games = [
+      seedGame(1, "ARI", "ATL"),
+      seedGame(2, "BAL", "BUF"),
+      seedGame(3, "CAR", "CHI"),
+    ];
+    const first = await t.mutation(
+      internal.seedPreseason.persistApiSportsPreseasonPool,
+      {
+        ownerParticipantId,
+        poolName: "Preseason A",
+        games,
+        nowMs: NOW_MS,
+      },
+    );
+    await t.mutation(internal.seedPreseason.persistApiSportsPreseasonPool, {
+      ownerParticipantId,
+      poolName: "Preseason B",
+      games,
+      nowMs: NOW_MS,
+    });
+
+    expect(
+      await t.query(internal.seedPreseason.getPreseasonRefreshTarget, {}),
+    ).toBeNull();
+    expect(
+      await t.query(internal.seedPreseason.getPreseasonRefreshTarget, {
+        poolId: first.poolId,
+      }),
+    ).toEqual({
+      poolId: first.poolId,
+      seasonId: first.seasonId,
+    });
+  });
 });
