@@ -8,6 +8,7 @@ import {
   getPoolPanelEssentialSpecs,
   getStandingsEssentialSpecs,
   makeRouteQuerySpec,
+  prewarmInPool,
   prewarmSpecs,
   resetPrewarmDedupeForTests,
 } from "./convexRouteData";
@@ -90,6 +91,40 @@ describe("convexRouteData", () => {
     );
     expect(keys.filter((k) => k.includes("getPoolShell"))).toHaveLength(1);
     expect(keys.some((k) => k.includes("getConfidenceStandings"))).toBe(false);
+  });
+
+  it("keeps pool panel prewarm free of session-clock query args", () => {
+    const poolId = "jd7abc123" as Id<"pools">;
+    const keys = getPoolPanelEssentialSpecs(poolId).map((s) => s.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("getPoolShell"),
+        expect.stringContaining("getOwnershipTransferStatus"),
+        expect.stringContaining("listPoolAuditEvents"),
+      ]),
+    );
+    expect(keys.some((k) => k.includes("listPoolMembers"))).toBe(false);
+    expect(keys.some((k) => k.includes("getInviteStatus"))).toBe(false);
+    expect(keys.some((k) => k.includes("nowMs"))).toBe(false);
+  });
+
+  it("prewarmInPool uses a longer dedupe window than section prewarm", () => {
+    const prewarmQuery = vi.fn();
+    const convex = { prewarmQuery } as unknown as Parameters<
+      typeof prewarmInPool
+    >[0];
+    const poolId = "jd7abc123" as Id<"pools">;
+    const specs = getInPoolWarmSpecs(poolId, "confidence");
+
+    prewarmInPool(convex, poolId, "confidence");
+    prewarmInPool(convex, poolId, "confidence");
+    expect(prewarmQuery).toHaveBeenCalledTimes(specs.length);
+
+    prewarmQuery.mockClear();
+    resetPrewarmDedupeForTests();
+    prewarmSpecs(convex, specs, { dedupeMs: 10_000 });
+    prewarmSpecs(convex, specs, { dedupeMs: 10_000 });
+    expect(prewarmQuery).toHaveBeenCalledTimes(specs.length);
   });
 
   it("dedupes prewarmSpecs within the dedupe window", () => {
