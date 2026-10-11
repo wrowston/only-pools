@@ -137,8 +137,11 @@ export function advanceSuccessfulSlateMiss(input: {
   const misses = input.previousMisses + 1;
   return {
     misses,
+    // Keep re-enqueuing after the threshold. A one-shot enqueue at exactly
+    // `misses === 2` permanently stalls when targeted recovery completes on
+    // duplicate/stale projected evidence without resetting the miss counter.
     enqueueTargetedRecovery:
-      misses === SUCCESSFUL_SLATE_MISS_THRESHOLD,
+      misses >= SUCCESSFUL_SLATE_MISS_THRESHOLD,
   };
 }
 

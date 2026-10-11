@@ -2356,10 +2356,25 @@ async function applyTargetedLookupForCtx(
     });
   }
 
-  await ctx.runMutation(internal.syncLive.completeSyncWork, {
+  // Only a Verified Result (or an already-trusted/pinned authority) finishes
+  // recovery. Completing on applied/duplicate/stale left in_progress games off
+  // live=all with misses > 2 and no catch-up path (isLivePollingActive).
+  if (
+    result.status === "verified" ||
+    result.status === "trusted_state" ||
+    result.status === "pinned"
+  ) {
+    await ctx.runMutation(internal.syncLive.completeSyncWork, {
+      workItemId: input.workItemId,
+    });
+    return { ok: true };
+  }
+
+  await ctx.runMutation(internal.syncLive.requeueFailedWork, {
     workItemId: input.workItemId,
+    dueAtMs: input.nowMs + LIVE_REFRESH_CADENCE_MS,
   });
-  return { ok: true };
+  return { ok: false, reason: `unverified_${result.status}` };
 }
 
 /** Test boundary for provider-returned targeted lookup evidence. */
