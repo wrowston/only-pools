@@ -2603,21 +2603,22 @@ describe("API-Sports live slate ingestion", () => {
 
   it("preserves absent state and coalesces one targeted lookup after two successful misses", async () => {
     const t = convexTest(schema, modules);
-    const { gameId } = await seed(t);
+    const kickoffMs = Date.now() + 60 * 60_000;
+    const { gameId } = await seed(t, { scheduledKickoffMs: kickoffMs });
 
     const first = await t.action(
       internal.syncApiSportsLive.applySuccessfulSlateBatch,
-      { observations: [], nowMs: NOW_MS },
+      { observations: [], nowMs: kickoffMs },
     );
     expect(first.recoveryGameIds).toEqual([]);
     const second = await t.action(
       internal.syncApiSportsLive.applySuccessfulSlateBatch,
-      { observations: [], nowMs: NOW_MS + 60_000 },
+      { observations: [], nowMs: kickoffMs + 60_000 },
     );
     expect(second.recoveryGameIds).toEqual([gameId]);
     await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
       observations: [],
-      nowMs: NOW_MS + 120_000,
+      nowMs: kickoffMs + 120_000,
     });
 
     const state = await t.run(async (ctx) => {
@@ -2642,6 +2643,132 @@ describe("API-Sports live slate ingestion", () => {
       purpose: "targeted_live_recovery",
       status: "due",
     });
+  });
+
+  it("keeps recovering an in_progress slate miss after duplicate targeted evidence", async () => {
+    const t = convexTest(schema, modules);
+    const kickoffMs = Date.now() + 60 * 60_000;
+    const { gameId } = await seed(t, { scheduledKickoffMs: kickoffMs });
+    const projected = observation({
+      observedAtMs: kickoffMs + 30_000,
+      homeScore: 21,
+      awayScore: 17,
+    });
+
+    const applied = await t.mutation(
+      internal.syncApiSportsLive.applyObservation,
+      { observation: projected },
+    );
+    expect(applied.status).toBe("applied");
+
+    // Two successful empty slates enqueue recovery (game left live=all).
+    await t.action(internal.syncApiSportsLive.applySuccessfulSlateBatch, {
+      observations: [],
+      nowMs: kickoffMs + 60_000,
+    });
+    const missTwo = await t.action(
+      internal.syncApiSportsLive.applySuccessfulSlateBatch,
+      { observations: [], nowMs: kickoffMs + 120_000 },
+    );
+    expect(missTwo.recoveryGameIds).toEqual([gameId]);
+
+    const workItemId = await t.run(async (ctx) => {
+      const work = await ctx.db
+        .query("syncWorkItems")
+        .withIndex("by_scopeKey", (q) =>
+          q.eq("scopeKey", `live-recovery:${gameId}`),
+        )
+        .unique();
+      if (!work) throw new Error("recovery work missing");
+      await ctx.db.patch(work._id, {
+        status: "claimed",
+        claimedAtMs: kickoffMs + 120_000,
+        leaseExpiresAtMs: kickoffMs + 180_000,
+      });
+      return work._id;
+    });
+
+    // Same projected fingerprint: duplicate. Must not finish recovery.
+    const duplicateLookup = await t.action(
+      internal.syncApiSportsLive.applyTargetedLookupResult,
+      {
+        workItemId,
+        gameId,
+        requestedExternalId: "77779",
+        observation: {
+          ...projected,
+          observedAtMs: kickoffMs + 150_000,
+        },
+        nowMs: kickoffMs + 150_000,
+      },
+    );
+    expect(duplicateLookup).toEqual({
+      ok: false,
+      reason: "unverified_duplicate",
+    });
+
+    const afterDuplicate = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      work: await ctx.db.get(workItemId),
+      misses: (
+        await ctx.db
+          .query("liveGameIngestionState")
+          .withIndex("by_nflGameId", (q) => q.eq("nflGameId", gameId))
+          .unique()
+      )?.consecutiveSuccessfulSlateMisses,
+    }));
+    expect(afterDuplicate.game).toMatchObject({
+      lifecycle: "in_progress",
+      resultAuthority: "projected",
+      homeScore: 21,
+      awayScore: 17,
+    });
+    expect(afterDuplicate.work).toMatchObject({
+      status: "due",
+      dueAtMs: kickoffMs + 150_000 + 60_000,
+    });
+    // Duplicate path does not reset the miss counter — later slates must
+    // still be able to re-queue when work is somehow marked done.
+    expect(afterDuplicate.misses).toBeGreaterThanOrEqual(2);
+
+    const missThree = await t.action(
+      internal.syncApiSportsLive.applySuccessfulSlateBatch,
+      { observations: [], nowMs: kickoffMs + 180_000 },
+    );
+    expect(missThree.recoveryGameIds).toEqual([gameId]);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(workItemId, {
+        status: "claimed",
+        claimedAtMs: kickoffMs + 180_000,
+        leaseExpiresAtMs: kickoffMs + 240_000,
+      });
+    });
+    const verifiedLookup = await t.action(
+      internal.syncApiSportsLive.applyTargetedLookupResult,
+      {
+        workItemId,
+        gameId,
+        requestedExternalId: "77779",
+        observation: terminalObservation({
+          observedAtMs: kickoffMs + 200_000,
+        }),
+        nowMs: kickoffMs + 200_000,
+      },
+    );
+    expect(verifiedLookup).toEqual({ ok: true });
+
+    const settled = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      work: await ctx.db.get(workItemId),
+    }));
+    expect(settled.game).toMatchObject({
+      lifecycle: "terminal",
+      resultAuthority: "verified",
+      homeScore: 27,
+      awayScore: 24,
+    });
+    expect(settled.work).toMatchObject({ status: "done" });
   });
 
   it("rejects a valid response for the wrong NFL Game and retries the claimed target", async () => {

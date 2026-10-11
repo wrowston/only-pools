@@ -157,7 +157,7 @@ describe("API-Sports live sync policy", () => {
     ).toBe(true);
   });
 
-  it("enqueues targeted recovery on the second consecutive successful-slate miss only", () => {
+  it("enqueues targeted recovery once misses reach the threshold and keeps re-enqueuing", () => {
     expect(
       advanceSuccessfulSlateMiss({
         previousMisses: 0,
@@ -178,7 +178,7 @@ describe("API-Sports live sync policy", () => {
         expected: true,
         present: false,
       }),
-    ).toEqual({ misses: 3, enqueueTargetedRecovery: false });
+    ).toEqual({ misses: 3, enqueueTargetedRecovery: true });
     expect(
       advanceSuccessfulSlateMiss({
         previousMisses: 2,
