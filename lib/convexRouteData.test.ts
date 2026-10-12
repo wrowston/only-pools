@@ -8,6 +8,7 @@ import {
   getPoolPanelEssentialSpecs,
   getStandingsEssentialSpecs,
   makeRouteQuerySpec,
+  prewarmInPool,
   prewarmSpecs,
   resetPrewarmDedupeForTests,
 } from "./convexRouteData";
@@ -103,6 +104,24 @@ describe("convexRouteData", () => {
     prewarmSpecs(convex, specs, { dedupeMs: 60_000 });
     prewarmSpecs(convex, specs, { dedupeMs: 60_000 });
     expect(prewarmQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("prewarmInPool extends subscriptions and dedupes repeat entry within 10s", () => {
+    const poolId = "jd7abc123" as Id<"pools">;
+    const prewarmQuery = vi.fn();
+    const convex = { prewarmQuery } as unknown as Parameters<
+      typeof prewarmInPool
+    >[0];
+
+    prewarmInPool(convex, poolId, "survivor");
+    const firstCallCount = prewarmQuery.mock.calls.length;
+    expect(firstCallCount).toBeGreaterThan(0);
+    expect(prewarmQuery.mock.calls[0]?.[0]).toMatchObject({
+      extendSubscriptionFor: 60_000,
+    });
+
+    prewarmInPool(convex, poolId, "survivor");
+    expect(prewarmQuery).toHaveBeenCalledTimes(firstCallCount);
   });
 });
 
