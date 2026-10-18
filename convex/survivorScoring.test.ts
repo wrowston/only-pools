@@ -931,4 +931,130 @@ describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
       outcome: "loss",
     });
   });
+
+  it("reinstates a later-week omission after a Corrected Result restores eligibility", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    const { asAlex, poolId, memberIds } = await createPoolWithMembers(t, {
+      members: ["blake"],
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(poolId, { finalWeek: 2 });
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+
+    // Alex picks week 1 only; Blake covers both weeks.
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.buf,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.dal,
+    });
+
+    await moveKickoffPast(t, seeded.week1GameId);
+    await moveKickoffPast(t, seeded.week2GameId!);
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 2,
+    });
+
+    const omissionBefore = await t.run(async (ctx) =>
+      ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex!)
+            .eq("week", 2),
+        )
+        .unique(),
+    );
+    expect(omissionBefore).toMatchObject({
+      provenance: "omission",
+      provisional: true,
+      locked: true,
+    });
+
+    // First Verified Result: Alex loses week 1 → later omission invalidated.
+    await verifyGame(t, seeded.week1GameId, 17, 24);
+    await t.mutation(internal.survivorScoring.applySurvivorScoringRevision, {
+      poolId,
+      week: 1,
+    });
+    const afterLoss = await t.run(async (ctx) =>
+      ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex!)
+            .eq("week", 2),
+        )
+        .unique(),
+    );
+    expect(afterLoss).toMatchObject({
+      invalidated: true,
+      invalidationReason: "earlier_elimination",
+      provisional: true,
+    });
+
+    // Corrected Result restores Alex; Blake is eliminated on the flip.
+    // Scoring week 2 replays week 1 then reinstates the provisional omission.
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+    await verifyGame(t, seeded.week2GameId!, 24, 17);
+    await t.mutation(internal.survivorScoring.applySurvivorScoringRevision, {
+      poolId,
+      week: 2,
+    });
+
+    const afterReplay = await t.run(async (ctx) => {
+      const pick = await ctx.db
+        .query("survivorPicks")
+        .withIndex("by_poolId_and_participantId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("participantId", memberIds.alex!)
+            .eq("week", 2),
+        )
+        .unique();
+      const outcome = await ctx.db
+        .query("survivorPickOutcomes")
+        .withIndex("by_poolId_and_entryId_and_week", (q) =>
+          q
+            .eq("poolId", poolId)
+            .eq("entryId", pick!.entryId!)
+            .eq("week", 2),
+        )
+        .unique();
+      return { pick, outcome };
+    });
+    expect(afterReplay.pick?.invalidated).toBeFalsy();
+    expect(afterReplay.outcome?.outcome).toBe("missing_pick");
+
+    const standings = await asAlex.query(
+      api.survivorScoring.getSurvivorStandings,
+      { poolId },
+    );
+    const alex = standings!.rows.find((r) => r.participantId === memberIds.alex);
+    expect(alex?.eliminationReason).toBe("missing_pick");
+    expect(alex?.eliminatedWeek).toBe(2);
+    // Must not stay Alive/winner via a stuck earlier_elimination invalidation.
+    expect(alex?.eligibility).not.toBe("alive");
+    if (alex?.eligibility === "winner") {
+      expect(alex.eliminationReason).toBe("missing_pick");
+    }
+  });
 });

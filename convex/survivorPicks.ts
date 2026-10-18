@@ -565,7 +565,9 @@ export const materializeSurvivorLocks = mutation({
           locked: true,
           lockedAtMs: nowMs,
           provenance: "omission",
-          provisional: false,
+          // Match authored later-week picks so Corrected Results that restore
+          // eligibility can reinstate the omission and score missing_pick.
+          provisional: args.week > pool.startWeek,
           updatedAtMs: nowMs,
         });
         omissionCount += 1;
@@ -647,7 +649,7 @@ export const getMySurvivorPick = query({
             locked: true,
             provenance: "omission" as const,
             nflTeamId: null,
-            provisional: false,
+            provisional: pick.provisional,
             entryId: entry._id,
           }
         : null;
