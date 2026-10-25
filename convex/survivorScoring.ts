@@ -280,6 +280,7 @@ type PublishResult =
       acceptanceId?: Id<"scoringHoldAcceptances">;
     }
   | { status: "noop"; reason: "identical_fingerprint"; revisionNumber: number }
+  | { status: "noop"; reason: "week_after_completed" }
   | { status: "stale"; reason: "newer_revision_exists"; revisionNumber: number }
   | {
       status: "published";
@@ -321,6 +322,16 @@ export const applySurvivorScoringRevision = internalMutation({
     const finalWeek = resolveSurvivorFinalWeek(pool);
     if (args.week < pool.startWeek || args.week > finalWeek) {
       throw new Error("Week is outside this Pool's included weeks");
+    }
+
+    // Completed pools stay closed for ordinary later-week verifies. Corrections
+    // still fan out with game.week <= completedWeek so they can reopen.
+    if (
+      pool.status === "completed" &&
+      pool.completedWeek !== undefined &&
+      args.week > pool.completedWeek
+    ) {
+      return { status: "noop", reason: "week_after_completed" };
     }
 
     const nowMs = args.nowMs ?? Date.now();
@@ -1033,6 +1044,16 @@ export const scoreSurvivorPoolForVerifiedGame = internalMutation({
       pool.seasonId !== game.seasonId ||
       game.week < pool.startWeek ||
       game.week > finalWeek
+    ) {
+      return { scored: false };
+    }
+
+    // A Verified Result after the Pool already completed must not reopen or
+    // rewrite winners. Corrections on weeks at/before completedWeek still run.
+    if (
+      pool.status === "completed" &&
+      pool.completedWeek !== undefined &&
+      game.week > pool.completedWeek
     ) {
       return { scored: false };
     }

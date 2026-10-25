@@ -661,4 +661,95 @@ describe("proposed Admin via Returning Participant Invite", () => {
       status: "active",
     });
   });
+
+  it("does not re-grant Admin after demotion via leave + reused returning invite", async () => {
+    const t = convexTest(schema, modules);
+    const { seasonId: priorSeasonId } = await seedSeasonWithSlate(t, {
+      label: "2024",
+      year: 2024,
+      status: "bootstrapping",
+    });
+    await seedSeasonWithSlate(t, {
+      label: "2025",
+      year: 2025,
+      status: "available",
+    });
+
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    const asBlake = t.withIdentity(blakeIdentity());
+    const asCasey = t.withIdentity(caseyIdentity());
+
+    const { participantId: alexId } = await asAlex.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    const { participantId: blakeId } = await asBlake.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+    const { participantId: caseyId } = await asCasey.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+
+    const { poolId: sourcePoolId } = await seedPriorPoolWithHistory(t, {
+      ownerId: alexId,
+      adminId: blakeId,
+      memberId: caseyId,
+      priorSeasonId,
+    });
+
+    const created = await asAlex.mutation(
+      api.poolTemplates.createPoolFromTemplate,
+      {
+        sourcePoolId,
+        returningInvites: [
+          { participantId: blakeId, proposedRole: "admin" },
+        ],
+      },
+    );
+    const inviteUrl = created.returningInvites[0]!.url;
+
+    await asBlake.mutation(api.poolTemplates.acceptReturningInvite, {
+      token: inviteUrl,
+      acknowledgedContactVisibility: true,
+    });
+
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    await asAlex.mutation(api.membershipAdmin.demoteAdmin, {
+      poolId: created.poolId,
+      participantId: blakeId,
+    });
+
+    const demoted = await t.run(async (ctx) =>
+      ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId_and_participantId", (q) =>
+          q.eq("poolId", created.poolId).eq("participantId", blakeId),
+        )
+        .unique(),
+    );
+    expect(demoted).toMatchObject({ role: "member", status: "active" });
+
+    await asBlake.mutation(api.membershipAdmin.leavePool, {
+      poolId: created.poolId,
+    });
+
+    await expect(
+      asBlake.mutation(api.poolTemplates.acceptReturningInvite, {
+        token: inviteUrl,
+        acknowledgedContactVisibility: true,
+      }),
+    ).rejects.toThrow(/unavailable/i);
+
+    const after = await t.run(async (ctx) =>
+      ctx.db
+        .query("poolMemberships")
+        .withIndex("by_poolId_and_participantId", (q) =>
+          q.eq("poolId", created.poolId).eq("participantId", blakeId),
+        )
+        .unique(),
+    );
+    expect(after).toMatchObject({ role: "member", status: "left" });
+  });
 });
