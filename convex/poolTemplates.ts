@@ -515,7 +515,9 @@ export const previewReturningInvite = query({
 
 /**
  * Explicit accept enrolls as Member or Admin per proposal.
- * Single-use: pending → accepted. Idempotent if already active with that role.
+ * Single-use: pending → accepted exactly once. Already-active membership is
+ * idempotent (returns current role). Left/removed cannot reuse an accepted
+ * invite — ordinary invite or Owner reinstate only.
  */
 export const acceptReturningInvite = mutation({
   args: {
@@ -609,12 +611,10 @@ export const acceptReturningInvite = mutation({
       throw new TemplateError("Returning Participant Invite unavailable");
     }
 
-    if (invite.status !== "pending" && invite.status !== "accepted") {
-      throw new TemplateError("Returning Participant Invite unavailable");
-    }
-
-    // Single-use: already accepted without membership is unavailable.
-    if (invite.status === "accepted" && !existingMembership) {
+    // Single-use: pending → accepted exactly once. An already-accepted invite
+    // must not re-enroll a left membership (would re-apply proposedRole,
+    // including Admin after an Owner demotion).
+    if (invite.status !== "pending") {
       throw new TemplateError("Returning Participant Invite unavailable");
     }
 
