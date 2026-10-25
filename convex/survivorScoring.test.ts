@@ -393,6 +393,110 @@ describe("scoreSurvivorPoolsForVerifiedGame fan-out", () => {
     });
     expect(state.revisions.map((revision) => revision.week)).toEqual([1]);
   });
+
+  it("does not reopen a completed Pool when a later NFL week verifies", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedSurvivorWorld(t);
+    expect(seeded.week2GameId).not.toBeNull();
+    const week2GameId = seeded.week2GameId!;
+    const { asAlex, poolId, memberIds } = await createPoolWithMembers(t, {
+      members: ["blake"],
+    });
+    const asBlake = t.withIdentity(blakeIdentity());
+
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.kc,
+    });
+    await asBlake.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 1,
+      nflTeamId: seeded.buf,
+    });
+    // Provisional later pick that must not rewrite the week-1 sole winner.
+    await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId,
+      week: 2,
+      nflTeamId: seeded.phi,
+    });
+
+    await moveKickoffPast(t, seeded.week1GameId);
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId,
+      week: 1,
+    });
+    await verifyGame(t, seeded.week1GameId, 27, 24);
+    await t.mutation(internal.survivorScoring.applySurvivorScoringRevision, {
+      poolId,
+      week: 1,
+    });
+
+    const before = await t.run(async (ctx) => ({
+      pool: await ctx.db.get(poolId),
+      alex: (
+        await ctx.db
+          .query("seasonStandings")
+          .withIndex("by_poolId_and_participantId", (q) =>
+            q.eq("poolId", poolId).eq("participantId", memberIds.alex),
+          )
+          .unique()
+      )?.eligibility,
+    }));
+    expect(before.pool).toMatchObject({
+      status: "completed",
+      completedWeek: 1,
+    });
+    expect(before.alex).toBe("winner");
+
+    await moveKickoffPast(t, week2GameId);
+    await verifyGame(t, week2GameId, 21, 17);
+
+    vi.useFakeTimers();
+    try {
+      const discovery = await t.mutation(
+        internal.survivorScoring.scoreSurvivorPoolForVerifiedGame,
+        { gameId: week2GameId, poolId },
+      );
+      expect(discovery).toEqual({ scored: false });
+      await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const direct = await t.mutation(
+      internal.survivorScoring.applySurvivorScoringRevision,
+      { poolId, week: 2 },
+    );
+    expect(direct).toEqual({
+      status: "noop",
+      reason: "week_after_completed",
+    });
+
+    const after = await t.run(async (ctx) => ({
+      pool: await ctx.db.get(poolId),
+      alex: (
+        await ctx.db
+          .query("seasonStandings")
+          .withIndex("by_poolId_and_participantId", (q) =>
+            q.eq("poolId", poolId).eq("participantId", memberIds.alex),
+          )
+          .unique()
+      )?.eligibility,
+      revisions: (
+        await ctx.db
+          .query("scoringRevisions")
+          .withIndex("by_poolId_and_week", (q) => q.eq("poolId", poolId))
+          .collect()
+      ).map((revision) => revision.week),
+    }));
+    expect(after.pool).toMatchObject({
+      status: "completed",
+      completedWeek: 1,
+    });
+    expect(after.alex).toBe("winner");
+    expect(after.revisions).toEqual([1]);
+  });
 });
 
 describe("applySurvivorScoringRevision (scenarios 32–34)", () => {
