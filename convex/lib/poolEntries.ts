@@ -70,15 +70,20 @@ export async function listActiveEntriesForParticipant(
   poolId: Id<"pools">,
   participantId: Id<"participants">,
 ): Promise<Doc<"poolEntries">[]> {
+  // Query active rows directly. Filtering after take(MAX_ENTRIES_PER_USER) on
+  // by_poolId_and_participantId missed live entries once ended leave/rejoin
+  // history filled the window — leave/remove then orphaned actives and the
+  // next rejoin duplicated them past maxEntriesPerUser.
   const rows = await ctx.db
     .query("poolEntries")
-    .withIndex("by_poolId_and_participantId", (q) =>
-      q.eq("poolId", poolId).eq("participantId", participantId),
+    .withIndex("by_poolId_and_participantId_and_status", (q) =>
+      q
+        .eq("poolId", poolId)
+        .eq("participantId", participantId)
+        .eq("status", "active"),
     )
-    .take(MAX_ENTRIES_PER_USER);
-  return rows
-    .filter((row) => row.status === "active")
-    .sort((a, b) => a.entryNumber - b.entryNumber);
+    .take(MAX_ENTRIES_PER_USER + 1);
+  return rows.sort((a, b) => a.entryNumber - b.entryNumber);
 }
 
 export async function listActivePoolEntries(
@@ -98,12 +103,14 @@ export async function nextEntryNumber(
   poolId: Id<"pools">,
   participantId: Id<"participants">,
 ): Promise<number> {
+  // entryNumber is durable across leave/rejoin; scan past the active cap so
+  // long ended histories still yield a strictly increasing label.
   const rows = await ctx.db
     .query("poolEntries")
     .withIndex("by_poolId_and_participantId", (q) =>
       q.eq("poolId", poolId).eq("participantId", participantId),
     )
-    .take(MAX_ENTRIES_PER_USER + 5);
+    .take(MAX_POOL_ENTRIES);
   let max = 0;
   for (const row of rows) {
     if (row.entryNumber > max) max = row.entryNumber;

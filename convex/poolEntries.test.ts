@@ -283,4 +283,81 @@ describe("multi-entry pools", () => {
     expect(p1?.nflTeamId).toBe(seeded.awayId);
     expect(p2?.nflTeamId).toBe(seeded.awayId);
   });
+
+  it("leave after many leave/rejoin cycles still ends the active entry", async () => {
+    const t = convexTest(schema, modules);
+    await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const created = await asAlex.mutation(api.pools.createPool, {
+      name: "Rejoin History",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    await asAlex.mutation(api.invites.confirmStepUp, {});
+    const invite = await asAlex.mutation(api.invites.createOrRetrieveInvite, {
+      poolId: created.poolId,
+    });
+    const rawToken = invite.url.replace("/join/", "");
+
+    const asBlake = t.withIdentity(blakeIdentity());
+    const blake = await asBlake.mutation(api.participants.ensureMyParticipant, {});
+    await asBlake.mutation(api.invites.acceptInvite, {
+      token: rawToken,
+      acknowledgedContactVisibility: true,
+    });
+
+    // Each leave ends an entry and each rejoin inserts a new one. After more
+    // than MAX_ENTRIES_PER_USER (10) cycles, ended rows alone filled the old
+    // take(10) window and the live entry was missed — leave orphaned actives
+    // and the next rejoin duplicated past maxEntriesPerUser.
+    for (let i = 0; i < 11; i++) {
+      await asBlake.mutation(api.membershipAdmin.leavePool, {
+        poolId: created.poolId,
+      });
+      await asBlake.mutation(api.invites.acceptInvite, {
+        token: rawToken,
+        acknowledgedContactVisibility: true,
+      });
+    }
+
+    await asBlake.mutation(api.membershipAdmin.leavePool, {
+      poolId: created.poolId,
+    });
+
+    const activeAfterLeave = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("poolEntries")
+        .withIndex("by_poolId_and_participantId_and_status", (q) =>
+          q
+            .eq("poolId", created.poolId)
+            .eq("participantId", blake.participantId)
+            .eq("status", "active"),
+        )
+        .take(20);
+      return rows.length;
+    });
+    expect(activeAfterLeave).toBe(0);
+
+    await asBlake.mutation(api.invites.acceptInvite, {
+      token: rawToken,
+      acknowledgedContactVisibility: true,
+    });
+    const activeAfterRejoin = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("poolEntries")
+        .withIndex("by_poolId_and_participantId_and_status", (q) =>
+          q
+            .eq("poolId", created.poolId)
+            .eq("participantId", blake.participantId)
+            .eq("status", "active"),
+        )
+        .take(20);
+      return rows.length;
+    });
+    expect(activeAfterRejoin).toBe(1);
+  });
 });
