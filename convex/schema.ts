@@ -809,6 +809,15 @@ export default defineSchema({
     .index("by_poolId", ["poolId"])
     .index("by_poolId_and_status", ["poolId", "status"])
     .index("by_poolId_and_participantId", ["poolId", "participantId"])
+    /**
+     * Active-only lookups must not scan through ended leave/rejoin history —
+     * that history can exceed MAX_ENTRIES_PER_USER and hide live rows.
+     */
+    .index("by_poolId_and_participantId_and_status", [
+      "poolId",
+      "participantId",
+      "status",
+    ])
     .index("by_membershipId", ["membershipId"])
     .index("by_participantId", ["participantId"]),
 
