@@ -67,6 +67,47 @@ describe("provider-neutral sync dispatcher", () => {
     ]);
   });
 
+  it("does not let Sync Gate probe claims exhaust the provider budget", async () => {
+    const t = convexTest(schema, modules);
+    const nowMs = Date.now();
+    await enableDispatcher(t);
+    await t.run(async (ctx) => {
+      // Public claimProviderFetch writes claimed rows with neither workItemId
+      // nor priority. Sixty of them used to fill the rolling minute budget and
+      // starve even operator/recovery dispatch via total_exhausted.
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("providerFetchClaims", {
+          surface: "live",
+          status: "claimed",
+          claimedAtMs: nowMs - 1_000,
+          expiresAtMs: nowMs + 86_400_000,
+        });
+      }
+      await ctx.db.insert("syncWorkItems", {
+        surface: "operator",
+        scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
+        priority: "operator",
+        status: "due",
+        dueAtMs: nowMs,
+        attemptCount: 0,
+        purpose: "provider_recovery_probe",
+      });
+    });
+
+    const result = await t.mutation(
+      internal.syncLive.dispatchSyncWork,
+      { nowMs, maxClaims: 1 },
+    );
+    expect(result.denied).toBeNull();
+    expect(result.claimed).toEqual([
+      expect.objectContaining({
+        scopeKey: API_SPORTS_RECOVERY_SCOPE_KEY,
+        purpose: "provider_recovery_probe",
+        priority: "operator",
+      }),
+    ]);
+  });
+
   it("recovers an expired lease beyond 200 non-expired claims", async () => {
     const t = convexTest(schema, modules);
     const nowMs = Date.now();

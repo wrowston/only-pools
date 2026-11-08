@@ -789,7 +789,9 @@ export default defineSchema({
     statusChangedAtMs: v.optional(v.number()),
   })
     .index("by_participantId", ["participantId"])
+    .index("by_participantId_and_status", ["participantId", "status"])
     .index("by_poolId", ["poolId"])
+    .index("by_poolId_and_status", ["poolId", "status"])
     .index("by_poolId_and_participantId", ["poolId", "participantId"]),
 
   /**

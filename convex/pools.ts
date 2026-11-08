@@ -27,6 +27,10 @@ import {
 } from "./lib/quotas";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
+  countActiveSeasonMemberships,
+  listActiveMembershipsForPool,
+} from "./lib/membershipQueries";
+import {
   assertValidMaxEntriesPerUser,
   countActivePoolEntries,
   createPrimaryEntry,
@@ -240,20 +244,11 @@ export const createPool = mutation({
     }
 
     // ≤50 active memberships per season (create counts as a membership).
-    const seasonMemberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_participantId", (q) =>
-        q.eq("participantId", participant._id),
-      )
-      .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
-    let seasonActiveCount = 0;
-    for (const row of seasonMemberships) {
-      if (row.status !== "active") continue;
-      const existingPool = await ctx.db.get(row.poolId);
-      if (existingPool && existingPool.seasonId === season._id) {
-        seasonActiveCount += 1;
-      }
-    }
+    const seasonActiveCount = await countActiveSeasonMemberships(
+      ctx,
+      participant._id,
+      season._id,
+    );
     if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
       throw new PoolError(
         `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,
@@ -381,13 +376,9 @@ export const updateMaxEntriesPerUser = mutation({
     const nowMs = Date.now();
     await assertPoolAdmissionOpen(ctx, pool, nowMs);
 
-    const memberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-      .take(MAX_POOL_ENTRIES);
+    const memberships = await listActiveMembershipsForPool(ctx, pool._id);
     let highestHeld = 0;
     for (const membership of memberships) {
-      if (membership.status !== "active") continue;
       const held = await listActiveEntriesForParticipant(
         ctx,
         pool._id,

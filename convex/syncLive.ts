@@ -18,6 +18,7 @@ import { LIVE_INGESTION_WATCHDOG } from "./lib/liveIngestionWatchdog";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
 import {
   admitProviderFetch,
+  countsTowardProviderBudget,
   emptyBudgetUsage,
   recordAdmission,
   type BudgetPriority,
@@ -335,6 +336,7 @@ async function budgetUsageInWindow(
   for (const claim of claims) {
     if (claim.status !== "claimed") continue;
     if (claim.claimedAtMs < since) continue;
+    if (!countsTowardProviderBudget(claim)) continue;
     const priority = claim.priority ?? "routine";
     usage = recordAdmission(usage, priority);
   }

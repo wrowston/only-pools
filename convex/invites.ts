@@ -26,6 +26,10 @@ import {
   MAX_POOL_ENTRIES,
 } from "./lib/quotas";
 import {
+  countActiveSeasonMemberships,
+  listAllMembershipsForPool,
+} from "./lib/membershipQueries";
+import {
   countActivePoolEntries,
   createPrimaryEntry,
 } from "./lib/poolEntries";
@@ -620,20 +624,11 @@ export const acceptInvite = mutation({
     }
 
     // ≤50 active memberships per season.
-    const seasonMemberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_participantId", (q) =>
-        q.eq("participantId", participant._id),
-      )
-      .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
-    let seasonActiveCount = 0;
-    for (const row of seasonMemberships) {
-      if (row.status !== "active") continue;
-      const existingPool = await ctx.db.get(row.poolId);
-      if (existingPool && existingPool.seasonId === activePool.seasonId) {
-        seasonActiveCount += 1;
-      }
-    }
+    const seasonActiveCount = await countActiveSeasonMemberships(
+      ctx,
+      participant._id,
+      activePool.seasonId,
+    );
     if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
       throw new InviteError(
         `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,
@@ -746,10 +741,7 @@ export const listPoolMembers = query({
     const canSeeContacts =
       callerMembership.role === "owner" || callerMembership.role === "admin";
 
-    const memberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-      .take(MAX_POOL_ENTRIES);
+    const memberships = await listAllMembershipsForPool(ctx, pool._id);
 
     const members = [];
     for (const row of memberships) {

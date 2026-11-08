@@ -1,11 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
   admitProviderFetch,
+  countsTowardProviderBudget,
   emptyBudgetUsage,
   PROVIDER_BUDGET,
   recordAdmission,
   type BudgetUsage,
 } from "./providerBudget";
+
+describe("countsTowardProviderBudget", () => {
+  it("ignores Sync Gate probe rows that omit workItemId and priority", () => {
+    expect(countsTowardProviderBudget({})).toBe(false);
+  });
+
+  it("counts dispatcher admissions with a workItemId", () => {
+    expect(
+      countsTowardProviderBudget({ workItemId: "syncWorkItems_1" }),
+    ).toBe(true);
+  });
+
+  it("counts qualification admissions with an explicit priority", () => {
+    expect(countsTowardProviderBudget({ priority: "operator" })).toBe(
+      true,
+    );
+  });
+});
 
 describe("provider budget non-starvation (scenario 31)", () => {
   it("admits routine work up to the routine max", () => {
