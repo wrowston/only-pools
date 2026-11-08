@@ -550,6 +550,84 @@ describe("quotas (acceptance scenario 39)", () => {
       }),
     ).rejects.toThrow(/50 Pool memberships per season/);
   });
+
+  it("still enforces season quota when left history exceeds the old take(70) window", async () => {
+    const t = convexTest(schema, modules);
+    const { seasonId } = await seedAvailableSeasonWithSlate(t);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+    const alexId = await t.run(async (ctx) => {
+      const alex = await ctx.db
+        .query("participants")
+        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", "clerk_user_1"))
+        .unique();
+      return alex!._id;
+    });
+
+    await t.run(async (ctx) => {
+      const otherOwner = await ctx.db.insert("participants", {
+        tokenIdentifier:
+          "https://viable-eagle-73.clerk.accounts.dev|other_owner_churn",
+        clerkUserId: "other_owner_churn",
+        displayName: "Other Owner",
+        emailVerified: true,
+        phoneVerified: true,
+        ageConfirmed: true,
+        suspended: false,
+      });
+      // Oldest rows: left history past the former take(MAX_MEMBERSHIPS+20) window.
+      for (let i = 0; i < 70; i++) {
+        const poolId = await ctx.db.insert("pools", {
+          name: `Left history ${i}`,
+          type: "survivor",
+          seasonId,
+          startWeek: 1,
+          pickLockMode: "gameKickoff",
+          status: "active",
+          rulesFrozen: false,
+          archived: false,
+          ownerParticipantId: otherOwner,
+          createdAtMs: Date.now(),
+        });
+        await ctx.db.insert("poolMemberships", {
+          poolId,
+          participantId: alexId,
+          role: "member",
+          status: "left",
+        });
+      }
+      // Live season seats at the quota — must still be counted.
+      for (let i = 0; i < 50; i++) {
+        const poolId = await ctx.db.insert("pools", {
+          name: `Active filled ${i}`,
+          type: "survivor",
+          seasonId,
+          startWeek: 1,
+          pickLockMode: "gameKickoff",
+          status: "active",
+          rulesFrozen: false,
+          archived: false,
+          ownerParticipantId: otherOwner,
+          createdAtMs: Date.now(),
+        });
+        await ctx.db.insert("poolMemberships", {
+          poolId,
+          participantId: alexId,
+          role: "member",
+          status: "active",
+        });
+      }
+    });
+
+    await expect(
+      asAlex.mutation(api.pools.createPool, {
+        name: "Should hit season quota",
+        type: "survivor",
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+      }),
+    ).rejects.toThrow(/50 Pool memberships per season/);
+  });
 });
 
 describe("abuse report (acceptance scenario 40)", () => {

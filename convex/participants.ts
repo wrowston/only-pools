@@ -8,6 +8,7 @@ import {
   requireParticipant,
 } from "./lib/auth";
 import { createLogger } from "./lib/log";
+import { listActiveMembershipsForParticipant } from "./lib/membershipQueries";
 import {
   buildMembershipStatus,
   loadEarliestKickoffByWeek,
@@ -122,12 +123,10 @@ export const myPools = query({
     const createPoolEnabled = await hasAvailableSeason(ctx);
     const includeArchived = args.includeArchived === true;
 
-    const membershipRows = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_participantId", (q) =>
-        q.eq("participantId", participant._id),
-      )
-      .take(80);
+    const membershipRows = await listActiveMembershipsForParticipant(
+      ctx,
+      participant._id,
+    );
 
     const nowMs = Date.now();
     const kickoffBySeason = new Map<
@@ -138,7 +137,6 @@ export const myPools = query({
     const memberships = [];
     const archivedMemberships = [];
     for (const row of membershipRows) {
-      if (row.status !== "active") continue;
       const pool = await ctx.db.get(row.poolId);
       if (!pool || (pool.status !== "active" && pool.status !== "completed")) {
         continue;

@@ -23,6 +23,10 @@ import {
 } from "./lib/poolRules";
 import { isPoolArchived } from "./lib/poolArchive";
 import {
+  countActiveSeasonMemberships,
+  listAllMembershipsForPool,
+} from "./lib/membershipQueries";
+import {
   MAX_MEMBERSHIPS_PER_SEASON,
   MAX_OWNED_POOLS,
   MAX_POOL_ENTRIES,
@@ -146,18 +150,11 @@ async function assertOwnedPoolQuotas(
     );
   }
 
-  const seasonMemberships = await ctx.db
-    .query("poolMemberships")
-    .withIndex("by_participantId", (q) => q.eq("participantId", participantId))
-    .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
-  let seasonActiveCount = 0;
-  for (const row of seasonMemberships) {
-    if (row.status !== "active") continue;
-    const existingPool = await ctx.db.get(row.poolId);
-    if (existingPool && existingPool.seasonId === seasonId) {
-      seasonActiveCount += 1;
-    }
-  }
+  const seasonActiveCount = await countActiveSeasonMemberships(
+    ctx,
+    participantId,
+    seasonId,
+  );
   if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
     throw new TemplateError(
       `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,
@@ -195,10 +192,7 @@ export const listMyTemplates = query({
         continue;
       }
       const season = await ctx.db.get(pool.seasonId);
-      const memberships = await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", pool._id))
-        .take(MAX_POOL_ENTRIES);
+      const memberships = await listAllMembershipsForPool(ctx, pool._id);
 
       const formerParticipants = [];
       for (const row of memberships) {
@@ -347,10 +341,10 @@ export const createPoolFromTemplate = mutation({
 
     const inviteArgs = args.returningInvites ?? [];
     if (inviteArgs.length > 0) {
-      const sourceMemberships = await ctx.db
-        .query("poolMemberships")
-        .withIndex("by_poolId", (q) => q.eq("poolId", source._id))
-        .take(MAX_POOL_ENTRIES);
+      const sourceMemberships = await listAllMembershipsForPool(
+        ctx,
+        source._id,
+      );
       const formerIds = new Set(
         sourceMemberships.map((m) => m.participantId as string),
       );
@@ -625,20 +619,11 @@ export const acceptReturningInvite = mutation({
       );
     }
 
-    const seasonMemberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_participantId", (q) =>
-        q.eq("participantId", participant._id),
-      )
-      .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
-    let seasonActiveCount = 0;
-    for (const row of seasonMemberships) {
-      if (row.status !== "active") continue;
-      const existingPool = await ctx.db.get(row.poolId);
-      if (existingPool && existingPool.seasonId === pool.seasonId) {
-        seasonActiveCount += 1;
-      }
-    }
+    const seasonActiveCount = await countActiveSeasonMemberships(
+      ctx,
+      participant._id,
+      pool.seasonId,
+    );
     if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
       throw new TemplateError(
         `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,

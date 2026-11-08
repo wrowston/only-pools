@@ -6,6 +6,7 @@ import { AuthError, requireParticipant } from "./lib/auth";
 import { assertAbuseReportPayloadSafe } from "./lib/abuseReportSanitize";
 import { createLogger } from "./lib/log";
 import { isPoolArchived } from "./lib/poolArchive";
+import { countActiveSeasonMemberships } from "./lib/membershipQueries";
 import { MAX_POOL_ENTRIES, MAX_MEMBERSHIPS_PER_SEASON } from "./lib/quotas";
 import {
   countActivePoolEntries,
@@ -588,20 +589,11 @@ export const reinstateMember = mutation({
       );
     }
 
-    const seasonMemberships = await ctx.db
-      .query("poolMemberships")
-      .withIndex("by_participantId", (q) =>
-        q.eq("participantId", args.participantId),
-      )
-      .take(MAX_MEMBERSHIPS_PER_SEASON + 20);
-    let seasonActiveCount = 0;
-    for (const row of seasonMemberships) {
-      if (row.status !== "active") continue;
-      const existingPool = await ctx.db.get(row.poolId);
-      if (existingPool && existingPool.seasonId === pool.seasonId) {
-        seasonActiveCount += 1;
-      }
-    }
+    const seasonActiveCount = await countActiveSeasonMemberships(
+      ctx,
+      args.participantId,
+      pool.seasonId,
+    );
     if (seasonActiveCount >= MAX_MEMBERSHIPS_PER_SEASON) {
       throw new MembershipAdminError(
         `At most ${MAX_MEMBERSHIPS_PER_SEASON} Pool memberships per season`,

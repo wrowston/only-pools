@@ -174,4 +174,74 @@ describe("My Pools for authenticated Participant", () => {
     const result = await fresh.mutation(api.participants.ensureMyParticipant, {});
     expect(result.participantId).toBeTruthy();
   });
+
+  it("lists active pools even when left history exceeds the old take(80) window", async () => {
+    const t = convexTest(schema, modules);
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    const { participantId: alexId } = await asAlex.mutation(
+      api.participants.ensureMyParticipant,
+      {},
+    );
+
+    const livePoolId = await t.run(async (ctx) => {
+      const seasonId = await ctx.db.insert("poolSeasons", {
+        label: "2026",
+        year: 2026,
+        status: "available",
+      });
+      const otherOwner = await ctx.db.insert("participants", {
+        tokenIdentifier:
+          "https://viable-eagle-73.clerk.accounts.dev|other_owner_pools",
+        clerkUserId: "other_owner_pools",
+        displayName: "Other Owner",
+        emailVerified: true,
+        phoneVerified: true,
+        ageConfirmed: true,
+        suspended: false,
+      });
+      for (let i = 0; i < 80; i++) {
+        const poolId = await ctx.db.insert("pools", {
+          name: `Left ${i}`,
+          type: "survivor",
+          seasonId,
+          startWeek: 1,
+          pickLockMode: "gameKickoff",
+          status: "active",
+          rulesFrozen: false,
+          archived: false,
+          ownerParticipantId: otherOwner,
+          createdAtMs: Date.now(),
+        });
+        await ctx.db.insert("poolMemberships", {
+          poolId,
+          participantId: alexId,
+          role: "member",
+          status: "left",
+        });
+      }
+      const livePoolId = await ctx.db.insert("pools", {
+        name: "Still competing",
+        type: "survivor",
+        seasonId,
+        startWeek: 1,
+        pickLockMode: "gameKickoff",
+        status: "active",
+        rulesFrozen: false,
+        archived: false,
+        ownerParticipantId: otherOwner,
+        createdAtMs: Date.now(),
+      });
+      await ctx.db.insert("poolMemberships", {
+        poolId: livePoolId,
+        participantId: alexId,
+        role: "member",
+        status: "active",
+      });
+      return livePoolId;
+    });
+
+    const home = await asAlex.query(api.participants.myPools, {});
+    expect(home.authError).toBeNull();
+    expect(home.memberships.some((m) => m.poolId === livePoolId)).toBe(true);
+  });
 });
