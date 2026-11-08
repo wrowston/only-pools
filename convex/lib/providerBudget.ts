@@ -39,6 +39,23 @@ export function emptyBudgetUsage(): BudgetUsage {
   return { routine: 0, recovery: 0, operator: 0 };
 }
 
+/**
+ * Rolling budget admits only real provider admissions:
+ * - dispatcher rows (workItemId set)
+ * - qualification probe rows (explicit priority)
+ *
+ * Gate-probe rows from public `claimProviderFetch` omit both and must not
+ * starve live / schedule / correction dispatch.
+ */
+export function countsTowardProviderBudget(claim: {
+  workItemId?: string;
+  priority?: BudgetPriority;
+}): boolean {
+  return (
+    claim.workItemId !== undefined || claim.priority !== undefined
+  );
+}
+
 function totalUsed(usage: BudgetUsage): number {
   return usage.routine + usage.recovery + usage.operator;
 }

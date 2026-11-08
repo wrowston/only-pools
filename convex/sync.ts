@@ -28,8 +28,9 @@ async function loadSyncGate(
 }
 
 /**
- * Attempt a provider fetch claim. When Sync Gate is OFF, the claim is denied
- * and recorded — locks and ordinary queries are unaffected.
+ * Sync Gate probe only. Records whether a surface would be admitted; it does
+ * not enqueue provider work. Rows omit workItemId/priority so the rolling
+ * dispatch budget ignores them (see countsTowardProviderBudget).
  */
 export const claimProviderFetch = mutation({
   args: {
