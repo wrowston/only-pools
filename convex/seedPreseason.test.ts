@@ -310,4 +310,60 @@ describe("preseason pool persistence", () => {
       seasonId: first.seasonId,
     });
   });
+
+  test("refuses ambiguous preseason refresh targets when poolId is omitted", async () => {
+    const t = convexTest(schema, modules);
+    const ownerParticipantId = await t.run(async (ctx) => {
+      return await ctx.db.insert("participants", {
+        tokenIdentifier: "test|preseason-owner-2",
+        clerkUserId: "user_preseason_ambiguous",
+        displayName: "Preseason Owner",
+        emailVerified: true,
+        phoneVerified: true,
+        ageConfirmed: true,
+        suspended: false,
+      });
+    });
+    const games = [
+      seedGame(1, "ARI", "ATL"),
+      seedGame(2, "BAL", "BUF"),
+      seedGame(3, "CAR", "CHI"),
+    ];
+    const first = await t.mutation(
+      internal.seedPreseason.persistApiSportsPreseasonPool,
+      {
+        ownerParticipantId,
+        poolName: "Preseason Test",
+        games,
+        nowMs: NOW_MS,
+      },
+    );
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("pools", {
+        name: "Duplicate preseason target",
+        type: "survivor",
+        seasonId: first.seasonId,
+        startWeek: 1,
+        finalWeek: PRESEASON_FINAL_WEEK,
+        pickLockMode: "gameKickoff",
+        status: "active",
+        rulesFrozen: false,
+        ownerParticipantId,
+        createdAtMs: NOW_MS,
+      });
+    });
+
+    await expect(
+      t.query(internal.seedPreseason.getPreseasonRefreshTarget, {}),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(internal.seedPreseason.getPreseasonRefreshTarget, {
+        poolId: first.poolId,
+      }),
+    ).resolves.toEqual({
+      poolId: first.poolId,
+      seasonId: first.seasonId,
+    });
+  });
 });
