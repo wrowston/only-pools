@@ -7,6 +7,7 @@ import { maybeMarkSurvivorPlayingMilestone } from "./helpPrompt";
 import { createLogger } from "./lib/log";
 import {
   computeWeeklyCutoffMs,
+  isGameKickoffLocked,
   isSurvivorPickLocked,
   type SaveTrustState,
 } from "./lib/pickLock";
@@ -498,16 +499,15 @@ export const materializeSurvivorLocks = mutation({
       }),
     );
 
+    // Latch Game Kickoff Lock only when kickoff/play-started has actually
+    // been reached. Weekly Cutoff alone must not write the shared
+    // nflGames.kickoffLockReachedAtMs — that field is season-global and
+    // would freeze Game Kickoff Lock pools for SNF/MNF hours early.
     let kickoffLatchCount = 0;
     for (const g of games) {
       if (
         g.kickoffLockReachedAtMs == null &&
-        isSurvivorPickLocked({
-          pickLockMode: pool.pickLockMode,
-          game: g,
-          weeklyCutoffMs,
-          nowMs,
-        })
+        isGameKickoffLocked(g, nowMs)
       ) {
         await ctx.db.patch(g._id, {
           kickoffLockReachedAtMs: Math.min(nowMs, g.scheduledKickoffMs),
