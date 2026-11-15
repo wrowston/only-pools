@@ -361,6 +361,232 @@ describe("scenario 25 — Pick Lock irreversibility under schedule disruption", 
       vi.useRealTimers();
     }
   });
+
+  it("records prior kickoff on postpone so post-cutoff Weekly Cutoff still holds without pre-seeded history", async () => {
+    const sunKickoff = Date.parse("2025-09-14T20:25:00.000Z");
+    const mnfKickoff = Date.parse("2025-09-16T00:15:00.000Z");
+    const sunPostponed = Date.parse("2025-09-21T20:25:00.000Z");
+    const beforeCutoff = Date.parse("2025-09-13T17:00:00.000Z");
+    const afterCutoff = Date.parse("2025-09-14T17:01:00.000Z");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(beforeCutoff);
+    try {
+      const t = convexTest(schema, modules);
+      const seeded = await t.run(async (ctx) => {
+        const seasonId = await ctx.db.insert("poolSeasons", {
+          label: "2025",
+          year: 2025,
+          status: "available",
+          usableStartWeek: 1,
+          bootstrappedAtMs: beforeCutoff,
+        });
+        const kc = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:kc",
+          name: "Kansas City Chiefs",
+          abbreviation: "KC",
+        });
+        const buf = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:buf",
+          name: "Buffalo Bills",
+          abbreviation: "BUF",
+        });
+        const phi = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:phi",
+          name: "Philadelphia Eagles",
+          abbreviation: "PHI",
+        });
+        const dal = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:dal",
+          name: "Dallas Cowboys",
+          abbreviation: "DAL",
+        });
+        const sunGameId = await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2025:w1:buf@kc",
+          seasonId,
+          seasonLabel: "2025",
+          week: 1,
+          homeTeamId: kc,
+          awayTeamId: buf,
+          scheduledKickoffMs: sunKickoff,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          resultAuthority: "none",
+        });
+        const mnfGameId = await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2025:w1:dal@phi",
+          seasonId,
+          seasonLabel: "2025",
+          week: 1,
+          homeTeamId: phi,
+          awayTeamId: dal,
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          resultAuthority: "none",
+        });
+        return { kc, phi, sunGameId, mnfGameId };
+      });
+
+      const asAlex = t.withIdentity(fullyVerifiedIdentity());
+      await asAlex.mutation(api.participants.ensureMyParticipant, {});
+      const pool = await asAlex.mutation(api.pools.createPool, {
+        name: "Weekly Cutoff History From Postpone",
+        type: "survivor",
+        startWeek: 1,
+        pickLockMode: "weeklyCutoff",
+      });
+
+      await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: pool.poolId,
+        week: 1,
+        nflTeamId: seeded.phi,
+      });
+
+      vi.setSystemTime(afterCutoff);
+
+      await t.mutation(internal.syncLive.applyScheduleObservation, {
+        observation: {
+          gameId: seeded.sunGameId,
+          observedAtMs: afterCutoff,
+          scheduledKickoffMs: sunPostponed,
+          lifecycle: "postponed",
+        },
+      });
+
+      const historyKickoffs = await t.run(async (ctx) => {
+        const rows = await ctx.db.query("nflGameScheduleHistory").collect();
+        return rows.map((row) => row.scheduledKickoffMs).sort();
+      });
+      expect(historyKickoffs).toContain(sunKickoff);
+      expect(historyKickoffs).toContain(sunPostponed);
+
+      await expect(
+        asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+          poolId: pool.poolId,
+          week: 1,
+          nflTeamId: seeded.kc,
+        }),
+      ).rejects.toThrow(/Pick Lock|locked/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("moves an unreached Weekly Cutoff when the Sunday slate postpones before 1pm ET", async () => {
+    const sunKickoff = Date.parse("2025-09-14T20:25:00.000Z");
+    const mnfKickoff = Date.parse("2025-09-16T00:15:00.000Z");
+    const sunPostponed = Date.parse("2025-09-21T20:25:00.000Z");
+    const beforeCutoff = Date.parse("2025-09-13T17:00:00.000Z");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(beforeCutoff);
+    try {
+      const t = convexTest(schema, modules);
+      const seeded = await t.run(async (ctx) => {
+        const seasonId = await ctx.db.insert("poolSeasons", {
+          label: "2025",
+          year: 2025,
+          status: "available",
+          usableStartWeek: 1,
+          bootstrappedAtMs: beforeCutoff,
+        });
+        const kc = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:kc",
+          name: "Kansas City Chiefs",
+          abbreviation: "KC",
+        });
+        const buf = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:buf",
+          name: "Buffalo Bills",
+          abbreviation: "BUF",
+        });
+        const phi = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:phi",
+          name: "Philadelphia Eagles",
+          abbreviation: "PHI",
+        });
+        const dal = await ctx.db.insert("nflTeams", {
+          stableKey: "nfl:dal",
+          name: "Dallas Cowboys",
+          abbreviation: "DAL",
+        });
+        const sunGameId = await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2025:w1:buf@kc",
+          seasonId,
+          seasonLabel: "2025",
+          week: 1,
+          homeTeamId: kc,
+          awayTeamId: buf,
+          scheduledKickoffMs: sunKickoff,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          resultAuthority: "none",
+        });
+        await ctx.db.insert("nflGames", {
+          stableKey: "nfl:2025:w1:dal@phi",
+          seasonId,
+          seasonLabel: "2025",
+          week: 1,
+          homeTeamId: phi,
+          awayTeamId: dal,
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+          homeScore: null,
+          awayScore: null,
+          resultAuthority: "none",
+        });
+        await ctx.db.insert("nflGameScheduleHistory", {
+          nflGameId: sunGameId,
+          seasonId,
+          week: 1,
+          homeTeamId: kc,
+          awayTeamId: buf,
+          scheduledKickoffMs: sunKickoff,
+          firstObservedAtMs: beforeCutoff,
+          lastObservedAtMs: beforeCutoff,
+        });
+        return { phi, sunGameId };
+      });
+
+      const asAlex = t.withIdentity(fullyVerifiedIdentity());
+      await asAlex.mutation(api.participants.ensureMyParticipant, {});
+      const pool = await asAlex.mutation(api.pools.createPool, {
+        name: "Unreached Weekly Cutoff Moves",
+        type: "survivor",
+        startWeek: 1,
+        pickLockMode: "weeklyCutoff",
+      });
+
+      await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: pool.poolId,
+        week: 1,
+        nflTeamId: seeded.phi,
+      });
+
+      await t.mutation(internal.syncLive.applyScheduleObservation, {
+        observation: {
+          gameId: seeded.sunGameId,
+          observedAtMs: beforeCutoff,
+          scheduledKickoffMs: sunPostponed,
+          lifecycle: "postponed",
+        },
+      });
+
+      // Still before the moved (next-Sunday) cutoff — MNF edit remains open.
+      const saved = await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: pool.poolId,
+        week: 1,
+        nflTeamId: seeded.phi,
+      });
+      expect(saved.saveTrust.status).toBe("saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("scenario 26 — Survivor and Confidence cancellation paths", () => {

@@ -267,6 +267,7 @@ async function loadPoolDependencyContext(
       seasonId: game.seasonId,
       week,
       games: weekGames,
+      nowMs: observedAtMs,
     });
     if (cutoffMs !== null && observedAtMs >= cutoffMs) {
       laterWeeklyCutoffReached = true;

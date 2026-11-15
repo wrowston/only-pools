@@ -100,12 +100,14 @@ async function weeklyCutoffForPool(
   pool: Doc<"pools">,
   week: number,
   games: Doc<"nflGames">[],
+  nowMs: number,
 ): Promise<number | null> {
   return await resolveWeeklyCutoffMs(ctx, {
     pickLockMode: pool.pickLockMode,
     seasonId: pool.seasonId,
     week,
     games,
+    nowMs,
   });
 }
 
@@ -413,6 +415,7 @@ export const autosaveConfidence = mutation({
       pool,
       args.week,
       games,
+      nowMs,
     );
 
     const { pickSet, picks } = await loadOrCreatePickSet(ctx, {
@@ -717,7 +720,13 @@ export async function materializeConfidenceLocksForPool(
   const sheet = await ensurePickSheetDoc(ctx, pool, week, nowMs);
   const games = await loadWeekGames(ctx, pool.seasonId, week);
   const gameById = new Map(games.map((g) => [g._id, g] as const));
-  const weeklyCutoffMs = await weeklyCutoffForPool(ctx, pool, week, games);
+  const weeklyCutoffMs = await weeklyCutoffForPool(
+    ctx,
+    pool,
+    week,
+    games,
+    nowMs,
+  );
 
   const dueGameIds = sheet.gameIds.filter((gid) => {
     const g = gameById.get(gid);

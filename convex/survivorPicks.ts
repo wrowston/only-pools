@@ -261,6 +261,7 @@ export const autosaveSurvivorPick = mutation({
       seasonId: pool.seasonId,
       week: args.week,
       games,
+      nowMs,
     });
 
     if (
@@ -486,6 +487,7 @@ export const materializeSurvivorLocks = mutation({
       seasonId: pool.seasonId,
       week: args.week,
       games,
+      nowMs,
     });
 
     const allGamesLocked = games.every((g) =>

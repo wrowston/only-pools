@@ -85,6 +85,7 @@ async function weekFullyLocked(
     seasonId: pool.seasonId,
     week: games[0]!.week,
     games,
+    nowMs,
   });
   return games.every((g) =>
     isSurvivorPickLocked({

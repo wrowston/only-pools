@@ -1,14 +1,12 @@
 /**
- * Weekly Cutoff Lock resolution — anchors on schedule history so postponing
- * the current earliest kickoff after Sunday 1pm ET cannot reopen locks.
+ * Weekly Cutoff Lock resolution — history-aware so a reached Sunday 1pm ET
+ * cutoff never reopens when the current earliest kickoff postpones, while
+ * still allowing an *unreached* cutoff to move with the slate.
  */
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import {
-  computeWeeklyCutoffMs,
-  weeklyCutoffAnchorMs,
-} from "./pickLock";
+import { selectWeeklyCutoffMs } from "./pickLock";
 
 type DbCtx = QueryCtx | MutationCtx;
 
@@ -39,6 +37,7 @@ export async function resolveWeeklyCutoffMs(
     seasonId: Id<"poolSeasons">;
     week: number;
     games: ReadonlyArray<Pick<Doc<"nflGames">, "scheduledKickoffMs">>;
+    nowMs: number;
   },
 ): Promise<number | null> {
   if (args.pickLockMode !== "weeklyCutoff" || args.games.length === 0) {
@@ -49,9 +48,9 @@ export async function resolveWeeklyCutoffMs(
     args.seasonId,
     args.week,
   );
-  const anchorMs = weeklyCutoffAnchorMs(
-    args.games.map((game) => game.scheduledKickoffMs),
+  return selectWeeklyCutoffMs({
+    currentKickoffMs: args.games.map((game) => game.scheduledKickoffMs),
     historicalKickoffMs,
-  );
-  return anchorMs === null ? null : computeWeeklyCutoffMs(anchorMs);
+    nowMs: args.nowMs,
+  });
 }

@@ -133,6 +133,7 @@ async function dependencyForPool(
         seasonId: input.game.seasonId,
         week,
         games: weekGames,
+        nowMs: input.observedAtMs,
       });
       if (cutoffMs !== null && input.observedAtMs >= cutoffMs) {
         laterWeeklyCutoffReached = true;

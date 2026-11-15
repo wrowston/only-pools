@@ -104,6 +104,7 @@ async function gameLockMap(
           seasonId: pool.seasonId,
           week: games[0]!.week,
           games,
+          nowMs,
         });
   const map = new Map<Id<"nflGames">, boolean>();
   for (const g of games) {

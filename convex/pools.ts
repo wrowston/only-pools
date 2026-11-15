@@ -938,6 +938,7 @@ export const getWeekBoard = query({
       seasonId: pool.seasonId,
       week,
       games,
+      nowMs,
     });
 
     const slate = [];
