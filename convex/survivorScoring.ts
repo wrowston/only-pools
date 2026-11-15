@@ -13,10 +13,8 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { AuthError, requireParticipant } from "./lib/auth";
-import {
-  computeWeeklyCutoffMs,
-  isSurvivorPickLocked,
-} from "./lib/pickLock";
+import { isSurvivorPickLocked } from "./lib/pickLock";
+import { resolveWeeklyCutoffMs } from "./lib/weeklyCutoff";
 import {
   displayIndexByEntryId,
   ensurePrimaryEntryIfMissing,
@@ -75,17 +73,20 @@ async function loadWeekGames(
     .take(64);
 }
 
-function weekFullyLocked(
+async function weekFullyLocked(
+  ctx: DbCtx,
   pool: Doc<"pools">,
   games: Doc<"nflGames">[],
   nowMs: number,
-): boolean {
+): Promise<boolean> {
   if (games.length === 0) return false;
-  const earliestKickoff = Math.min(...games.map((g) => g.scheduledKickoffMs));
-  const weeklyCutoffMs =
-    pool.pickLockMode === "weeklyCutoff"
-      ? computeWeeklyCutoffMs(earliestKickoff)
-      : null;
+  const weeklyCutoffMs = await resolveWeeklyCutoffMs(ctx, {
+    pickLockMode: pool.pickLockMode,
+    seasonId: pool.seasonId,
+    week: games[0]!.week,
+    games,
+    nowMs,
+  });
   return games.every((g) =>
     isSurvivorPickLocked({
       pickLockMode: pool.pickLockMode,
@@ -409,7 +410,7 @@ export const applySurvivorScoringRevision = internalMutation({
 
     for (let w = pool.startWeek; w <= args.week; w++) {
       const games = await loadWeekGames(ctx, pool.seasonId, w);
-      const locked = weekFullyLocked(pool, games, nowMs);
+      const locked = await weekFullyLocked(ctx, pool, games, nowMs);
       const picks = await ctx.db
         .query("survivorPicks")
         .withIndex("by_poolId_and_week", (q) =>

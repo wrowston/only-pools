@@ -542,3 +542,68 @@ describe("Hidden Picks until lock (acceptance scenarios 22, 37)", () => {
     }
   });
 });
+
+describe("materializeSurvivorLocks kickoff latch isolation", () => {
+  it("does not latch shared kickoffLock from Weekly Cutoff alone (SNF/MNF)", async () => {
+    const t = convexTest(schema, modules);
+    // Two games: early (past Thursday) drives Weekly Cutoff; late (future)
+    // is still pre-kickoff under Game Kickoff Lock.
+    const seeded = await seedSurvivorSlate(t, { extraWeek1Game: true });
+    const asAlex = t.withIdentity(fullyVerifiedIdentity());
+    await asAlex.mutation(api.participants.ensureMyParticipant, {});
+
+    const weeklyPool = await asAlex.mutation(api.pools.createPool, {
+      name: "Weekly Cutoff Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "weeklyCutoff",
+    });
+    const kickoffPool = await asAlex.mutation(api.pools.createPool, {
+      name: "Game Kickoff Pool",
+      type: "survivor",
+      startWeek: 1,
+      pickLockMode: "gameKickoff",
+    });
+
+    // Fixed past Thursday whose Sunday 1pm ET cutoff is before now; late
+    // game remains hours in the future (Monday-night shape).
+    const pastThursday = Date.parse("2025-09-04T20:15:00.000Z");
+    const lateKickoffMs = Date.now() + 6 * 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.week1GameId, {
+        scheduledKickoffMs: pastThursday,
+      });
+      await ctx.db.patch(seeded.week1ExtraGameId!, {
+        scheduledKickoffMs: lateKickoffMs,
+      });
+    });
+
+    await asAlex.mutation(api.survivorPicks.materializeSurvivorLocks, {
+      poolId: weeklyPool.poolId,
+      week: 1,
+    });
+
+    const lateGame = await t.run(async (ctx) =>
+      ctx.db.get(seeded.week1ExtraGameId!),
+    );
+    expect(lateGame?.kickoffLockReachedAtMs).toBeUndefined();
+
+    // Game Kickoff Lock pool may still change the pre-kickoff late game.
+    const saved = await asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+      poolId: kickoffPool.poolId,
+      week: 1,
+      nflTeamId: seeded.phi,
+    });
+    expect(saved.nflTeamId).toBe(seeded.phi);
+    expect(saved.saveTrust.status).toBe("saved");
+
+    // Weekly Cutoff pool correctly refuses the same pre-kickoff game.
+    await expect(
+      asAlex.mutation(api.survivorPicks.autosaveSurvivorPick, {
+        poolId: weeklyPool.poolId,
+        week: 1,
+        nflTeamId: seeded.dal,
+      }),
+    ).rejects.toThrow(/Pick Lock has been reached/);
+  });
+});

@@ -19,10 +19,7 @@ import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { runEffect } from "./effect/run";
 import type { ApiSportsRequestFence } from "./effect/apiSports/client";
 import { SCORING_DELAY_THRESHOLD_MS } from "./lib/incidents";
-import {
-  computeWeeklyCutoffMs,
-  isGameKickoffLocked,
-} from "./lib/pickLock";
+import { isGameKickoffLocked } from "./lib/pickLock";
 import {
   latestScoringDependencyEventId,
   recordScoringDependencyEvent,
@@ -32,6 +29,7 @@ import {
   scoringHoldDedupeKey,
   selectScoringHoldDependency,
 } from "./lib/scoringHolds";
+import { resolveWeeklyCutoffMs } from "./lib/weeklyCutoff";
 import {
   hasPinnedResultEvidence,
   PINNED_RESULT_EVIDENCE_CADENCE_MS,
@@ -256,16 +254,26 @@ async function loadPoolDependencyContext(
   const laterGameLockReached = laterGames.some((candidate) =>
     isGameKickoffLocked(candidate, observedAtMs),
   );
-  const laterWeeklyCutoffs = new Map<number, number>();
-  for (const candidate of laterGames) {
-    const current = laterWeeklyCutoffs.get(candidate.week);
-    if (current === undefined || candidate.scheduledKickoffMs < current) {
-      laterWeeklyCutoffs.set(candidate.week, candidate.scheduledKickoffMs);
+  const laterWeeks = [
+    ...new Set(laterGames.map((candidate) => candidate.week)),
+  ];
+  let laterWeeklyCutoffReached = false;
+  for (const week of laterWeeks) {
+    const weekGames = laterGames.filter(
+      (candidate) => candidate.week === week,
+    );
+    const cutoffMs = await resolveWeeklyCutoffMs(ctx, {
+      pickLockMode: "weeklyCutoff",
+      seasonId: game.seasonId,
+      week,
+      games: weekGames,
+      nowMs: observedAtMs,
+    });
+    if (cutoffMs !== null && observedAtMs >= cutoffMs) {
+      laterWeeklyCutoffReached = true;
+      break;
     }
   }
-  const laterWeeklyCutoffReached = [...laterWeeklyCutoffs.values()].some(
-    (anchorMs) => observedAtMs >= computeWeeklyCutoffMs(anchorMs),
-  );
   return {
     scopeComplete: seasonGames.length <= 400,
     laterGameLockReached,

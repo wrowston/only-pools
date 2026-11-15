@@ -71,6 +71,63 @@ export function applyKickoffScheduleChange(args: {
 }
 
 /**
+ * Earliest kickoff among the provided observations (current and/or history).
+ */
+export function weeklyCutoffAnchorMs(
+  currentKickoffMs: readonly number[],
+  historicalKickoffMs: readonly number[] = [],
+): number | null {
+  let earliest: number | null = null;
+  for (const kickoffMs of currentKickoffMs) {
+    earliest =
+      earliest === null ? kickoffMs : Math.min(earliest, kickoffMs);
+  }
+  for (const kickoffMs of historicalKickoffMs) {
+    earliest =
+      earliest === null ? kickoffMs : Math.min(earliest, kickoffMs);
+  }
+  return earliest;
+}
+
+/**
+ * Resolve Weekly Cutoff Lock for a Pool Week.
+ *
+ * CONTEXT Pick Lock: a schedule change may move an *unreached* Pick Lock, but
+ * a postponement never reopens one already reached. Using only the current
+ * earliest lets a post-cutoff Sunday-slate postpone move the anchor onto MNF
+ * and recompute cutoff as *next* Sunday (reopen). Pinning always to history
+ * would also freeze an *unreached* cutoff when the slate moves earlier in the
+ * week. Compare `nowMs` to the history-inclusive cutoff: once reached, keep
+ * it; otherwise follow the current slate.
+ */
+export function selectWeeklyCutoffMs(args: {
+  currentKickoffMs: readonly number[];
+  historicalKickoffMs?: readonly number[];
+  nowMs: number;
+}): number | null {
+  const historical = args.historicalKickoffMs ?? [];
+  if (args.currentKickoffMs.length === 0 && historical.length === 0) {
+    return null;
+  }
+  const currentAnchor = weeklyCutoffAnchorMs(args.currentKickoffMs);
+  const reachedAnchor = weeklyCutoffAnchorMs(
+    args.currentKickoffMs,
+    historical,
+  );
+  if (reachedAnchor === null) {
+    return null;
+  }
+  const reachedCutoffMs = computeWeeklyCutoffMs(reachedAnchor);
+  if (args.nowMs >= reachedCutoffMs) {
+    return reachedCutoffMs;
+  }
+  if (currentAnchor === null) {
+    return reachedCutoffMs;
+  }
+  return computeWeeklyCutoffMs(currentAnchor);
+}
+
+/**
  * Sunday 1:00 p.m. America/New_York for the NFL week containing `anchorMs`
  * (typically the earliest scheduled kickoff in the Pool Week slate).
  */

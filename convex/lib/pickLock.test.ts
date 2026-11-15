@@ -5,6 +5,8 @@ import {
   isGameKickoffLocked,
   isSurvivorPickLocked,
   isTiebreakerLocked,
+  selectWeeklyCutoffMs,
+  weeklyCutoffAnchorMs,
 } from "./pickLock";
 
 describe("isGameKickoffLocked (acceptance scenario 20)", () => {
@@ -163,6 +165,91 @@ describe("isSurvivorPickLocked", () => {
         nowMs: 3_000,
       }),
     ).toBe(true);
+  });
+});
+
+describe("selectWeeklyCutoffMs", () => {
+  const sunKickoff = Date.parse("2025-09-14T20:25:00.000Z");
+  const mnfKickoff = Date.parse("2025-09-16T00:15:00.000Z");
+  const sunPostponed = Date.parse("2025-09-21T20:25:00.000Z");
+  const history = [sunKickoff, mnfKickoff];
+
+  it("keeps a reached Sunday cutoff when current earliest jumps to MNF", () => {
+    const nowAfterCutoff = computeWeeklyCutoffMs(sunKickoff) + 60_000;
+    const cutoffMs = selectWeeklyCutoffMs({
+      currentKickoffMs: [sunPostponed, mnfKickoff],
+      historicalKickoffMs: history,
+      nowMs: nowAfterCutoff,
+    });
+    expect(cutoffMs).toBe(computeWeeklyCutoffMs(sunKickoff));
+    expect(
+      isSurvivorPickLocked({
+        pickLockMode: "weeklyCutoff",
+        game: {
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+        },
+        weeklyCutoffMs: cutoffMs,
+        nowMs: nowAfterCutoff,
+      }),
+    ).toBe(true);
+  });
+
+  it("lets an unreached cutoff move later when the Sunday slate postpones", () => {
+    const nowBeforeCutoff = computeWeeklyCutoffMs(sunKickoff) - 60_000;
+    const cutoffMs = selectWeeklyCutoffMs({
+      currentKickoffMs: [sunPostponed, mnfKickoff],
+      historicalKickoffMs: history,
+      nowMs: nowBeforeCutoff,
+    });
+    expect(cutoffMs).toBe(computeWeeklyCutoffMs(mnfKickoff));
+    expect(cutoffMs).toBeGreaterThan(computeWeeklyCutoffMs(sunKickoff));
+    expect(
+      isSurvivorPickLocked({
+        pickLockMode: "weeklyCutoff",
+        game: {
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+        },
+        weeklyCutoffMs: cutoffMs,
+        nowMs: nowBeforeCutoff,
+      }),
+    ).toBe(false);
+  });
+
+  it("reopens incorrectly without history after a post-cutoff postpone", () => {
+    const nowAfterCutoff = computeWeeklyCutoffMs(sunKickoff) + 60_000;
+    const cutoffMs = selectWeeklyCutoffMs({
+      currentKickoffMs: [sunPostponed, mnfKickoff],
+      historicalKickoffMs: [],
+      nowMs: nowAfterCutoff,
+    });
+    expect(cutoffMs).toBe(computeWeeklyCutoffMs(mnfKickoff));
+    expect(
+      isSurvivorPickLocked({
+        pickLockMode: "weeklyCutoff",
+        game: {
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+        },
+        weeklyCutoffMs: cutoffMs,
+        nowMs: nowAfterCutoff,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("weeklyCutoffAnchorMs", () => {
+  it("returns the earliest across current and historical kickoffs", () => {
+    const sunKickoff = Date.parse("2025-09-14T20:25:00.000Z");
+    const mnfKickoff = Date.parse("2025-09-16T00:15:00.000Z");
+    const sunPostponed = Date.parse("2025-09-21T20:25:00.000Z");
+
+    expect(weeklyCutoffAnchorMs([sunKickoff, mnfKickoff])).toBe(sunKickoff);
+    expect(weeklyCutoffAnchorMs([sunPostponed, mnfKickoff])).toBe(mnfKickoff);
+    expect(
+      weeklyCutoffAnchorMs([sunPostponed, mnfKickoff], [sunKickoff, mnfKickoff]),
+    ).toBe(sunKickoff);
   });
 });
 

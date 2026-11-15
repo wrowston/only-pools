@@ -446,6 +446,20 @@ export const applyScheduleGameObservation = internalMutation({
       },
       observedAtMs: observation.observedAtMs,
     });
+    // Preserve the prior kickoff in history before recording the new one so
+    // Weekly Cutoff can detect a reached Sunday 1pm ET even when the current
+    // earliest slate jumps to MNF.
+    if (reduced.scheduledKickoffMs !== game.scheduledKickoffMs) {
+      await recordNflGameSchedule(ctx, {
+        nflGameId: game._id,
+        seasonId: game.seasonId,
+        week: game.week,
+        homeTeamId: game.homeTeamId,
+        awayTeamId: game.awayTeamId,
+        scheduledKickoffMs: game.scheduledKickoffMs,
+        observedAtMs: observation.observedAtMs,
+      });
+    }
     await recordNflGameSchedule(ctx, {
       nflGameId: game._id,
       seasonId: game.seasonId,
