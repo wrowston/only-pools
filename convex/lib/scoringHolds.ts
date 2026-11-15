@@ -1,10 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import {
-  computeWeeklyCutoffMs,
-  isGameKickoffLocked,
-} from "./pickLock";
+import { isGameKickoffLocked } from "./pickLock";
 import { resolveSurvivorFinalWeek } from "./survivorScoring";
+import { resolveWeeklyCutoffMs } from "./weeklyCutoff";
 
 export type ScoringHoldDependency =
   | "later_game_lock"
@@ -121,14 +119,25 @@ async function dependencyForPool(
   const laterGameLockReached = laterGames.some((candidate) =>
     isGameKickoffLocked(candidate, input.observedAtMs),
   );
-  const weeklyAnchors = new Map<number, number>();
-  for (const candidate of laterGames) {
-    const current = weeklyAnchors.get(candidate.week);
-    if (
-      current === undefined ||
-      candidate.scheduledKickoffMs < current
-    ) {
-      weeklyAnchors.set(candidate.week, candidate.scheduledKickoffMs);
+  let laterWeeklyCutoffReached = false;
+  if (input.pool.pickLockMode === "weeklyCutoff") {
+    const laterWeeks = [
+      ...new Set(laterGames.map((candidate) => candidate.week)),
+    ];
+    for (const week of laterWeeks) {
+      const weekGames = laterGames.filter(
+        (candidate) => candidate.week === week,
+      );
+      const cutoffMs = await resolveWeeklyCutoffMs(ctx, {
+        pickLockMode: "weeklyCutoff",
+        seasonId: input.game.seasonId,
+        week,
+        games: weekGames,
+      });
+      if (cutoffMs !== null && input.observedAtMs >= cutoffMs) {
+        laterWeeklyCutoffReached = true;
+        break;
+      }
     }
   }
   const laterSettledPoolWeek = await ctx.db
@@ -181,12 +190,7 @@ async function dependencyForPool(
       : null;
   return selectScoringHoldDependency({
     laterGameLockReached,
-    laterWeeklyCutoffReached:
-      input.pool.pickLockMode === "weeklyCutoff" &&
-      [...weeklyAnchors.values()].some(
-        (anchorMs) =>
-          input.observedAtMs >= computeWeeklyCutoffMs(anchorMs),
-      ),
+    laterWeeklyCutoffReached,
     laterSettledPoolWeek: laterSettledPoolWeek !== null,
     laterSurvivorLock: laterSurvivorLock !== null,
     laterNonProvisionalSurvivorPick:

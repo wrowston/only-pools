@@ -71,6 +71,31 @@ export function applyKickoffScheduleChange(args: {
 }
 
 /**
+ * Anchor for Weekly Cutoff Lock: the earliest kickoff ever observed for the
+ * Pool Week slate (current schedules plus schedule history).
+ *
+ * Using only the *current* earliest lets a post-cutoff postponement of every
+ * pre-Monday game move the anchor onto MNF and recompute cutoff as *next*
+ * Sunday — reopening already-reached Weekly Cutoff Locks. History keeps the
+ * original Sunday anchor so a reached cutoff never reopens (CONTEXT Pick Lock).
+ */
+export function weeklyCutoffAnchorMs(
+  currentKickoffMs: readonly number[],
+  historicalKickoffMs: readonly number[] = [],
+): number | null {
+  let earliest: number | null = null;
+  for (const kickoffMs of currentKickoffMs) {
+    earliest =
+      earliest === null ? kickoffMs : Math.min(earliest, kickoffMs);
+  }
+  for (const kickoffMs of historicalKickoffMs) {
+    earliest =
+      earliest === null ? kickoffMs : Math.min(earliest, kickoffMs);
+  }
+  return earliest;
+}
+
+/**
  * Sunday 1:00 p.m. America/New_York for the NFL week containing `anchorMs`
  * (typically the earliest scheduled kickoff in the Pool Week slate).
  */

@@ -13,7 +13,6 @@ import {
 } from "./lib/confidenceScale";
 import { createLogger } from "./lib/log";
 import {
-  computeWeeklyCutoffMs,
   isConfidenceGameLocked,
   isTiebreakerLocked,
   type SaveTrustState,
@@ -26,6 +25,7 @@ import {
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
+import { resolveWeeklyCutoffMs } from "./lib/weeklyCutoff";
 
 const log = createLogger("confidencePicks");
 
@@ -95,15 +95,18 @@ async function writeSanitizedAudit(
   });
 }
 
-function weeklyCutoffForPool(
+async function weeklyCutoffForPool(
+  ctx: QueryCtx | MutationCtx,
   pool: Doc<"pools">,
+  week: number,
   games: Doc<"nflGames">[],
-): number | null {
-  if (pool.pickLockMode !== "weeklyCutoff" || games.length === 0) {
-    return null;
-  }
-  const earliest = Math.min(...games.map((g) => g.scheduledKickoffMs));
-  return computeWeeklyCutoffMs(earliest);
+): Promise<number | null> {
+  return await resolveWeeklyCutoffMs(ctx, {
+    pickLockMode: pool.pickLockMode,
+    seasonId: pool.seasonId,
+    week,
+    games,
+  });
 }
 
 /**
@@ -405,7 +408,12 @@ export const autosaveConfidence = mutation({
     const sheet = await ensurePickSheetDoc(ctx, pool, args.week, nowMs);
     const games = await loadWeekGames(ctx, pool.seasonId, args.week);
     const gameById = new Map(games.map((g) => [g._id, g] as const));
-    const weeklyCutoffMs = weeklyCutoffForPool(pool, games);
+    const weeklyCutoffMs = await weeklyCutoffForPool(
+      ctx,
+      pool,
+      args.week,
+      games,
+    );
 
     const { pickSet, picks } = await loadOrCreatePickSet(ctx, {
       pool,
@@ -709,7 +717,7 @@ export async function materializeConfidenceLocksForPool(
   const sheet = await ensurePickSheetDoc(ctx, pool, week, nowMs);
   const games = await loadWeekGames(ctx, pool.seasonId, week);
   const gameById = new Map(games.map((g) => [g._id, g] as const));
-  const weeklyCutoffMs = weeklyCutoffForPool(pool, games);
+  const weeklyCutoffMs = await weeklyCutoffForPool(ctx, pool, week, games);
 
   const dueGameIds = sheet.gameIds.filter((gid) => {
     const g = gameById.get(gid);

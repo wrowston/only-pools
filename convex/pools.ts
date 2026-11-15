@@ -11,10 +11,8 @@ import {
   assertValidStartWeekSlate,
   POOL_START_WEEK,
 } from "./lib/poolRules";
-import {
-  computeWeeklyCutoffMs,
-  isSurvivorPickLocked,
-} from "./lib/pickLock";
+import { isSurvivorPickLocked } from "./lib/pickLock";
+import { resolveWeeklyCutoffMs } from "./lib/weeklyCutoff";
 import { defaultConfidenceRanking } from "./lib/confidenceScale";
 import { deriveFreshness } from "./lib/freshness";
 import { isPoolArchived } from "./lib/poolArchive";
@@ -935,14 +933,12 @@ export const getWeekBoard = query({
     availableWeekSet.add(pool.startWeek);
     const availableWeeks = [...availableWeekSet].sort((a, b) => a - b);
 
-    const earliestKickoff =
-      games.length > 0
-        ? Math.min(...games.map((g) => g.scheduledKickoffMs))
-        : null;
-    const weeklyCutoffMs =
-      pool.pickLockMode === "weeklyCutoff" && earliestKickoff !== null
-        ? computeWeeklyCutoffMs(earliestKickoff)
-        : null;
+    const weeklyCutoffMs = await resolveWeeklyCutoffMs(ctx, {
+      pickLockMode: pool.pickLockMode,
+      seasonId: pool.seasonId,
+      week,
+      games,
+    });
 
     const slate = [];
     for (const game of games) {

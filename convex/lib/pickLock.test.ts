@@ -5,6 +5,7 @@ import {
   isGameKickoffLocked,
   isSurvivorPickLocked,
   isTiebreakerLocked,
+  weeklyCutoffAnchorMs,
 } from "./pickLock";
 
 describe("isGameKickoffLocked (acceptance scenario 20)", () => {
@@ -163,6 +164,53 @@ describe("isSurvivorPickLocked", () => {
         nowMs: 3_000,
       }),
     ).toBe(true);
+  });
+});
+
+describe("weeklyCutoffAnchorMs", () => {
+  it("keeps the original Sunday anchor when current earliest jumps to MNF", () => {
+    const sunKickoff = Date.parse("2025-09-14T20:25:00.000Z");
+    const mnfKickoff = Date.parse("2025-09-16T00:15:00.000Z");
+    const sunPostponed = Date.parse("2025-09-21T20:25:00.000Z");
+
+    const before = weeklyCutoffAnchorMs([sunKickoff, mnfKickoff]);
+    const afterWithoutHistory = weeklyCutoffAnchorMs([
+      sunPostponed,
+      mnfKickoff,
+    ]);
+    const afterWithHistory = weeklyCutoffAnchorMs(
+      [sunPostponed, mnfKickoff],
+      [sunKickoff, mnfKickoff],
+    );
+
+    expect(before).toBe(sunKickoff);
+    expect(afterWithoutHistory).toBe(mnfKickoff);
+    expect(afterWithHistory).toBe(sunKickoff);
+
+    const nowAfterCutoff =
+      computeWeeklyCutoffMs(sunKickoff) + 60_000;
+    expect(
+      isSurvivorPickLocked({
+        pickLockMode: "weeklyCutoff",
+        game: {
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+        },
+        weeklyCutoffMs: computeWeeklyCutoffMs(afterWithHistory!),
+        nowMs: nowAfterCutoff,
+      }),
+    ).toBe(true);
+    expect(
+      isSurvivorPickLocked({
+        pickLockMode: "weeklyCutoff",
+        game: {
+          scheduledKickoffMs: mnfKickoff,
+          lifecycle: "scheduled",
+        },
+        weeklyCutoffMs: computeWeeklyCutoffMs(afterWithoutHistory!),
+        nowMs: nowAfterCutoff,
+      }),
+    ).toBe(false);
   });
 });
 

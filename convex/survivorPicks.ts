@@ -6,7 +6,6 @@ import { AuthError, requireParticipant } from "./lib/auth";
 import { maybeMarkSurvivorPlayingMilestone } from "./helpPrompt";
 import { createLogger } from "./lib/log";
 import {
-  computeWeeklyCutoffMs,
   isGameKickoffLocked,
   isSurvivorPickLocked,
   type SaveTrustState,
@@ -21,6 +20,7 @@ import {
 } from "./lib/poolEntries";
 import { MAX_POOL_ENTRIES } from "./lib/quotas";
 import { recordScoringDependencyEvent } from "./lib/scoringHolds";
+import { resolveWeeklyCutoffMs } from "./lib/weeklyCutoff";
 
 const log = createLogger("survivorPicks");
 
@@ -256,13 +256,12 @@ export const autosaveSurvivorPick = mutation({
       );
     }
 
-    const earliestKickoff = Math.min(
-      ...games.map((g) => g.scheduledKickoffMs),
-    );
-    const weeklyCutoffMs =
-      pool.pickLockMode === "weeklyCutoff"
-        ? computeWeeklyCutoffMs(earliestKickoff)
-        : null;
+    const weeklyCutoffMs = await resolveWeeklyCutoffMs(ctx, {
+      pickLockMode: pool.pickLockMode,
+      seasonId: pool.seasonId,
+      week: args.week,
+      games,
+    });
 
     if (
       isSurvivorPickLocked({
@@ -482,13 +481,12 @@ export const materializeSurvivorLocks = mutation({
       return { lockedCount: 0, omissionCount: 0 };
     }
 
-    const earliestKickoff = Math.min(
-      ...games.map((g) => g.scheduledKickoffMs),
-    );
-    const weeklyCutoffMs =
-      pool.pickLockMode === "weeklyCutoff"
-        ? computeWeeklyCutoffMs(earliestKickoff)
-        : null;
+    const weeklyCutoffMs = await resolveWeeklyCutoffMs(ctx, {
+      pickLockMode: pool.pickLockMode,
+      seasonId: pool.seasonId,
+      week: args.week,
+      games,
+    });
 
     const allGamesLocked = games.every((g) =>
       isSurvivorPickLocked({

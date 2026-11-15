@@ -15,10 +15,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { AuthError, requireParticipant } from "./lib/auth";
 import { materializeConfidenceLocksForPool } from "./confidencePicks";
-import {
-  computeWeeklyCutoffMs,
-  isConfidenceGameLocked,
-} from "./lib/pickLock";
+import { isConfidenceGameLocked } from "./lib/pickLock";
+import { resolveWeeklyCutoffMs } from "./lib/weeklyCutoff";
 import {
   displayIndexByEntryId,
   ensurePrimaryEntryIfMissing,
@@ -92,19 +90,21 @@ function toVerifiedInput(game: Doc<"nflGames">): VerifiedGameInput {
   };
 }
 
-function gameLockMap(
+async function gameLockMap(
+  ctx: QueryCtx | MutationCtx,
   pool: Doc<"pools">,
   games: Doc<"nflGames">[],
   nowMs: number,
-): Map<Id<"nflGames">, boolean> {
-  const earliest =
+): Promise<Map<Id<"nflGames">, boolean>> {
+  const weeklyCutoffMs =
     games.length === 0
       ? null
-      : Math.min(...games.map((g) => g.scheduledKickoffMs));
-  const weeklyCutoffMs =
-    pool.pickLockMode === "weeklyCutoff" && earliest !== null
-      ? computeWeeklyCutoffMs(earliest)
-      : null;
+      : await resolveWeeklyCutoffMs(ctx, {
+          pickLockMode: pool.pickLockMode,
+          seasonId: pool.seasonId,
+          week: games[0]!.week,
+          games,
+        });
   const map = new Map<Id<"nflGames">, boolean>();
   for (const g of games) {
     map.set(
@@ -351,7 +351,7 @@ export const applyConfidenceScoringRevision = internalMutation({
     }
 
     const games = await loadWeekGames(ctx, pool.seasonId, args.week);
-    const locks = gameLockMap(pool, games, nowMs);
+    const locks = await gameLockMap(ctx, pool, games, nowMs);
     const gameById = new Map(games.map((g) => [g._id, g] as const));
 
     const sheet = await ctx.db
