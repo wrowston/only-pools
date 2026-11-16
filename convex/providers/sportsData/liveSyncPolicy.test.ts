@@ -130,6 +130,16 @@ describe("API-Sports live sync policy", () => {
         KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
       ),
     ).toBe(true);
+    expect(
+      needsUnresolvedResultCatchUp(
+        {
+          lifecycle: "postponed",
+          scheduledKickoffMs: KICKOFF_MS,
+          resultAuthority: "none",
+        },
+        KICKOFF_MS + SCHEDULED_LIVE_GRACE_MS + 1,
+      ),
+    ).toBe(false);
   });
 
   it("does not count a scheduled pre-kickoff game as missing from a successful slate", () => {
